@@ -1,0 +1,224 @@
+(() => {
+  'use strict';
+  const $ = selector => document.querySelector(selector);
+  const money = value => `${new Intl.NumberFormat('ru-RU').format(value)} сом`;
+  const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
+  const API=window.MuslimAPI,live=API.enabled;
+  let cafe=null,tableInfo=null;
+  const tableToken=new URLSearchParams(location.search).get('token');
+  const cartKey=live?'muslim-api-cart-v1':'muslim-cart-v1';
+  const maxQty=live?50:99;
+  const MenuRepository = { async load() { return live?API.normalizeMenu(await API.request('/menu/',{auth:false})):window.MuslimStore.load().menu; } };
+  const storage = {
+    read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+    write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
+  };
+  let menu, category = 'pizza', mode = 'cafe', cart = [], selection, lastOrder = '';
+  let toastTimer;
+  const table = new URLSearchParams(location.search).get('table');
+  const tableNumber = table && /^\d{1,3}$/.test(table) && Number(table) > 0 ? Number(table) : null;
+  if (tableNumber) $('#table-label').textContent = `Стол №${tableNumber}`;
+
+  function art(type) {
+    const path = type === 'drinks' ? '<path d="M7 8h10l-1 13H8L7 8ZM13 8l2-6h4M6 8h12"/>' : '<path d="M12 3 3 20h18L12 3Z"/><path d="M5 17h14"/><circle cx="12" cy="9" r="1"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/>';
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+  }
+  function toast(message) {
+    $('#toast').textContent = message;
+    $('#toast').classList.add('visible');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 2800);
+  }
+  function unitPrice(item) {
+    const dish = menu.dishes.find(d => d.id === item.id);
+    return dish.prices[item.size] + item.extras.reduce((sum, id) => sum + menu.extras.find(e => e.id === id).price, 0);
+  }
+  const total = () => cart.reduce((sum, item) => sum + unitPrice(item) * item.qty, 0);
+  function itemNote(item) {
+    const dish = menu.dishes.find(d => d.id === item.id);
+    const parts = dish.sizes ? [dish.sizes[item.size]] : dish.category === 'pizza' ? [`${[25,30,35][item.size]} см`] : [];
+    item.extras.forEach(id => parts.push(`+ ${menu.extras.find(e => e.id === id).name}`));
+    if (item.comment) parts.push(item.comment);
+    return parts.join(' · ');
+  }
+  function saveCart() {
+    if (!storage.write(cartKey, { cart, mode, comment: $('#order-comment').value })) toast('Браузер не сохранил корзину. Не закрывайте страницу.');
+  }
+  function renderCategories() {
+    $('#categories').innerHTML = menu.categories.map(c => `<button class="category" data-category="${c.id}" aria-pressed="${category === c.id}"><span>${escape(c.name)}</span><span>${menu.dishes.filter(d => d.category === c.id).length}</span></button>`).join('');
+  }
+  function renderMenu() {
+    const query = $('#search').value.trim().toLocaleLowerCase('ru');
+    const current = menu.categories.find(c => c.id === category);
+    const dishes = menu.dishes.filter(d => query ? `${d.name} ${d.description}`.toLocaleLowerCase('ru').includes(query) : d.category === category);
+    $('#category-title').textContent = query ? 'Результаты поиска' : current?.name||'Меню';
+    $('#category-description').textContent = `${dishes.length} ${dishes.length === 1 ? 'блюдо' : dishes.length > 1 && dishes.length < 5 ? 'блюда' : 'блюд'}${!query && current?.note ? ` · ${current.note}` : ''}`;
+    $('#products').innerHTML = dishes.map(d => `<article class="product${d.available ? '' : ' unavailable'}"><button class="product-art" data-dish="${d.id}" aria-label="Подробнее: ${escape(d.name)}">${dishArt(d)}${d.badge ? `<span class="badge">${escape(d.badge)}</span>` : ''}</button><div class="product-body"><h3>${escape(d.name)}</h3><p>${escape(d.description)}</p><div class="product-footer"><span class="price">${d.prices.length>1 ? 'от ' : ''}${money(d.prices[0])}</span>${d.available ? `<button class="choose" data-dish="${d.id}">Выбрать</button>` : '<span class="stopped">Нет в наличии</span>'}</div></div></article>`).join('');
+    $('#empty').hidden = dishes.length > 0;
+    $('#empty').innerHTML = query ? '<strong>Ничего не нашлось</strong>Попробуйте другое название или ингредиент.' : '<strong>Скоро здесь будет вкусно</strong>Блюда этой категории пока не добавлены.<br>Посмотрите пиццы и напитки.';
+    renderCategories();
+  }
+  function renderCart() {
+    $('#cart-items').innerHTML = cart.length ? cart.map((item, i) => {
+      const dish = menu.dishes.find(d => d.id === item.id);
+      return `<article class="cart-row"><h3>${escape(dish.name)}</h3><p>${escape(itemNote(item))}</p><div class="cart-row-bottom"><div class="stepper"><button data-cart-index="${i}" data-delta="-1" aria-label="Уменьшить: ${escape(dish.name)}">−</button><span>${item.qty}</span><button data-cart-index="${i}" data-delta="1" aria-label="Увеличить: ${escape(dish.name)}" ${item.qty >= maxQty ? 'disabled' : ''}>+</button></div><strong>${money(unitPrice(item) * item.qty)}</strong></div></article>`;
+    }).join('') : `<div class="cart-empty">${art('drinks')}<strong>Здесь будет ваш заказ</strong><p>Выберите что-нибудь вкусное<br>из нашего меню</p></div>`;
+    $('#total').textContent = $('#mobile-total').textContent = money(total());
+    $('#cart-count').textContent = cart.reduce((n, i) => n + i.qty, 0);
+    $('#checkout').disabled = !cart.length;
+    $('#order-comment').parentElement.hidden = !cart.length;
+    document.querySelectorAll('[data-mode]').forEach(button => button.setAttribute('aria-pressed', button.dataset.mode === mode));
+  }
+  function showDish(id) {
+    const dish = menu.dishes.find(d => d.id === id);
+    selection = { id, size: 0, extras: [], qty: 1, comment: '' };
+    const variants=dish.sizes||(dish.category==='pizza'?dish.prices.map((_,i)=>`${[25,30,35][i]} см`):[]);
+    const extras=menu.extras.filter(e=>dish.extraIds?dish.extraIds.includes(e.id):dish.category==='pizza');
+    $('#dish-content').innerHTML = `<div class="dish-layout"><div class="dish-art">${dishArt(dish)}</div><div class="dish-details"><h2 id="dish-title">${escape(dish.name)}</h2><p>${escape(dish.description)}</p>${variants.length?`<fieldset><legend>Размер</legend><div class="sizes">${dish.prices.map((p,i)=>`<label class="option"><input type="radio" name="size" value="${i}" ${i===0?'checked':''}><strong>${escape(variants[i])}</strong><span>${money(p)}</span></label>`).join('')}</div></fieldset>`:''}${extras.length?`<fieldset><legend>Добавки</legend>${extras.map(e=>`<label class="extra"><input type="checkbox" name="extra" value="${e.id}">${escape(e.name)}<span>+${money(e.price)}</span></label>`).join('')}</fieldset>`:''}<label class="field">Комментарий<input id="dish-comment" maxlength="200" placeholder="Например: без лука"></label><div class="dish-actions"><div class="stepper"><button data-dish-delta="-1" aria-label="Уменьшить количество">−</button><span id="dish-qty">1</span><button data-dish-delta="1" aria-label="Увеличить количество">+</button></div><button class="primary" id="add-dish" ${dish.available ? '' : 'disabled'}>${dish.available ? `Добавить · ${money(unitPrice(selection))}` : 'Нет в наличии'}</button></div></div></div>`;
+    $('#dish-dialog').showModal();
+  }
+  function updateSelection() {
+    selection.size = Number($('input[name="size"]:checked')?.value || 0);
+    selection.extras = [...document.querySelectorAll('input[name="extra"]:checked')].map(input => input.value);
+    $('#dish-qty').textContent = selection.qty;
+    if (menu.dishes.find(d => d.id === selection.id).available) $('#add-dish').textContent = `Добавить · ${money(unitPrice(selection) * selection.qty)}`;
+  }
+  function openCheckout() {
+    if (!cart.length) return;
+    if(live&&!tableInfo){toast('Откройте меню по QR стола или доставки из админ-панели.');return;}
+    if(live&&cafe&&!cafe.is_open){toast('Сейчас кафе не принимает заказы.');return;}
+    if(live&&mode==='delivery'&&cafe&&!cafe.is_delivery_enabled){toast('Доставка сейчас отключена.');return;}
+    if(live&&mode==='delivery'&&cafe&&total()<cafe.delivery_min_sum){toast(`Минимальная сумма доставки: ${money(cafe.delivery_min_sum)}`);return;}
+    $('#checkout-title').textContent = ({ cafe:'Ваш заказ в кафе', delivery:'Доставка', pickup:'Самовывоз' })[mode];
+    $('#customer-fields').hidden = mode === 'cafe';
+    $('#address-fields').hidden = mode !== 'delivery';
+    const form = $('#checkout-form');
+    if(live){$('#checkout-dialog .info').textContent='Заказ будет отправлен в локальный API кафе. Итоговую цену и наличие проверит сервер.';form.querySelector('[type=submit]').textContent='Отправить заказ';}
+    form.elements.customer.required = mode !== 'cafe';
+    form.elements.phone.required = mode !== 'cafe';
+    form.elements.address.required = mode === 'delivery';
+    // Скрытые поля не участвуют в проверке и не включаются в список.
+    [...form.elements].forEach(input => { if (input.name) input.disabled = input.name!=='payment' && (mode === 'cafe' || (['address','apartment','entrance','floor','courierNote'].includes(input.name) && mode !== 'delivery')); });
+    $('#checkout-summary').innerHTML = cart.map(item => `<div class="summary-line"><span>${escape(menu.dishes.find(d => d.id === item.id).name)} × ${item.qty}<br><small>${escape(itemNote(item))}</small></span><strong>${money(unitPrice(item) * item.qty)}</strong></div>`).join('') + (mode === 'delivery' ? `<div class="summary-line"><span>Стоимость доставки</span><span>${live?money(deliveryFee()):'Уточняется в кафе'}</span></div>` : '') + `<div class="summary-line summary-total"><strong>${live?'Итого':'Блюда на сумму'}</strong><strong>${money(total()+(live?deliveryFee():0))}</strong></div>`;
+    $('#checkout-dialog').showModal();
+  }
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('button');
+    if (!button || button.disabled) return;
+    if (button.hasAttribute('data-close')) { button.closest('dialog').close(); return; }
+    if (button.dataset.category) { category = button.dataset.category; $('#search').value = ''; renderMenu(); return; }
+    if (button.dataset.dish) { showDish(button.dataset.dish); return; }
+    if (button.dataset.cartIndex !== undefined) {
+      const i = Number(button.dataset.cartIndex); cart[i].qty += Number(button.dataset.delta);
+      if (cart[i].qty <= 0) cart.splice(i, 1);
+      renderCart(); saveCart(); return;
+    }
+    if (button.dataset.dishDelta) { selection.qty = Math.max(1, Math.min(maxQty, selection.qty + Number(button.dataset.dishDelta))); updateSelection(); return; }
+    if (button.dataset.mode) { if(live&&tableInfo?.kind==='hall'&&button.dataset.mode!=='cafe'){toast('Для доставки откройте QR доставки.');return;}if(live&&tableInfo?.kind==='delivery'&&button.dataset.mode==='cafe'){toast('Откройте QR стола для заказа в зале.');return;}mode = button.dataset.mode; renderCart(); saveCart(); return; }
+    if (button.dataset.service) {
+      if(live){if(!tableToken||tableInfo?.kind!=='hall'){toast('Для вызова официанта нужен QR стола.');return;}button.disabled=true;try{await API.request('/table-calls/',{method:'POST',auth:false,body:{table_token:tableToken,kind:button.dataset.service==='waiter'?'waiter':'bill'}});toast('Запрос передан сотруднику кафе');}catch(error){toast(error.message);}finally{button.disabled=false;}return;}
+      $('#service-title').textContent = button.dataset.service === 'waiter' ? 'Позвать официанта' : 'Попросить счёт';
+      $('#service-dialog').showModal(); return;
+    }
+    if (button.id === 'add-dish') {
+      selection.comment = $('#dish-comment').value.trim();
+      const existing = cart.find(i => i.id === selection.id && i.size === selection.size && i.comment === selection.comment && JSON.stringify(i.extras) === JSON.stringify(selection.extras));
+      if (existing && existing.qty + selection.qty > maxQty) { toast(`Максимум ${maxQty} одинаковых блюд`); return; }
+      if (existing) existing.qty += selection.qty; else cart.push({ ...selection });
+      renderCart(); saveCart(); $('#dish-dialog').close(); toast('Добавлено в ваш заказ');
+    }
+  });
+  $('#search').addEventListener('input', renderMenu);
+  $('#dish-dialog').addEventListener('change', updateSelection);
+  $('#order-comment').addEventListener('input', saveCart);
+  $('#checkout').addEventListener('click', openCheckout);
+  $('#open-cart').addEventListener('click', () => { $('#cart').classList.add('is-open'); $('#close-cart').focus(); });
+  $('#close-cart').addEventListener('click', () => { $('#cart').classList.remove('is-open'); $('#open-cart').focus(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#cart').classList.remove('is-open'); });
+  document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => {
+    if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); }
+  }));
+  $('#checkout-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!cart.length) return;
+    const values = new FormData(event.currentTarget);
+    const phone = String(values.get('phone') || '');
+    if (mode !== 'cafe' && (phone.replace(/\D/g, '').length < 9 || phone.replace(/\D/g, '').length > 15)) {
+      event.currentTarget.elements.phone.setCustomValidity('Укажите телефон: от 9 до 15 цифр.'); event.currentTarget.elements.phone.reportValidity(); return;
+    }
+    if(live){
+      const button=event.currentTarget.querySelector('[type=submit]');if(button.disabled)return;button.disabled=true;
+      $('#checkout-api-error')?.remove();
+      try{
+        const payload=API.orderPayload({menu,cart,tableToken,deviceKey:deviceKey(),mode,fields:Object.fromEntries(values),comment:$('#order-comment').value.trim()});
+        const order=await API.request('/orders/',{method:'POST',auth:false,body:payload});
+        // Корзина очищается только после подтверждённого ответа сервера.
+        cart=[];saveCart();renderCart();$('#checkout-dialog').close();showOrder(order);storage.write('muslim-last-order',order.public_id);
+      }catch(error){const message=document.createElement('p');message.id='checkout-api-error';message.className='info';message.setAttribute('role','alert');message.textContent=error.message;button.before(message);}finally{button.disabled=false;}
+      return;
+    }
+    const lines = ['МУСЛИМ · СПИСОК ЗАКАЗА', 'Не отправлен в кафе', '', ({cafe:'В кафе',delivery:'Доставка',pickup:'Самовывоз'})[mode] + (mode === 'cafe' && tableNumber ? ` · Стол №${tableNumber}` : ''), ''];
+    cart.forEach(item => { lines.push(`${menu.dishes.find(d => d.id === item.id).name} × ${item.qty} — ${money(unitPrice(item)*item.qty)}`); if (itemNote(item)) lines.push(`  ${itemNote(item)}`); });
+    lines.push('', `Блюда на сумму: ${money(total())}`);
+    if (mode === 'delivery') lines.push('Стоимость доставки уточняется в кафе.');
+    if ($('#order-comment').value.trim()) lines.push(`Комментарий: ${$('#order-comment').value.trim()}`);
+    const labels = {customer:'Имя',phone:'Телефон',address:'Адрес',apartment:'Квартира',entrance:'Подъезд',floor:'Этаж',courierNote:'Комментарий курьеру',payment:'Оплата'};
+    for (const [key, value] of values) if (String(value).trim()) lines.push(`${labels[key]}: ${key === 'payment' ? (value === 'card' ? 'Картой при получении' : 'Наличными') : String(value).trim()}`);
+    lastOrder = lines.join('\n');
+    $('#saved-summary').textContent = lastOrder;
+    $('#checkout-dialog').close(); $('#saved-dialog').showModal();
+  });
+  $('#checkout-form').elements.phone.addEventListener('input', event => event.target.setCustomValidity(''));
+  $('#copy-order').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(lastOrder); $('#copy-order').textContent = 'Скопировано ✓'; setTimeout(() => $('#copy-order').textContent = 'Скопировать список', 2000); }
+    catch { $('#copy-order').textContent = 'Скачайте список кнопкой ниже'; }
+  });
+  $('#download-order').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([lastOrder], {type:'text/plain;charset=utf-8'}));
+    const link = document.createElement('a'); link.href = url; link.download = 'Муслим — список заказа.txt'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  async function start() {
+    menu = await MenuRepository.load();
+    if(!menu.categories.some(c=>c.id===category))category=menu.categories[0]?.id||'';
+    if(live){
+      cafe=await API.request('/cafe/',{auth:false});
+      $('#menu-note').textContent='Меню и цены загружены с API кафе. Наличие и итог заказа проверяет сервер.';
+      $('.draft-note').textContent='Заказ отправляется в локальный API после подтверждения.';
+      if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});$('#table-label').textContent=tableInfo.name||(tableInfo.kind==='hall'?`Стол №${tableInfo.number}`:'Доставка');}catch(error){toast('QR не найден: '+error.message);}}
+      if(tableInfo?.kind==='hall'&&!$('#guest-services')){
+        const services=document.createElement('div');services.id='guest-services';services.className='guest-services';services.innerHTML='<button type="button" class="secondary" data-service="waiter">Позвать официанта</button><button type="button" class="secondary" data-service="bill">Попросить счёт</button>';$('.welcome').after(services);
+      }
+      const previous=storage.read('muslim-last-order',null);
+      if(typeof previous==='string'&&/^[0-9a-f-]{36}$/i.test(previous)&&!$('#last-order')){
+        const button=document.createElement('button');button.type='button';button.id='last-order';button.className='secondary';button.textContent='Статус последнего заказа';$('.cart-bottom').append(button);button.onclick=async()=>{button.disabled=true;try{showOrder(await API.request(`/orders/${encodeURIComponent(previous)}/`,{auth:false}));}catch(error){toast(error.message);}finally{button.disabled=false;}};
+      }
+    }
+    const saved = storage.read(cartKey, {});
+    if (Array.isArray(saved.cart)) cart = saved.cart.filter(item => {
+      if (!item || typeof item !== 'object') return false;
+      const dish = menu.dishes.find(d => d.id === item.id && d.available);
+      return dish && Number.isInteger(item.size) && item.size >= 0 && item.size < dish.prices.length && Number.isInteger(item.qty) && item.qty > 0 && item.qty <= maxQty && typeof item.comment === 'string' && item.comment.length <= 200 && Array.isArray(item.extras) && new Set(item.extras).size === item.extras.length && item.extras.every(id => menu.extras.some(e => e.id === id)&&(dish.extraIds?dish.extraIds.includes(id):dish.category==='pizza'));
+    });
+    if (['cafe','delivery','pickup'].includes(saved.mode)) mode = saved.mode;
+    if(live&&tableInfo?.kind==='hall')mode='cafe';
+    if(live&&tableInfo?.kind==='delivery'&&mode==='cafe')mode='delivery';
+    if (typeof saved.comment === 'string') $('#order-comment').value = saved.comment.slice(0,500);
+    renderMenu(); renderCart();
+  }
+  function deliveryFee(){return mode==='delivery'&&cafe?cafe.free_delivery_from>0&&total()>=cafe.free_delivery_from?0:cafe.delivery_fee:0;}
+  function deviceKey(){let value=storage.read('muslim-device-key',null);if(typeof value!=='string'){value=crypto.randomUUID();storage.write('muslim-device-key',value);}return value;}
+  function dishArt(dish){
+    if(dish.image&&/^(https?:|data:image\/(png|jpeg|webp);base64,)/.test(dish.image)){let url=dish.image;try{const parsed=new URL(url);if(live&&parsed.pathname.startsWith('/media/'))url='/backend'+parsed.pathname;}catch{/* Локальное фото. */}return `<img src="${escape(url)}" alt="" loading="lazy">`;}
+    return art(dish.category);
+  }
+  function showOrder(order){
+    let dialog=$('#order-status-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='order-status-dialog';document.body.append(dialog);}
+    dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть статус">×</button><div class="checkout-body"><span class="eyebrow">Ответ сервера</span><h2>Заказ №${order.number}</h2><p class="info">${escape(order.status_label)}</p>${order.items.map(i=>`<div class="summary-line"><span>${escape(i.dish_name)} ${escape(i.size_name)} × ${i.quantity}</span><strong>${money(i.line_total)}</strong></div>`).join('')}<div class="total"><span>Итого</span><strong>${money(order.total)}</strong></div><div class="order-timeline">${(order.timeline||[]).map(t=>`<p>${escape(t.label)} · ${escape(t.at?new Date(t.at).toLocaleTimeString('ru-RU'): '')}</p>`).join('')}</div><button class="primary" id="refresh-order-status">Обновить статус</button><p id="order-status-error" class="info" hidden></p></div>`;
+    $('#refresh-order-status').onclick=async()=>{const button=$('#refresh-order-status');button.disabled=true;try{const next=await API.request(`/orders/${encodeURIComponent(order.public_id)}/`,{auth:false});dialog.close();showOrder(next);}catch(error){$('#order-status-error').hidden=false;$('#order-status-error').textContent=error.message;}finally{button.disabled=false;}};
+    dialog.showModal();
+  }
+  window.addEventListener('storage',event=>{if(!live&&event.key===window.MuslimStore.KEY){document.querySelectorAll('dialog[open]').forEach(d=>d.close());start().catch(error=>toast(error.message));}});
+  document.addEventListener('error',event=>{if(event.target.tagName==='IMG'){event.target.hidden=true;}},true);
+  function menuLoadError(error){$('#products').innerHTML='';$('#categories').innerHTML='';$('#empty').hidden=false;$('#empty').textContent=error.message;const retry=document.createElement('button');retry.className='secondary';retry.textContent='Повторить загрузку';retry.onclick=()=>{retry.disabled=true;start().then(()=>$('#empty').hidden=menu.dishes.length>0).catch(menuLoadError);};$('#empty').append(document.createElement('br'),retry);}
+  start().catch(menuLoadError);
+})();

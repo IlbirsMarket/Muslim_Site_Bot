@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3d2b">
+  <meta name="description" content="Муслим — меню халяль кафе. Выберите блюда, размер пиццы и добавки, соберите свой заказ.">
+  <title>Муслим — QR-меню</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="runtime-config.js"></script>
+  <script defer src="menu.js"></script>
+  <script defer src="store.js"></script>
+  <script defer src="api.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#menu">Перейти к меню</a>
+  <header class="header">
+    <a class="brand" href="./" aria-label="Муслим — главная"><span class="logo">М</span><span><strong>Муслим</strong><small>Халяль кафе · с заботой о вас</small></span></a>
+    <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr-only">Поиск по меню</span><input id="search" type="search" placeholder="Найти блюдо" autocomplete="off"></label>
+    <div class="header-actions"><button class="outline" data-service="waiter">Позвать официанта</button><button class="outline" data-service="bill">Попросить счёт</button><span class="table" id="table-label">QR-меню</span></div>
+  </header>
+  <div class="layout">
+    <nav class="categories" aria-label="Категории меню"><span class="eyebrow">Категории</span><div id="categories"></div><div class="category-note"><span class="leaf">✧</span><strong>Приготовлено с заботой</strong><p>Выбирайте любимое.<br>Мы рады вашему визиту.</p></div></nav>
+    <main id="menu" tabindex="-1">
+      <div class="welcome"><span class="eyebrow">Добро пожаловать в Муслим</span><h1>Вкусно. Сытно.<br>От всего сердца.</h1><p>Любимые блюда для вас и ваших близких</p><span class="welcome-mark" aria-hidden="true">М</span></div>
+      <div class="menu-heading"><h2 id="category-title">Пиццы</h2><span id="category-description"></span></div>
+      <div class="products" id="products"></div>
+      <div class="empty-state" id="empty" hidden></div>
+      <p class="menu-footnote" id="menu-note">Меню и цены из предоставленного макета. Состав и наличие уточняйте у сотрудников кафе.</p>
+    </main>
+    <aside class="cart" id="cart" aria-label="Ваш заказ"><div class="cart-header"><div><span class="eyebrow">Всё самое вкусное</span><h2>Ваш заказ</h2></div><button class="icon-button mobile-close" id="close-cart" aria-label="Закрыть корзину">×</button></div><div class="mode-switch" id="order-modes" aria-label="Способ получения"><button data-mode="cafe" aria-pressed="true">В кафе</button><button data-mode="delivery" aria-pressed="false">Доставка</button><button data-mode="pickup" aria-pressed="false">С собой</button></div><div id="cart-items"></div><label class="order-comment">Комментарий к заказу<textarea id="order-comment" placeholder="Например: без лука, поострее" maxlength="500"></textarea></label><div class="cart-bottom"><div class="total"><span>Итого</span><strong id="total">0 сом</strong></div><button class="primary" id="checkout" disabled>Продолжить</button><p class="draft-note">Пока без отправки в кафе.<br>Вы сможете сохранить состав заказа.</p></div></aside>
+  </div>
+  <button class="mobile-cart primary" id="open-cart"><span>Ваш заказ <b id="cart-count">0</b></span><strong id="mobile-total">0 сом</strong></button>
+  <dialog id="dish-dialog" aria-labelledby="dish-title"><button class="icon-button dialog-close" data-close aria-label="Закрыть карточку">×</button><div id="dish-content"></div></dialog>
+  <dialog id="checkout-dialog" aria-labelledby="checkout-title"><button class="icon-button dialog-close" data-close aria-label="Закрыть оформление">×</button><div class="checkout-body"><span class="eyebrow">Осталось совсем немного</span><h2 id="checkout-title">Ваш заказ</h2><p class="info">Онлайн-заказы пока не подключены. Подготовьте список и покажите его официанту. Заказ не отправляется на кухню.</p><form id="checkout-form"><div id="customer-fields"><label>Имя<input name="customer" autocomplete="given-name" maxlength="80"></label><label>Телефон<input name="phone" type="tel" autocomplete="tel" placeholder="+996 ___ ___ ___" maxlength="25"></label><div id="address-fields"><label>Улица и дом<input name="address" autocomplete="street-address" maxlength="200"></label><div class="address-row"><label>Квартира<input name="apartment" maxlength="15"></label><label>Подъезд<input name="entrance" maxlength="15"></label><label>Этаж<input name="floor" maxlength="15"></label></div><label>Комментарий курьеру<input name="courierNote" maxlength="255"></label></div></div><fieldset class="payment-options"><legend>Оплата при получении</legend><label><input type="radio" name="payment" value="cash" checked>Наличные</label><label><input type="radio" name="payment" value="card">Картой при получении</label></fieldset><div id="checkout-summary"></div><button class="primary" type="submit">Сохранить список заказа</button></form></div></dialog>
+  <dialog id="saved-dialog" aria-labelledby="saved-title"><button class="icon-button dialog-close" data-close aria-label="Закрыть список">×</button><div class="checkout-body"><div class="saved-icon">✓</div><h2 id="saved-title">Ваш список готов</h2><p class="info">Это сохранённый список, а не принятый заказ. Покажите его сотруднику кафе для оформления.</p><pre id="saved-summary"></pre><button class="primary" id="copy-order">Скопировать список</button><button class="secondary" id="download-order">Скачать список</button></div></dialog>
+  <dialog id="service-dialog" aria-labelledby="service-title"><button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body"><h2 id="service-title"></h2><p>Связь с сотрудниками ещё не подключена. Пожалуйста, обратитесь к официанту лично.</p><button class="primary" data-close>Понятно</button></div></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <noscript><p class="info">Для поиска и корзины включите JavaScript в браузере.</p></noscript>
+</body>
+</html>
