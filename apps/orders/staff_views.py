@@ -40,6 +40,8 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = OptionalPageNumberPagination   # ?page=1 — история по 30 заказов
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):     # Swagger строит документацию без пользователя
+            return Order.objects.none()
         user = self.request.user
         queryset = Order.objects.select_related("table", "claimed_by", "accepted_by").prefetch_related(
             "items", "status_logs__changed_by",          # всё нужное одним махом

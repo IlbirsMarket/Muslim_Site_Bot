@@ -26,7 +26,7 @@ TEMP_MEDIA = tempfile.mkdtemp()   # PDF и картинки во время те
 PASSWORD = "Muslim2026!"          # пароль тестовых сотрудников
 
 
-@override_settings(MEDIA_ROOT=TEMP_MEDIA)
+@override_settings(MEDIA_ROOT=TEMP_MEDIA, PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])  # быстрые пароли только в тестах
 class BaseAPITest(APITestCase):
     """Общая подготовка: сотрудники всех ролей, меню, столы, открытое кафе."""
 

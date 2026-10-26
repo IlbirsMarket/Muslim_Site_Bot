@@ -69,11 +69,11 @@ def build_summary(start_date, end_date) -> dict:
 
     # Топ-10 блюд по выручке
     top_dishes = [
-        {"name": row["dish_name"], "quantity": row["quantity"], "revenue": row["revenue"]}
+        {"name": row["dish_name"], "quantity": row["total_qty"], "revenue": row["total_revenue"]}
         for row in OrderItem.objects.filter(order__in=done)
-        .values("dish_name")                                                  # группируем по названию
-        .annotate(quantity=Sum("quantity"), revenue=Sum(F("unit_price") * F("quantity")))  # штуки и деньги
-        .order_by("-revenue")[:10]
+        .values("dish_name")                                                       # группируем по названию
+        .annotate(total_qty=Sum("quantity"), total_revenue=Sum(F("unit_price") * F("quantity")))  # штуки и деньги (имена не совпадают с полями модели)
+        .order_by("-total_revenue")[:10]
     ]
 
     return {
