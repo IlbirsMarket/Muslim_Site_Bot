@@ -1,0 +1,86 @@
+"""Обработчики запросов меню."""
+
+from django.db.models import Prefetch                         # заранее подгружаем связанные данные одним запросом
+from django_filters.rest_framework import DjangoFilterBackend  # фильтры ?category=1
+from rest_framework import filters, generics, viewsets        # поиск, готовые views, наборы CRUD
+from rest_framework.decorators import action                   # свои дополнительные адреса во ViewSet
+from rest_framework.permissions import AllowAny                # доступ для всех
+from rest_framework.response import Response                   # ответ в JSON
+
+from core.permissions import CanManageStopList, IsCafeAdmin    # наши права
+from .models import Category, Dish, DishSize, Extra
+from .serializers import (
+    CategoryAdminSerializer,
+    DishAdminSerializer,
+    DishSizeAdminSerializer,
+    ExtraAdminSerializer,
+    MenuCategorySerializer,
+)
+
+
+# ===================== ДЛЯ ГОСТЕЙ =====================
+
+class PublicMenuView(generics.ListAPIView):
+    """GET /api/menu/ — всё меню: категории с блюдами, размерами и добавками."""
+
+    serializer_class = MenuCategorySerializer  # как превращать в JSON
+    permission_classes = [AllowAny]            # меню видят все, вход не нужен
+    pagination_class = None                    # отдаём всё сразу, без страниц
+
+    def get_queryset(self):
+        # Блюда, которые показываем в меню, сразу с размерами и добавками
+        dishes = Dish.objects.filter(is_active=True).prefetch_related("sizes", "extras")
+        # Активные категории, к каждой прикрепляем её блюда в поле active_dishes
+        return Category.objects.filter(is_active=True).prefetch_related(
+            Prefetch("dishes", queryset=dishes, to_attr="active_dishes")
+        )
+
+
+# ===================== ДЛЯ АДМИН-ПАНЕЛИ =====================
+
+class CategoryAdminViewSet(viewsets.ModelViewSet):
+    """/api/admin/categories/ — список, создание, изменение, удаление категорий."""
+    queryset = Category.objects.all()
+    serializer_class = CategoryAdminSerializer
+    permission_classes = [IsCafeAdmin]
+
+
+class ExtraAdminViewSet(viewsets.ModelViewSet):
+    """/api/admin/extras/ — добавки."""
+    queryset = Extra.objects.all()
+    serializer_class = ExtraAdminSerializer
+    permission_classes = [IsCafeAdmin]
+
+
+class DishSizeAdminViewSet(viewsets.ModelViewSet):
+    """/api/admin/sizes/ — размеры блюд. Фильтр: ?dish=5."""
+    queryset = DishSize.objects.all()
+    serializer_class = DishSizeAdminSerializer
+    permission_classes = [IsCafeAdmin]
+    filterset_fields = ["dish"]  # размеры конкретного блюда
+
+
+class DishAdminViewSet(viewsets.ModelViewSet):
+    """
+    /api/admin/dishes/ — блюда.
+    Фильтры: ?category=1&is_available=false. Поиск: ?search=пицца.
+    """
+    queryset = Dish.objects.select_related("category").prefetch_related("sizes", "extras")  # сразу с категорией, размерами и добавками
+    serializer_class = DishAdminSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]  # фильтры и поиск
+    filterset_fields = ["category", "is_available", "is_active"]   # по чему фильтровать
+    search_fields = ["name"]                                       # где искать
+
+    def get_permissions(self):
+        """Смотреть блюда и включать стоп-лист может кухня, остальное — только админ и выше."""
+        if self.action in ("list", "retrieve", "toggle_available"):  # чтение и стоп-лист
+            return [CanManageStopList()]
+        return [IsCafeAdmin()]                                       # создание, изменение, удаление
+
+    @action(detail=True, methods=["post"], url_path="toggle-available")
+    def toggle_available(self, request, pk=None):
+        """POST /api/admin/dishes/{id}/toggle-available/ — включить или выключить «Нет в наличии»."""
+        dish = self.get_object()                                       # находим блюдо по id
+        dish.is_available = not dish.is_available                      # меняем на противоположное
+        dish.save(update_fields=["is_available", "updated_at"])        # сохраняем только эти поля
+        return Response({"id": dish.id, "is_available": dish.is_available})  # отвечаем новым состоянием

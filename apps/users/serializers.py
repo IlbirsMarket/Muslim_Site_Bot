@@ -1,0 +1,115 @@
+"""Сериализаторы сотрудников — что отдаём в JSON."""
+
+from django.contrib.auth.password_validation import validate_password  # проверка надёжности пароля
+from rest_framework import serializers                                 # инструменты DRF
+
+from .models import RoleChangeLog, User                                # модели
+
+
+class MeSerializer(serializers.ModelSerializer):
+    """Данные о сотруднике, который сейчас вошёл в систему."""
+
+    # Название роли на русском ("Повар"), берём из метода get_role_display
+    role_display = serializers.CharField(source="get_role_display", read_only=True)
+
+    class Meta:
+        model = User  # с какой моделью работаем
+        fields = ["id", "username", "first_name", "last_name", "role", "role_display", "phone", "telegram_id"]  # какие поля отдаём
+
+class StaffSerializer(serializers.ModelSerializer):
+    """Сотрудник в списке и на странице редактирования."""
+
+    role_display = serializers.CharField(source="get_role_display", read_only=True)   # "Повар"
+    telegram_id = serializers.IntegerField(required=False, allow_null=True)          # можно очистить (null)
+    can_edit = serializers.SerializerMethodField()                                    # может ли текущий сотрудник его редактировать
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "first_name", "last_name", "role", "role_display",
+            "phone", "telegram_id", "is_active", "last_login", "date_joined", "can_edit",
+        ]
+        read_only_fields = ["username", "role", "last_login", "date_joined"]  # роль меняется только через set-role
+
+    def get_can_edit(self, obj) -> bool:
+        return self.context["request"].user.can_manage(obj)
+
+
+class StaffCreateSerializer(serializers.ModelSerializer):
+    """Добавление нового сотрудника."""
+
+    password = serializers.CharField(write_only=True)                          # пароль не возвращаем
+    telegram_id = serializers.IntegerField(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = ["username", "password", "first_name", "last_name", "phone", "telegram_id", "role"]
+
+    def validate_role(self, value):
+        """Создатель может дать только ту роль, которую ему разрешено назначать."""
+        if value not in self.context["request"].user.assignable_roles():
+            raise serializers.ValidationError("Вы не можете назначить эту роль.")
+        return value
+
+    def validate_password(self, value):
+        """Пароль проверяем по правилам из настроек (минимум 8 символов и т.д.)."""
+        validate_password(value)
+        return value
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")       # достаём пароль отдельно
+        user = User(**validated_data)                   # создаём сотрудника без пароля
+        user.set_password(password)                     # пароль сохраняется в зашифрованном виде
+        user.save()
+        RoleChangeLog.objects.create(                   # первая запись в журнале
+            user=user, changed_by=self.context["request"].user, old_role="", new_role=user.role,
+        )
+        return user
+
+
+class RoleChangeSerializer(serializers.Serializer):
+    """Тело запроса смены роли: {"role": "cook"}."""
+    role = serializers.ChoiceField(choices=User.Role.choices)
+
+
+class PasswordSetSerializer(serializers.Serializer):
+    """Тело запроса смены пароля: {"password": "..."}."""
+    password = serializers.CharField(write_only=True)
+
+    def validate_password(self, value):
+        validate_password(value)                        # те же правила надёжности
+        return value
+
+
+class RoleChangeLogSerializer(serializers.ModelSerializer):
+    """Запись журнала смен ролей."""
+
+    user_name = serializers.SerializerMethodField()            # кому
+    changed_by_name = serializers.SerializerMethodField()      # кто
+    old_role_display = serializers.SerializerMethodField()     # "Повар"
+    new_role_display = serializers.SerializerMethodField()     # "Админ"
+
+    class Meta:
+        model = RoleChangeLog
+        fields = ["id", "user", "user_name", "changed_by_name", "old_role", "old_role_display",
+                  "new_role", "new_role_display", "created_at"]
+
+    @staticmethod
+    def _name(user):
+        return (user.get_full_name() or user.username) if user else None
+
+    @staticmethod
+    def _role_label(value):
+        return User.Role(value).label if value else None   # "cook" → "Повар"
+
+    def get_user_name(self, obj):
+        return self._name(obj.user)
+
+    def get_changed_by_name(self, obj):
+        return self._name(obj.changed_by)
+
+    def get_old_role_display(self, obj):
+        return self._role_label(obj.old_role)
+
+    def get_new_role_display(self, obj):
+        return self._role_label(obj.new_role)
