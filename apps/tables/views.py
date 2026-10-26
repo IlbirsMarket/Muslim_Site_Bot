@@ -15,7 +15,6 @@ from .services import build_qr_png, build_qr_sheet_pdf  # (замени стар
 from core.permissions import IsCafeAdmin               # право: админ и выше
 from .models import Table
 from .serializers import TableAdminSerializer, TablePublicSerializer
-from .services import build_qr_png                     # создание картинки QR
 
 
 class PublicTableView(generics.RetrieveAPIView):

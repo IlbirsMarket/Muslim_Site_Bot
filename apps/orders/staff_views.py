@@ -9,6 +9,8 @@ from rest_framework import viewsets                          # наборы view
 from rest_framework.decorators import action                 # свои адреса во ViewSet
 from rest_framework.response import Response                 # ответ в JSON
 from rest_framework.views import APIView                     # простой view
+from datetime import date                                      # проверка формата даты
+from rest_framework.exceptions import ValidationError          # ответ 400
 
 from apps.tables.models import Table
 from core.permissions import IsStaffMember, IsWaiterOrAdmin
@@ -56,7 +58,11 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
         day = self.request.query_params.get("date")                # ?date=2026-10-26
         if day:
-            queryset = queryset.filter(created_at__date=day)       # заказы за этот день
+            try:
+                day = date.fromisoformat(day)                      # проверяем формат
+            except ValueError:
+                raise ValidationError({"date": "Формат даты: ГГГГ-ММ-ДД, например 2026-10-26."})
+            queryset = queryset.filter(created_at__date=day)       # заказы за этот день    # заказы за этот день
 
         return queryset
 

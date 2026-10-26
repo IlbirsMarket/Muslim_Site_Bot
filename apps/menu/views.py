@@ -6,6 +6,8 @@ from rest_framework import filters, generics, viewsets        # поиск, го
 from rest_framework.decorators import action                   # свои дополнительные адреса во ViewSet
 from rest_framework.permissions import AllowAny                # доступ для всех
 from rest_framework.response import Response                   # ответ в JSON
+from django.db.models import ProtectedError                    # ошибка "нельзя удалить, есть связанные записи"
+from rest_framework.exceptions import ValidationError          # ответ 400 с текстом
 
 from core.permissions import CanManageStopList, IsCafeAdmin    # наши права
 from .models import Category, Dish, DishSize, Extra
@@ -43,6 +45,13 @@ class CategoryAdminViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategoryAdminSerializer
     permission_classes = [IsCafeAdmin]
+
+    def perform_destroy(self, instance):
+        """Категорию с блюдами удалить нельзя — отвечаем понятной ошибкой."""
+        try:
+            instance.delete()
+        except ProtectedError:                                     # в категории есть блюда
+            raise ValidationError("Сначала удалите или перенесите блюда из этой категории. Или просто скройте её.")
 
 
 class ExtraAdminViewSet(viewsets.ModelViewSet):

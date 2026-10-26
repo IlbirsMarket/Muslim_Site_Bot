@@ -44,13 +44,13 @@ class Table(models.Model):
             raise ValidationError({"number": "Укажите номер стола."})
 
     def save(self, *args, **kwargs):
-        """Если название пустое — ставим его автоматически."""
-        if not self.name:                                    # название не задано
-            if self.kind == self.Kind.DELIVERY:
+        """Название ставим автоматически. Если номер стола поменяли — обновляем и «Стол N»."""
+        if self.kind == self.Kind.DELIVERY:
+            if not self.name:
                 self.name = "Доставка"                       # для доставки
-            else:
-                self.name = f"Стол {self.number}"            # для стола: "Стол 7"
-        super().save(*args, **kwargs)                        # сохраняем как обычно
+        elif not self.name or self.name.startswith("Стол "):  # пустое или автоматическое название
+            self.name = f"Стол {self.number}"                # для стола: "Стол 7"
+        super().save(*args, **kwargs)                        # сохраняем как обычно                     # сохраняем как обычно
 
     @property
     def qr_url(self) -> str:

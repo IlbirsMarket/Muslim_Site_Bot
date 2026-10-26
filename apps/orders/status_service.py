@@ -141,7 +141,7 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
     if action == "accept":
         order.accepted_by = user                                    # кто подтвердил
         fields.append("accepted_by")
-        if order.kind == K.HALL and order.device_key and not active_visit(order.table, order.device_key):
+        if order.kind == K.HALL and order.table_id and order.device_key and not active_visit(order.table, order.device_key):
             TableVisit.objects.create(                              # телефон гостя становится доверенным
                 table=order.table, device_key=order.device_key, confirmed_by=user,
             )

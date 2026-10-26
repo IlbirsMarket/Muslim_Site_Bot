@@ -13,9 +13,9 @@ class UserAdmin(BaseUserAdmin):
     # Поиск по этим полям
     search_fields = ("username", "first_name", "telegram_id", "phone")
 
-    # Добавляем наш блок полей к стандартным блокам на странице пользователя
-    fieldsets = BaseUserAdmin.fieldsets + (
-        ("Роль и контакты", {"fields": ("role", "telegram_id", "phone")}),
+    # Поля на странице "Добавить сотрудника": логин, пароль и сразу роль
+    add_fieldsets = BaseUserAdmin.add_fieldsets + (
+        ("Роль и контакты", {"fields": ("role", "first_name", "phone", "telegram_id")}),
     )
 
 @admin.register(RoleChangeLog)
