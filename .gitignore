@@ -1,9 +1,16 @@
-venv/
-.env
-db.sqlite3
-media/
-staticfiles/
-__pycache__/
-*.pyc
-.vscode/
+# Временные файлы базы SQLite (появляются, пока сервер работает)
+db.sqlite3-journal
+db.sqlite3-wal
+db.sqlite3-shm
+
+# Любые .env-файлы, кроме образца
+.env.*
+!.env.example
+
+# Логи и мусор редакторов/систем
+*.log
+.idea/
+.DS_Store
+Thumbs.db
+
 dejavu-fonts-ttf-2.37/

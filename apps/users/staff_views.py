@@ -24,6 +24,7 @@ class StaffViewSet(
     mixins.RetrieveModelMixin,  # GET один
     mixins.CreateModelMixin,    # POST создать
     mixins.UpdateModelMixin,    # PATCH изменить (удаления нет — только блокировка)
+    mixins.DestroyModelMixin,   # DELETE удалить 
     viewsets.GenericViewSet,
 ):
     """
@@ -60,6 +61,16 @@ class StaffViewSet(
         """PATCH: имя, телефон, Telegram ID, блокировка (is_active)."""
         self._check_can_manage(serializer.instance)
         serializer.save()
+
+    def perform_destroy(self, instance):
+            """
+            DELETE /api/admin/staff/{id}/ — удалить сотрудника.
+            Удалять можно только тех, кому сам назначаешь роль: шеф — админа, повара, официанта;
+            админ — повара и официанта. Себя удалить нельзя.
+            Заказы удалённого сотрудника остаются в истории, просто без его имени.
+            """
+            self._check_can_manage(instance)          # нет прав — ошибка 403
+            instance.delete()                         # удаляем из базы
 
     @extend_schema(request=RoleChangeSerializer, responses=StaffSerializer)
     @action(detail=True, methods=["post"], url_path="set-role")

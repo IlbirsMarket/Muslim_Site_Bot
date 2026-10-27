@@ -7,11 +7,11 @@ from .models import RoleChangeLog, User # наша модель
 @admin.register(User)  # регистрируем модель в админке
 class UserAdmin(BaseUserAdmin):
     # Колонки в списке пользователей
-    list_display = ("username", "first_name", "role", "telegram_id", "phone", "is_active")
+    list_display = ("username", "email", "first_name", "role", "telegram_id", "phone", "is_active")
     # Фильтры справа
     list_filter = ("role", "is_active")
     # Поиск по этим полям
-    search_fields = ("username", "first_name", "telegram_id", "phone")
+    search_fields = ("username", "email", "first_name", "telegram_id", "phone")
 
     # Поля на странице редактирования сотрудника: стандартные + наш блок
     fieldsets = BaseUserAdmin.fieldsets + (
@@ -20,7 +20,7 @@ class UserAdmin(BaseUserAdmin):
 
     # Поля на странице "Добавить сотрудника": логин, пароль и сразу роль
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
-        ("Роль и контакты", {"fields": ("role", "first_name", "phone", "telegram_id")}),
+        ("Роль и контакты", {"fields": ("role", "first_name", "email", "phone", "telegram_id")}),
     )
 
 @admin.register(RoleChangeLog)
