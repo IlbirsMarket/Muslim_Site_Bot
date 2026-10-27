@@ -1,16 +1,26 @@
-# Временные файлы базы SQLite (появляются, пока сервер работает)
+# Секреты и база — НИКОГДА не на GitHub
+.env
+.env.*
+!.env.example
+db.sqlite3
 db.sqlite3-journal
 db.sqlite3-wal
 db.sqlite3-shm
 
-# Любые .env-файлы, кроме образца
-.env.*
-!.env.example
+# Окружение Python и мусор
+venv/
+__pycache__/
+*.pyc
 
-# Логи и мусор редакторов/систем
-*.log
+# Загруженные фото и собранная статика (на сервере свои)
+media/
+staticfiles/
+
+# Редакторы, системы, логи
+.vscode/
 .idea/
 .DS_Store
 Thumbs.db
+*.log
 
 dejavu-fonts-ttf-2.37/

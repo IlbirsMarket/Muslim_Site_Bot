@@ -2,7 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, 'dist');
-const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.woff2':'font/woff2', '.txt':'text/plain; charset=utf-8' };
+const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.woff2':'font/woff2', '.txt':'text/plain; charset=utf-8', '.png':'image/png', '.jpg':'image/jpeg', '.webp':'image/webp', '.ico':'image/x-icon' };
 function createServer({apiOrigin=new URL(process.env.MUSLIM_API_ORIGIN || 'http://172.20.10.4:8000'),apiEnabled=process.env.MUSLIM_ENABLE_API!=='0'}={}) {
 apiOrigin=new URL(apiOrigin);
 if(!['http:','https:'].includes(apiOrigin.protocol)||apiOrigin.username||apiOrigin.password)throw new Error('MUSLIM_API_ORIGIN должен быть HTTP(S)-адресом без пароля.');
@@ -38,7 +38,7 @@ return http.createServer(async (req, res) => {
   if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
   fs.readFile(file, (error, data) => {
     if (error) { res.writeHead(404).end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type':mime[path.extname(file)] || 'application/octet-stream', 'X-Content-Type-Options':'nosniff' }); res.end(data);
+    res.writeHead(200, { 'Content-Type':mime[path.extname(file)] || 'application/octet-stream', 'X-Content-Type-Options':'nosniff', 'Cache-Control':'no-cache' }); res.end(data);   // no-cache: после замены файлов браузер берёт свежие
   });
 });
 }
