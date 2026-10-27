@@ -9,6 +9,7 @@ from django.db import transaction                                  # "всё и�
 from django.utils import timezone                                  # текущее время
 from rest_framework.exceptions import PermissionDenied, ValidationError  # ошибки 403 и 400
 
+from apps.tables.models import Table                               # стол: отмечаем «занят / свободен»
 from .models import Order, OrderStatusLog, TableVisit
 
 S = Order.Status   # короткие имена, чтобы правила ниже читались легче
@@ -30,8 +31,20 @@ def active_visit(table, device_key):
     ).first()
 
 
+def occupy_table(table_id) -> None:
+    """Стол стал занят (если ещё не был): запоминаем время. Свободным его делает только «Освободить стол»."""
+    if table_id:
+        Table.objects.filter(pk=table_id, kind=Table.Kind.HALL, occupied_since__isnull=True).update(
+            occupied_since=timezone.now(),
+        )
+
+
 def close_visits(table, user) -> int:
-    """Закрыть стол: все телефоны за этим столом перестают быть доверенными. Возвращает количество."""
+    """
+    «Освободить стол»: гости ушли, стол снова свободен,
+    все телефоны за ним перестают быть доверенными. Возвращает, сколько телефонов было.
+    """
+    Table.objects.filter(pk=table.pk).update(occupied_since=None)          # стол свободен
     return TableVisit.objects.filter(table=table, closed_at__isnull=True).update(
         closed_at=timezone.now(), closed_by=user,
     )
@@ -39,9 +52,14 @@ def close_visits(table, user) -> int:
 
 # ===================== КТО ЧТО МОЖЕТ =====================
 
+def at_table(order) -> bool:
+    """Заказ со стола в кафе: «в кафе» или «с собой». Такие заказы ведёт официант."""
+    return bool(order.table_id) and order.table.kind == Table.Kind.HALL and order.kind in (K.HALL, K.TAKEAWAY)
+
+
 def _can_confirm(user, order) -> bool:
     """Подтвердить / отклонить новый заказ."""
-    if order.kind != K.HALL:                                        # доставка и самовывоз — только админ (звонит гостю)
+    if not at_table(order):                                         # доставка и самовывоз — только админ (звонит гостю)
         return user.is_cafe_admin
     if user.is_cafe_admin:                                          # админ может всегда
         return True
@@ -64,10 +82,10 @@ def _can_complete(user, order) -> bool:
     """Завершить: подан / доставлен / выдан."""
     if order.kind == K.DELIVERY:                                    # доставку завершаем только после «В пути»
         return order.status == S.ON_THE_WAY and user.is_cafe_admin
-    if order.status != S.READY:                                     # зал и самовывоз — после «Готов»
+    if order.status != S.READY:                                     # остальные — после «Готов»
         return False
-    if order.kind == K.HALL:
-        return user.is_cafe_admin or user.is_waiter                 # в зале подаёт официант
+    if at_table(order):
+        return user.is_cafe_admin or user.is_waiter                 # со стола подаёт или отдаёт с собой официант
     return user.is_cafe_admin                                       # самовывоз выдаёт админ
 
 
@@ -95,7 +113,7 @@ def available_actions(order, user) -> list:
         if order.status in rule["from"] and rule["check"](user, order):   # статус подходит и права есть
             label = order.completed_label if name == "complete" else rule["label"]  # "Подан на стол" вместо "Завершить"
             result.append({"action": name, "label": label, "needs_reason": rule["reason"]})
-    if order.kind == K.HALL and order.status == S.NEW and not order.claimed_by_id and (user.is_waiter or user.is_cafe_admin):
+    if at_table(order) and order.status == S.NEW and not order.claimed_by_id and (user.is_waiter or user.is_cafe_admin):
         result.insert(0, {"action": "claim", "label": "Беру стол", "needs_reason": False})  # кнопка "Беру стол" первой
     return result
 
@@ -106,7 +124,7 @@ def available_actions(order, user) -> list:
 def claim_order(order, user) -> Order:
     """Официант нажал «Беру стол»: остальные видят, что стол уже взят."""
     order = Order.objects.select_for_update().get(pk=order.pk)      # блокируем строку: два официанта не возьмут одновременно
-    if order.kind != K.HALL or order.status != S.NEW:
+    if not at_table(order) or order.status != S.NEW:
         raise ValidationError({"action": "Взять можно только новый заказ в зале."})
     if not (user.is_waiter or user.is_cafe_admin):
         raise PermissionDenied("Брать стол может только официант или админ.")
@@ -141,10 +159,12 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
     if action == "accept":
         order.accepted_by = user                                    # кто подтвердил
         fields.append("accepted_by")
-        if order.kind == K.HALL and order.table_id and order.device_key and not active_visit(order.table, order.device_key):
+        if at_table(order) and order.device_key and not active_visit(order.table, order.device_key):
             TableVisit.objects.create(                              # телефон гостя становится доверенным
                 table=order.table, device_key=order.device_key, confirmed_by=user,
             )
+        if at_table(order):
+            occupy_table(order.table_id)                            # официант подтвердил — стол занят
 
     if rule["to"] == S.CANCELLED:                                   # отклонение или отмена
         order.cancel_reason = reason or REJECT_DEFAULT_REASON

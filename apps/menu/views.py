@@ -1,6 +1,8 @@
 """Обработчики запросов меню."""
 
-from django.db.models import Prefetch                         # заранее подгружаем связанные данные одним запросом
+from django.db import transaction                              # «всё или ничего» при смене порядка
+from django.db.models import Count, Prefetch                  # число блюд; заранее подгружаем связанные данные одним запросом
+from drf_spectacular.utils import extend_schema                # описание для Swagger                       # заранее подгружаем связанные данные одним запросом
 from django_filters.rest_framework import DjangoFilterBackend  # фильтры ?category=1
 from rest_framework import filters, generics, viewsets        # поиск, готовые views, наборы CRUD
 from rest_framework.decorators import action                   # свои дополнительные адреса во ViewSet
@@ -13,6 +15,7 @@ from core.permissions import CanManageStopList, IsCafeAdmin    # наши пра
 from .models import Category, Dish, DishSize, Extra
 from .serializers import (
     CategoryAdminSerializer,
+    CategoryOrderSerializer,
     DishAdminSerializer,
     DishSizeAdminSerializer,
     ExtraAdminSerializer,
@@ -42,9 +45,25 @@ class PublicMenuView(generics.ListAPIView):
 
 class CategoryAdminViewSet(viewsets.ModelViewSet):
     """/api/admin/categories/ — список, создание, изменение, удаление категорий."""
-    queryset = Category.objects.all()
+    queryset = Category.objects.annotate(dishes_count=Count("dishes"))   # у каждой категории — число блюд
     serializer_class = CategoryAdminSerializer
     permission_classes = [IsCafeAdmin]
+    pagination_class = None                                              # категорий немного — все сразу
+
+    @extend_schema(request=CategoryOrderSerializer, responses=CategoryAdminSerializer(many=True))
+    @action(detail=False, methods=["post"])
+    def reorder(self, request):
+        """POST /api/admin/categories/reorder/ {"ids": [3, 1, 2]} — новый порядок после перетаскивания."""
+        body = CategoryOrderSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        ids = body.validated_data["ids"]
+        known = set(Category.objects.values_list("id", flat=True))
+        if set(ids) != known:                                            # прислали не все категории или чужие id
+            raise ValidationError({"ids": "Нужно прислать все категории в новом порядке."})
+        with transaction.atomic():                                       # всё или ничего
+            for index, category_id in enumerate(ids):
+                Category.objects.filter(pk=category_id).update(position=(index + 1) * 10)   # 10, 20, 30…
+        return Response(self.get_serializer(self.get_queryset(), many=True).data)
 
     def perform_destroy(self, instance):
         """Категорию с блюдами удалить нельзя — отвечаем понятной ошибкой."""

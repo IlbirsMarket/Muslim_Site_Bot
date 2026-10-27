@@ -17,10 +17,11 @@ class Order(models.Model):
     """Заказ гостя."""
 
     class Kind(models.TextChoices):
-        """Тип заказа."""
+        """Тип заказа. Со стола: «в кафе» и «с собой». С главной страницы: «доставка» и «самовывоз»."""
         HALL = "hall", "В зале"
+        TAKEAWAY = "takeaway", "С собой"         # гость за столом, еду упаковать с собой
         DELIVERY = "delivery", "Доставка"
-        PICKUP = "pickup", "Самовывоз"
+        PICKUP = "pickup", "Самовывоз"           # заказал на сайте, забирает сам на кассе
 
     class Status(models.TextChoices):
         """Статусы заказа по порядку."""
@@ -98,6 +99,7 @@ class Order(models.Model):
         """Как назвать статус «Завершён» для этого типа заказа."""
         return {
             self.Kind.HALL: "Подан на стол",
+            self.Kind.TAKEAWAY: "Отдан с собой",
             self.Kind.DELIVERY: "Доставлен",
             self.Kind.PICKUP: "Выдан",
         }.get(self.kind, "Завершён")

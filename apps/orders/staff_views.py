@@ -49,7 +49,7 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_cafe_admin:                            # админ и выше — все заказы
             pass
         elif user.is_waiter:                              # официант — только зал
-            queryset = queryset.filter(kind=Order.Kind.HALL)
+            queryset = queryset.filter(table__kind=Table.Kind.HALL)   # только заказы со столов: «в кафе» и «с собой»
         elif user.is_cook:                                # повар — только подтверждённые
             queryset = queryset.filter(status__in=KITCHEN_STATUSES)
         else:

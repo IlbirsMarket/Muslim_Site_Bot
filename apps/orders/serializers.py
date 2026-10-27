@@ -32,10 +32,10 @@ class OrderItemInputSerializer(serializers.Serializer):
 class OrderCreateSerializer(serializers.Serializer):
     """Проверяет новый заказ и передаёт его в services.create_order."""
 
-    table_token = serializers.CharField()                                   # токен из QR (обязателен)
+    table_token = serializers.CharField(required=False, allow_blank=True)   # токен из QR стола; пусто — заказ с главной страницы (доставка)                                 # токен из QR (обязателен)
     device_key = serializers.CharField(max_length=64, required=False, allow_blank=True)  # случайный ключ телефона (фронт хранит его в браузере)
-    order_type = serializers.ChoiceField(                                   # только для QR доставки: доставка или самовывоз
-        choices=[Order.Kind.DELIVERY, Order.Kind.PICKUP], required=False
+    order_type = serializers.ChoiceField(                                   # со стола: takeaway; с главной: delivery или pickup
+        choices=[Order.Kind.TAKEAWAY, Order.Kind.DELIVERY, Order.Kind.PICKUP], required=False
     )
     customer_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     phone = serializers.CharField(max_length=30, required=False, allow_blank=True)
@@ -57,29 +57,37 @@ class OrderCreateSerializer(serializers.Serializer):
         if not cafe.can_accept_orders():
             raise serializers.ValidationError("Кафе сейчас не принимает заказы.")
 
-        # 2. Токен из QR правильный?
-        table = Table.objects.filter(token=attrs["table_token"], is_active=True).first()
-        if not table:
-            raise serializers.ValidationError({"table_token": "QR-код недействителен."})
+        # 2. Откуда заказ: QR стола (есть токен) или главная страница сайта (токена нет → доставка)
+        token = (attrs.get("table_token") or "").strip()
+        if token:
+            table = Table.objects.filter(token=token, is_active=True).first()
+            if not table:
+                raise serializers.ValidationError({"table_token": "QR-код недействителен."})
+        else:
+            table = Table.delivery_point()                               # единственная «Доставка»
         attrs["table"] = table
 
-        # 3. Тип заказа: стол → в зале; QR доставки → доставка или самовывоз
+        # 3. Тип заказа: со стола — «в кафе» или «с собой»; с главной страницы — «доставка» или «самовывоз»
+        order_type = attrs.get("order_type")
         if table.kind == Table.Kind.HALL:
-            attrs["kind"] = Order.Kind.HALL
+            if order_type in (Order.Kind.DELIVERY, Order.Kind.PICKUP):
+                raise serializers.ValidationError({"order_type": "Со стола можно заказать только «В кафе» или «С собой»."})
+            attrs["kind"] = Order.Kind.TAKEAWAY if order_type == Order.Kind.TAKEAWAY else Order.Kind.HALL
         else:
-            if "order_type" not in attrs:
-                raise serializers.ValidationError({"order_type": "Выберите: доставка или самовывоз."})
-            attrs["kind"] = attrs["order_type"]
+            if order_type == Order.Kind.TAKEAWAY:
+                raise serializers.ValidationError({"order_type": "«С собой» заказывают со стола в кафе."})
+            attrs["kind"] = Order.Kind.PICKUP if order_type == Order.Kind.PICKUP else Order.Kind.DELIVERY
 
         # 4. Доставка включена? Контакты заполнены?
         if attrs["kind"] == Order.Kind.DELIVERY:
             if not cafe.is_delivery_enabled:
                 raise serializers.ValidationError("Доставка сейчас недоступна.")
             required = {"customer_name": "Укажите имя.", "phone": "Укажите телефон.", "address": "Укажите адрес."}
+            
         elif attrs["kind"] == Order.Kind.PICKUP:
-            required = {"customer_name": "Укажите имя.", "phone": "Укажите телефон."}
+            required = {"customer_name": "Укажите имя.", "phone": "Укажите телефон."}   # самовывоз: адрес не нужен
         else:
-            required = {}                                        # в зале контакты не нужны
+            required = {}                                          # в зале контакты не нужны
         errors = {field: text for field, text in required.items() if not attrs.get(field, "").strip()}
         if errors:
             raise serializers.ValidationError(errors)

@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError   # ошибка, кото
 
 from apps.cafe.models import CafeSettings
 from .models import Order, OrderItem, OrderStatusLog
-from .status_service import active_visit                # проверка доверенного телефона
+from .status_service import active_visit, occupy_table  # доверенный телефон; отметка «стол занят»
 
 
 def build_line(dish, size, extras, quantity) -> dict:
@@ -35,7 +35,7 @@ def create_order(data: dict) -> Order:
     data["resolved_items"] — список (блюдо, размер, [добавки], количество).
     """
     cafe = CafeSettings.load()                     # настройки кафе
-    kind = data["kind"]                            # hall / delivery / pickup
+    kind = data["kind"]                            # hall / takeaway / delivery / pickup
     table = data["table"]                          # стол или точка "Доставка"
     device_key = data.get("device_key", "")        # ключ телефона гостя
 
@@ -51,11 +51,11 @@ def create_order(data: dict) -> Order:
         is_free = cafe.free_delivery_from and subtotal >= cafe.free_delivery_from   # набрал на бесплатную доставку
         delivery_fee = 0 if is_free else cafe.delivery_fee
 
-    is_hall = kind == Order.Kind.HALL
+    at_table = table.kind == table.Kind.HALL        # заказ со стола в кафе («в кафе» или «с собой»)
     is_delivery = kind == Order.Kind.DELIVERY
 
     # 3. Доверенный телефон за этим столом? Тогда заказ сразу идёт на кухню
-    trusted = is_hall and active_visit(table, device_key) is not None
+    trusted = at_table and active_visit(table, device_key) is not None
     status = Order.Status.ACCEPTED if trusted else Order.Status.NEW
 
     # 4. Создаём сам заказ
@@ -73,7 +73,7 @@ def create_order(data: dict) -> Order:
         floor=data.get("floor", "") if is_delivery else "",
         courier_comment=data.get("courier_comment", "") if is_delivery else "",
         payment_method=data.get("payment_method", Order.Payment.CASH),
-        change_from=None if is_hall else data.get("change_from"),
+        change_from=data.get("change_from") if is_delivery else None,
         comment=data.get("comment", ""),
         subtotal=subtotal,
         delivery_fee=delivery_fee,
@@ -87,6 +87,7 @@ def create_order(data: dict) -> Order:
     OrderStatusLog.objects.create(order=order, status=Order.Status.NEW)           # заказ создан
     if trusted:
         OrderStatusLog.objects.create(order=order, status=Order.Status.ACCEPTED)  # и сразу принят (доверенный телефон)
+        occupy_table(order.table_id)                                              # стол занят (если его успели закрыть)
 
     # 7. Здесь позже будет отправка заказа в Telegram-группу (этап «Бот»)
 
