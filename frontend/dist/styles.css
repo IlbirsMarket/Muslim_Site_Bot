@@ -12,3 +12,4 @@
 @media(max-width:1200px){.guest-services{display:flex}}
 /* Логотип кафе вместо буквы «М» */
 .logo{background:#fdfbf3;overflow:hidden;padding:0}.logo img{width:100%;height:100%;object-fit:cover;display:block}
+.mode-switch button[hidden]{display:none}

@@ -72,7 +72,7 @@ class BaseAPITest(APITestCase):
 
         # ----- Столы -----
         self.table = Table.objects.create(kind=Table.Kind.HALL, number=7)
-        self.delivery = Table.objects.create(kind=Table.Kind.DELIVERY)
+        self.delivery = Table.delivery_point()                      # единственная «Доставка» (создаётся сама)
 
     # ===== Помощники =====
 

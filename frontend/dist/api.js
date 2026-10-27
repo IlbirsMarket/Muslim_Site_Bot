@@ -19,6 +19,7 @@
   function record(path,method,status,elapsed) { results.unshift({path,method,status,elapsed,at:new Date().toISOString()}); results.splice(60); window.dispatchEvent(new Event('muslim-api-result')); }
   function errorMessage(body,status) {
     if (typeof body?.detail==='string') return body.detail;
+    if (Array.isArray(body)) return body.join(' ');                // ошибка списком: ["Текст"]
     // Названия полей в ошибках по-русски: «email: …» → «Email: …»
     const labels={username:'Логин',email:'Email',password:'Пароль',role:'Роль',first_name:'Имя',last_name:'Фамилия',phone:'Телефон',telegram_id:'Telegram ID'};
     if (body && typeof body==='object') return Object.entries(body).map(([key,value])=>`${key==='non_field_errors'?'':(labels[key]||key)+': '}${Array.isArray(value)?value.join(', '):typeof value==='object'?JSON.stringify(value):value}`).join('; ').slice(0,1000);
@@ -63,7 +64,6 @@
     return {categories,dishes,extras:[...extras.values()]};
   }
   function orderPayload({menu,cart,tableToken,deviceKey,mode,fields={},comment=''}){
-    if(!tableToken)throw new Error('Для заказа откройте QR-код стола или доставки.');
     if(!cart.length)throw new Error('Корзина пуста.');
     const notes=[];
     const items=cart.map(item=>{
@@ -75,8 +75,11 @@
       if(item.comment)notes.push(`${dish.name}: ${item.comment}`);
       return {dish_id:dish.apiId,size_id:dish.sizeIds?.[item.size]||null,extra_ids,quantity:item.qty};
     });
-    const payload={table_token:tableToken,device_key:deviceKey,comment:[comment,...notes].filter(Boolean).join('\n'),payment_method:fields.payment||'cash',items};
-    if(mode!=='cafe')Object.assign(payload,{order_type:mode,customer_name:fields.customer||'',phone:fields.phone||'',address:fields.address||'',apartment:fields.apartment||'',entrance:fields.entrance||'',floor:fields.floor||'',courier_comment:fields.courierNote||''});
+    const payload={device_key:deviceKey,comment:[comment,...notes].filter(Boolean).join('\n'),payment_method:fields.payment||'cash',items};
+    if(tableToken)payload.table_token=tableToken;                 // без токена — заказ с главной страницы (доставка)
+    if(mode==='takeaway')payload.order_type='takeaway';           // со стола «с собой»: контакты не нужны
+    if(mode==='pickup')Object.assign(payload,{order_type:'pickup',customer_name:fields.customer||'',phone:fields.phone||''});   // самовывоз: только имя и телефон
+    if(mode==='delivery')Object.assign(payload,{order_type:'delivery',customer_name:fields.customer||'',phone:fields.phone||'',address:fields.address||'',apartment:fields.apartment||'',entrance:fields.entrance||'',floor:fields.floor||'',courier_comment:fields.courierNote||''});
     return payload;
   }
   function orderAction(id,action,reason=''){

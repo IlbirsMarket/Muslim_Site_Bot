@@ -27,6 +27,23 @@ USE_HTTPS = os.getenv("USE_HTTPS", "0") == "1"      # 1 — когда буде�
 SESSION_COOKIE_SECURE = USE_HTTPS                   # куки входа в Django-админку только по https
 CSRF_COOKIE_SECURE = USE_HTTPS
 
+# ---------- ЗАЩИТА ----------
+SECURE_CONTENT_TYPE_NOSNIFF = True              # браузер не «угадывает» тип файла (нельзя выдать картинку за скрипт)
+SECURE_REFERRER_POLICY = "same-origin"          # адреса нашего сайта не утекают на чужие сайты
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"                        # сайт нельзя встроить в чужую страницу (защита от «подставных» кнопок)
+SESSION_COOKIE_HTTPONLY = True                  # куки входа в Django-админку недоступны скриптам на странице
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"                 # чужой сайт не отправит запрос «от имени» вошедшего админа
+SECURE_SSL_REDIRECT = USE_HTTPS                 # с https: все запросы по http автоматически переводим на https
+SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30 if USE_HTTPS else 0   # браузер 30 дней открывает сайт только по https
+
+# Swagger (документация API) на сервере видят только админы, вошедшие в Django-админку
+SPECTACULAR_SETTINGS = {**SPECTACULAR_SETTINGS, "SERVE_PERMISSIONS": ["core.permissions.IsCafeAdmin"]}  # noqa: F405
+
+# Запрос без файлов не больше 2 МБ, фото — до 5 МБ (это же ограничение стоит и в nginx)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+
 # SQLite на сервере: ждём до 20 секунд, если база занята другим запросом, а не падаем с ошибкой
 DATABASES["default"]["OPTIONS"] = {"timeout": 20, "transaction_mode": "IMMEDIATE"}  # noqa: F405
 

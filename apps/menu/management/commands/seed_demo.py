@@ -58,7 +58,7 @@ class Command(BaseCommand):
         if not Table.objects.filter(kind=Table.Kind.DELIVERY).exists():   # точка доставки нужна одна
             Table.objects.create(kind=Table.Kind.DELIVERY, name="Доставка")
         for number in range(1, 11):
-            Table.objects.get_or_create(number=number, defaults={"kind": Table.Kind.HALL})  # "Стол 1" ... "Стол 10"
+            Table.objects.get_or_create(kind=Table.Kind.HALL, number=number)  # "Стол 1" ... "Стол 10"
 
         # ----- Сотрудники всех ролей -----
         staff = [

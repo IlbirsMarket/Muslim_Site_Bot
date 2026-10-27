@@ -9,6 +9,10 @@ from rest_framework import serializers                 # инструменты 
 from .models import Category, Dish, DishSize, Extra   # модели меню
 
 
+MAX_PHOTO_BYTES = 5 * 1024 * 1024                      # фото блюда — не больше 5 МБ
+ALLOWED_PHOTO_FORMATS = {"JPEG", "PNG", "WEBP"}        # какие картинки принимаем
+
+
 # ===================== ДЛЯ ГОСТЕЙ =====================
 
 class DishSizeSerializer(serializers.ModelSerializer):
@@ -55,10 +59,37 @@ class MenuCategorySerializer(serializers.ModelSerializer):
 # ===================== ДЛЯ АДМИН-ПАНЕЛИ =====================
 
 class CategoryAdminSerializer(serializers.ModelSerializer):
-    """Категория: все поля для редактирования."""
+    """Категория: все поля для редактирования + сколько в ней блюд (чтобы знать, можно ли удалить)."""
+    dishes_count = serializers.IntegerField(read_only=True, default=0)   # считает сервер
+
     class Meta:
         model = Category
-        fields = ["id", "name", "position", "is_active"]
+        fields = ["id", "name", "position", "is_active", "dishes_count"]
+
+    def create(self, validated_data):
+        """Новая категория встаёт в конец списка, если порядок не указали."""
+        if "position" not in validated_data:
+            last = Category.objects.order_by("-position").values_list("position", flat=True).first() or 0
+            validated_data["position"] = last + 10
+        return super().create(validated_data)
+
+    def validate_name(self, value):
+        """Без пустых и повторяющихся названий. «Супы» и « супы » — одно и то же."""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Укажите название категории.")
+        others = Category.objects.all()
+        if self.instance:
+            others = others.exclude(pk=self.instance.pk)                 # себя не считаем
+        # Сравниваем в Python: SQLite не умеет без учёта регистра сравнивать русские буквы
+        if any(name.strip().lower() == value.lower() for name in others.values_list("name", flat=True)):
+            raise serializers.ValidationError("Такая категория уже есть.")
+        return value
+
+
+class CategoryOrderSerializer(serializers.Serializer):
+    """Новый порядок категорий: {"ids": [3, 1, 2]} — сверху вниз."""
+    ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
 
 
 class ExtraAdminSerializer(serializers.ModelSerializer):
@@ -91,3 +122,17 @@ class DishAdminSerializer(serializers.ModelSerializer):
             "price", "extras", "sizes", "is_available", "is_active", "position", "updated_at",
         ]
         read_only_fields = ["updated_at"]  # дату изменения ставит сервер
+
+        
+    def validate_photo(self, value):
+        """Фото: только настоящие картинки JPG, PNG или WebP и не больше 5 МБ (проверяем само содержимое файла)."""
+        if not value:
+            return value
+        if value.size > MAX_PHOTO_BYTES:
+            raise serializers.ValidationError("Фото больше 5 МБ. Выберите файл поменьше.")
+        image = getattr(value, "image", None)                       # Pillow уже открыл файл и проверил, что это картинка
+        if image is not None and (image.format or "").upper() not in ALLOWED_PHOTO_FORMATS:
+            raise serializers.ValidationError("Подойдёт только JPG, PNG или WebP.")
+        return value
+
+    

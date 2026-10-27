@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1f3d2b">
   <meta name="description" content="Муслим — меню халяль кафе. Выберите блюда, размер пиццы и добавки, соберите свой заказ.">
-  <title>Муслим — QR-меню</title>
+  <title>Муслим — меню</title>
   <link rel="icon" href="assets/favicon.png" type="image/png"><link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <script defer src="runtime-config.js"></script>
@@ -19,7 +19,7 @@
   <header class="header">
     <a class="brand" href="./" aria-label="Муслим — главная"><span class="logo"><img src="assets/logo-mark.png" alt="" width="48" height="48"></span><span><strong>Муслим</strong><small>Халяль кафе · с заботой о вас</small></span></a>
     <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr-only">Поиск по меню</span><input id="search" type="search" placeholder="Найти блюдо" autocomplete="off"></label>
-    <div class="header-actions"><button class="outline" data-service="waiter">Позвать официанта</button><button class="outline" data-service="bill">Попросить счёт</button><span class="table" id="table-label">QR-меню</span></div>
+    <div class="header-actions"><button class="outline" data-service="waiter">Позвать официанта</button><button class="outline" data-service="bill">Попросить счёт</button><span class="table" id="table-label">Меню</span></div>
   </header>
   <div class="layout">
     <nav class="categories" aria-label="Категории меню"><span class="eyebrow">Категории</span><div id="categories"></div><div class="category-note"><span class="leaf">✧</span><strong>Приготовлено с заботой</strong><p>Выбирайте любимое.<br>Мы рады вашему визиту.</p></div></nav>
@@ -30,7 +30,7 @@
       <div class="empty-state" id="empty" hidden></div>
       <p class="menu-footnote" id="menu-note">Меню и цены из предоставленного макета. Состав и наличие уточняйте у сотрудников кафе.</p>
     </main>
-    <aside class="cart" id="cart" aria-label="Ваш заказ"><div class="cart-header"><div><span class="eyebrow">Всё самое вкусное</span><h2>Ваш заказ</h2></div><button class="icon-button mobile-close" id="close-cart" aria-label="Закрыть корзину">×</button></div><div class="mode-switch" id="order-modes" aria-label="Способ получения"><button data-mode="cafe" aria-pressed="true">В кафе</button><button data-mode="delivery" aria-pressed="false">Доставка</button><button data-mode="pickup" aria-pressed="false">С собой</button></div><div id="cart-items"></div><label class="order-comment">Комментарий к заказу<textarea id="order-comment" placeholder="Например: без лука, поострее" maxlength="500"></textarea></label><div class="cart-bottom"><div class="total"><span>Итого</span><strong id="total">0 сом</strong></div><button class="primary" id="checkout" disabled>Продолжить</button><p class="draft-note">Пока без отправки в кафе.<br>Вы сможете сохранить состав заказа.</p></div></aside>
+    <aside class="cart" id="cart" aria-label="Ваш заказ"><div class="cart-header"><div><span class="eyebrow">Всё самое вкусное</span><h2>Ваш заказ</h2></div><button class="icon-button mobile-close" id="close-cart" aria-label="Закрыть корзину">×</button></div><div class="mode-switch" id="order-modes" aria-label="Способ получения"><button data-mode="cafe" aria-pressed="true">В кафе</button><button data-mode="takeaway" aria-pressed="false">С собой</button><button data-mode="delivery" aria-pressed="false">Доставка</button><button data-mode="pickup" aria-pressed="false">Самовывоз</button></div><div id="cart-items"></div><label class="order-comment">Комментарий к заказу<textarea id="order-comment" placeholder="Например: без лука, поострее" maxlength="500"></textarea></label><div class="cart-bottom"><div class="total"><span>Итого</span><strong id="total">0 сом</strong></div><button class="primary" id="checkout" disabled>Продолжить</button><p class="draft-note">Пока без отправки в кафе.<br>Вы сможете сохранить состав заказа.</p></div></aside>
   </div>
   <button class="mobile-cart primary" id="open-cart"><span>Ваш заказ <b id="cart-count">0</b></span><strong id="mobile-total">0 сом</strong></button>
   <dialog id="dish-dialog" aria-labelledby="dish-title"><button class="icon-button dialog-close" data-close aria-label="Закрыть карточку">×</button><div id="dish-content"></div></dialog>
