@@ -25,3 +25,71 @@ fieldset{border:0;margin:0;padding:0}legend{font-size:12px;font-weight:800;margi
 @media(max-width:800px){.sidebar footer button{justify-content:center}.nav-label{font-size:8px}.sidebar .nav-icon{width:21px;flex-basis:auto}.nav-button{gap:5px}}
 @media(max-width:550px){.nav-label{display:none}.nav-label-short{display:block;font-size:8px;line-height:1.4}.sidebar .nav-icon .ui-icon{width:20px;height:20px}.nav-button{gap:5px;padding:5px 2px}.nav-badge{top:0;right:5px}.search-control{width:100%}.page-heading .primary,.page-heading .secondary{gap:6px}.page-heading .ui-icon{width:15px;height:15px}.image-editor{gap:14px}.upload-button{font-size:12px;padding:10px 13px}.photo-file-name,.photo-status{font-size:10px}.form-footer .ui-icon{width:17px;height:17px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Галочка «Запомнить меня» на экране входа */
+.login-form .remember-me{flex-direction:row;align-items:center;gap:10px;font-size:14px;font-weight:600;cursor:pointer;user-select:none}.login-form .remember-me input{width:18px;height:18px;margin:0;accent-color:var(--green);cursor:pointer}
+/* Логотип кафе вместо буквы «М» */
+.logo{background:#fdfbf3;overflow:hidden;padding:0}.logo img{width:100%;height:100%;object-fit:cover;display:block}
+/* Кнопка «Звук» (уведомления) в верхней полосе */
+#notify-toggle{display:inline-flex;gap:5px;align-items:center;padding:0;background:transparent;font-size:10px;color:inherit;font-weight:700}#notify-toggle[hidden]{display:none}#notify-toggle .ui-icon{width:14px;height:14px}#notify-toggle.muted{opacity:.55}
+
+/* ===== Цвета заказов: в кафе — зелёный, с собой — жёлтый, доставка — красный, самовывоз — оранжевый ===== */
+:root{--hall:#2E7D4F;--hall-bg:#E2F1E7;--hall-ink:#1F5F38;
+  --take:#D4A72C;--take-bg:#FBF0CF;--take-ink:#6B5317;
+  --deliv:#B23A2A;--deliv-bg:#F8E1DC;--deliv-ink:#8E2A1D;
+  --pick:#E8892B;--pick-bg:#FDEBD8;--pick-ink:#8A4B0F}
+.order-card.kind-hall{border-top:4px solid var(--hall)}.order-card.kind-takeaway{border-top:4px solid var(--take)}
+.order-card.kind-delivery{border-top:4px solid var(--deliv)}.order-card.kind-pickup{border-top:4px solid var(--pick)}
+.kind-tag{display:inline-flex;align-items:center;gap:4px}.kind-tag .ui-icon{width:12px;height:12px}
+.kind-hall .kind-tag{background:var(--hall-bg);color:var(--hall-ink)}.kind-takeaway .kind-tag{background:var(--take-bg);color:var(--take-ink)}
+.kind-delivery .kind-tag{background:var(--deliv-bg);color:var(--deliv-ink)}.kind-pickup .kind-tag{background:var(--pick-bg);color:var(--pick-ink)}
+.takeaway-mark{margin:8px 0 0;padding:6px 10px;border-radius:8px;background:var(--take-bg);color:var(--take-ink);font-weight:800;font-size:12px;letter-spacing:.04em}
+.toast.kind-hall{background:var(--hall)}.toast.kind-takeaway{background:var(--take);color:#1B1B18}.toast.kind-delivery{background:var(--deliv)}.toast.kind-pickup{background:var(--pick);color:#1B1B18}
+/* Фильтры над заказами — с цветной точкой своего типа */
+.order-pills [data-order-filter]:not([data-order-filter="all"])::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.order-pills [data-order-filter="hall"]::before{background:var(--hall)}.order-pills [data-order-filter="takeaway"]::before{background:var(--take)}
+.order-pills [data-order-filter="delivery"]::before{background:var(--deliv)}.order-pills [data-order-filter="pickup"]::before{background:var(--pick)}
+
+/* ===== Столы и QR ===== */
+.qr-card.busy{border-color:#C9A24A}.qr-card.kind-delivery{border-top:4px solid var(--deliv)}
+.qr-card .actions{flex-wrap:wrap}
+.table-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.table-tile{background:white;border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.table-tile strong{font-size:18px}.table-tile small{color:var(--muted)}.table-tile button{margin-top:auto;width:100%}
+.table-tile.busy{border:2px solid #C9A24A;background:#FFFCF3}.table-tile.busy .tag{background:#F6EDD3;color:#6B5317}
+
+/* ===== Блюда и категории ===== */
+.seg-tabs{display:none}
+.menu-layout{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
+.cat-panel{padding:16px 10px 0;display:flex;flex-direction:column;gap:4px}
+.cat-panel>.fine{padding:0 8px}
+.cat-head{display:flex;align-items:center;justify-content:space-between;padding:0 8px}.cat-head h2{font-size:17px}
+.cat-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.cat-row{display:flex;align-items:center;gap:8px;padding:6px;border-radius:11px}
+.cat-row.selected{background:#EEF4EF}.cat-row.selected .cat-select strong{color:var(--green)}
+.cat-row.hidden-cat .cat-select strong{color:#8A8474}.cat-row.hidden-cat .cat-select small{color:#8A6A1F;font-weight:700}
+.cat-row.dragging{background:white;box-shadow:0 6px 20px #1f3d2b26;position:relative;z-index:2}
+.drag-handle{width:28px;height:40px;flex:none;border:0;background:transparent;color:#A39C8C;cursor:grab;touch-action:none;display:flex;align-items:center;justify-content:center;padding:0}
+.drag-handle .ui-icon{width:18px;height:18px;fill:currentColor}
+.drag-space{width:28px;flex:none}
+.cat-select{flex:1;min-width:0;border:0;background:transparent;text-align:left;padding:4px 2px;display:flex;flex-direction:column;gap:1px;cursor:pointer}
+.cat-select strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cat-select small{font-size:11.5px;color:var(--muted)}
+.cat-row .icon-button{width:34px;height:34px;flex:none}
+.cat-row .icon-button:disabled{opacity:.35;cursor:not-allowed}
+.new-category{margin-top:auto;border-top:1px solid var(--line);padding:14px 8px 16px;display:flex;flex-direction:column;gap:8px}
+.new-category>div{display:flex;gap:8px}.new-category input{flex:1;min-width:0}
+.new-category .error:empty{display:none}
+.dish-panel{min-width:0;display:flex;flex-direction:column;gap:12px}
+.dish-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.dish-head h2{font-size:19px;margin-right:auto}.dish-head input{width:260px;max-width:100%}
+.check-line{flex-direction:row;align-items:center;gap:10px;font-size:14px}.check-line input{width:18px;height:18px;accent-color:var(--green)}
+@media(max-width:1150px){.menu-layout{grid-template-columns:260px minmax(0,1fr)}.cat-row .switch{display:none}}
+@media(max-width:700px){
+  .seg-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#EAE6DC;border-radius:12px;padding:4px;margin-bottom:14px}
+  .seg-tabs button{border:0;background:transparent;border-radius:9px;padding:10px 4px;font-weight:700}
+  .seg-tabs button[aria-selected=true]{background:white;color:var(--green);font-weight:800;box-shadow:0 1px 4px #1f3d2b14}
+  .menu-layout{display:block}.menu-layout.tab-dishes .cat-panel,.menu-layout.tab-cats .dish-panel{display:none}
+  .cat-row .switch{display:inline-flex}
+  .dish-head input{width:100%}
+}
+
+/* Цифра на «Заказах» в нижнем меню телефона — всегда у иконки, сколько бы разделов ни было */
+@media(max-width:550px){.nav-badge{right:calc(50% - 26px)}}

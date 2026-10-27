@@ -1,9 +1,26 @@
-venv/
+# Секреты и база — НИКОГДА не на GitHub
 .env
+.env.*
+!.env.example
 db.sqlite3
-media/
-staticfiles/
+db.sqlite3-journal
+db.sqlite3-wal
+db.sqlite3-shm
+
+# Окружение Python и мусор
+venv/
 __pycache__/
 *.pyc
+
+# Загруженные фото и собранная статика (на сервере свои)
+media/
+staticfiles/
+
+# Редакторы, системы, логи
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
 dejavu-fonts-ttf-2.37/

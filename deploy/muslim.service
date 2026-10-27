@@ -1,0 +1,16 @@
+# Служба, которая держит Django (gunicorn) запущенным и поднимает его после перезагрузки сервера.
+
+[Unit]
+Description=Muslim cafe (Django + gunicorn)
+After=network.target
+
+[Service]
+User=muslim
+Group=www-data
+WorkingDirectory=/home/muslim/app
+Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
+ExecStart=/home/muslim/app/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 2 --timeout 60
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

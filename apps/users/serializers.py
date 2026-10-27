@@ -6,6 +6,21 @@ from rest_framework import serializers                                 # инс�
 from .models import RoleChangeLog, User                                # модели
 
 
+
+class UniqueEmailMixin:
+    """Проверка email: убираем пробелы, приводим к маленьким буквам и не даём повторять чужой."""
+
+    def validate_email(self, value):
+        value = (value or "").strip().lower()                              # " Ali@Mail.com " → "ali@mail.com"
+        if value:                                                          # пустой email можно у многих
+            same = User.objects.filter(email__iexact=value)                # кто уже с таким email
+            if getattr(self, "instance", None):                            # при редактировании —
+                same = same.exclude(pk=self.instance.pk)                   # самого себя не считаем
+            if same.exists():
+                raise serializers.ValidationError("Сотрудник с таким email уже есть.")
+        return value
+
+
 class MeSerializer(serializers.ModelSerializer):
     """Данные о сотруднике, который сейчас вошёл в систему."""
 
@@ -14,9 +29,9 @@ class MeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User  # с какой моделью работаем
-        fields = ["id", "username", "first_name", "last_name", "role", "role_display", "phone", "telegram_id"]  # какие поля отдаём
+        fields = ["id", "username", "email", "first_name", "last_name", "role", "role_display", "phone", "telegram_id"]  # какие поля отдаём
 
-class StaffSerializer(serializers.ModelSerializer):
+class StaffSerializer(UniqueEmailMixin, serializers.ModelSerializer):
     """Сотрудник в списке и на странице редактирования."""
 
     role_display = serializers.CharField(source="get_role_display", read_only=True)   # "Повар"
@@ -26,7 +41,7 @@ class StaffSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "username", "first_name", "last_name", "role", "role_display",
+            "id", "username", "email", "first_name", "last_name", "role", "role_display",
             "phone", "telegram_id", "is_active", "last_login", "date_joined", "can_edit",
         ]
         read_only_fields = ["username", "role", "last_login", "date_joined"]  # роль меняется только через set-role
@@ -35,7 +50,7 @@ class StaffSerializer(serializers.ModelSerializer):
         return self.context["request"].user.can_manage(obj)
 
 
-class StaffCreateSerializer(serializers.ModelSerializer):
+class StaffCreateSerializer(UniqueEmailMixin, serializers.ModelSerializer):
     """Добавление нового сотрудника."""
 
     password = serializers.CharField(write_only=True)                          # пароль не возвращаем
@@ -43,7 +58,7 @@ class StaffCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["username", "password", "first_name", "last_name", "phone", "telegram_id", "role"]
+        fields = ["username", "email", "password", "first_name", "last_name", "phone", "telegram_id", "role"]
 
     def validate_role(self, value):
         """Создатель может дать только ту роль, которую ему разрешено назначать."""

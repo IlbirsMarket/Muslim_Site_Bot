@@ -10,7 +10,8 @@ from django.urls import path, include              # описание адрес
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView  # Swagger
 
 urlpatterns = [
-    path("admin/", admin.site.urls),  
+    # path("admin/", admin.site.urls),  
+    path(settings.DJANGO_ADMIN_URL, admin.site.urls),   # админка Django: /admin/ (на сервере /django-admin/)
     path("api/", include("apps.menu.urls")),         # меню: /api/menu/, /api/admin/dishes/ ...                                                  # админка Django: /admin/
     path("api/auth/", include("apps.users.urls")),   # вход: /api/auth/login/, /api/auth/me/
     path("api/", include("apps.users.staff_urls")),  # сотрудники: /api/admin/staff/

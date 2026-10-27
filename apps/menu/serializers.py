@@ -74,14 +74,15 @@ class CategoryAdminSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def validate_name(self, value):
-        """Без пустых и повторяющихся названий."""
+        """Без пустых и повторяющихся названий. «Супы» и « супы » — одно и то же."""
         value = value.strip()
         if not value:
             raise serializers.ValidationError("Укажите название категории.")
-        same = Category.objects.filter(name__iexact=value)
+        others = Category.objects.all()
         if self.instance:
-            same = same.exclude(pk=self.instance.pk)
-        if same.exists():
+            others = others.exclude(pk=self.instance.pk)                 # себя не считаем
+        # Сравниваем в Python: SQLite не умеет без учёта регистра сравнивать русские буквы
+        if any(name.strip().lower() == value.lower() for name in others.values_list("name", flat=True)):
             raise serializers.ValidationError("Такая категория уже есть.")
         return value
 

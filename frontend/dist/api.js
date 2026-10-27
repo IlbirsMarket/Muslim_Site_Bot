@@ -3,14 +3,26 @@
   const base = window.MUSLIM_CONFIG?.apiBase;
   const sessionKey='muslim-api-session:'+String(window.MUSLIM_CONFIG?.apiOrigin||base||'offline');
   let tokens = null, refreshPromise = null;
-  try { const saved=JSON.parse(sessionStorage.getItem(sessionKey));if(typeof saved?.access==='string'&&typeof saved?.refresh==='string')tokens=saved; } catch { /* Нет сохранённой сессии. */ }
+  // Где храним вход: localStorage — «Запомнить меня» (переживает закрытие браузера), sessionStorage — до закрытия вкладки.
+  let remembered=false;
+  function storage(long){ try { return long?localStorage:sessionStorage; } catch { return null; } }
+  for (const long of [true,false]) { try { const saved=JSON.parse(storage(long)?.getItem(sessionKey));if(!tokens&&typeof saved?.access==='string'&&typeof saved?.refresh==='string'){tokens=saved;remembered=long;} } catch { /* Нет сохранённой сессии. */ } }
   const results=[];
-  function session(value) { tokens=value; try { if(value) sessionStorage.setItem(sessionKey,JSON.stringify(value)); else sessionStorage.removeItem(sessionKey); } catch { /* Сессия продолжает работать в памяти. */ } }
+  // Сохраняем токены. remember=true/false меняет место хранения; без него (продление входа) — место прежнее.
+  function session(value,remember) {
+    if(remember!==undefined)remembered=Boolean(remember);
+    tokens=value;
+    for (const long of [true,false]) { try { storage(long)?.removeItem(sessionKey); } catch { /* Хранилище недоступно. */ } }   // стираем старые копии
+    if(value){ try { storage(remembered)?.setItem(sessionKey,JSON.stringify(value)); } catch { /* Сессия продолжает работать в памяти. */ } }
+  }
   function expireSession(){session(null);window.dispatchEvent(new Event('muslim-session-expired'));}
   function record(path,method,status,elapsed) { results.unshift({path,method,status,elapsed,at:new Date().toISOString()}); results.splice(60); window.dispatchEvent(new Event('muslim-api-result')); }
   function errorMessage(body,status) {
     if (typeof body?.detail==='string') return body.detail;
-    if (body && typeof body==='object') return Object.entries(body).map(([key,value])=>`${key}: ${Array.isArray(value)?value.join(', '):typeof value==='object'?JSON.stringify(value):value}`).join('; ').slice(0,1000);
+    if (Array.isArray(body)) return body.join(' ');                // ошибка списком: ["Текст"]
+    // Названия полей в ошибках по-русски: «email: …» → «Email: …»
+    const labels={username:'Логин',email:'Email',password:'Пароль',role:'Роль',first_name:'Имя',last_name:'Фамилия',phone:'Телефон',telegram_id:'Telegram ID'};
+    if (body && typeof body==='object') return Object.entries(body).map(([key,value])=>`${key==='non_field_errors'?'':(labels[key]||key)+': '}${Array.isArray(value)?value.join(', '):typeof value==='object'?JSON.stringify(value):value}`).join('; ').slice(0,1000);
     return `Ошибка API (${status})`;
   }
   async function request(path,{method='GET',body,auth=true,binary=false,retry=true}={}) {
@@ -38,7 +50,8 @@
     if (!data&&text) throw new Error('API вернул неожиданный формат ответа.');
     return data;
   }
-  async function login(username,password) { const data=await request('/auth/login/',{method:'POST',body:{username,password},auth:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session(data); try{return await request('/auth/me/');}catch(error){session(null);throw error;} }
+  // Вход: username — это email или логин; remember — галочка «Запомнить меня».
+  async function login(username,password,remember=false) { const data=await request('/auth/login/',{method:'POST',body:{username,password,remember:Boolean(remember)},auth:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},remember); try{return await request('/auth/me/');}catch(error){session(null);throw error;} }
   function normalizeMenu(rows) {
     if (!Array.isArray(rows)) throw new Error('В ответе меню ожидался список категорий.');
     const extras=new Map(),dishes=[];
@@ -51,7 +64,6 @@
     return {categories,dishes,extras:[...extras.values()]};
   }
   function orderPayload({menu,cart,tableToken,deviceKey,mode,fields={},comment=''}){
-    if(!tableToken)throw new Error('Для заказа откройте QR-код стола или доставки.');
     if(!cart.length)throw new Error('Корзина пуста.');
     const notes=[];
     const items=cart.map(item=>{
@@ -63,8 +75,11 @@
       if(item.comment)notes.push(`${dish.name}: ${item.comment}`);
       return {dish_id:dish.apiId,size_id:dish.sizeIds?.[item.size]||null,extra_ids,quantity:item.qty};
     });
-    const payload={table_token:tableToken,device_key:deviceKey,comment:[comment,...notes].filter(Boolean).join('\n'),payment_method:fields.payment||'cash',items};
-    if(mode!=='cafe')Object.assign(payload,{order_type:mode,customer_name:fields.customer||'',phone:fields.phone||'',address:fields.address||'',apartment:fields.apartment||'',entrance:fields.entrance||'',floor:fields.floor||'',courier_comment:fields.courierNote||''});
+    const payload={device_key:deviceKey,comment:[comment,...notes].filter(Boolean).join('\n'),payment_method:fields.payment||'cash',items};
+    if(tableToken)payload.table_token=tableToken;                 // без токена — заказ с главной страницы (доставка)
+    if(mode==='takeaway')payload.order_type='takeaway';           // со стола «с собой»: контакты не нужны
+    if(mode==='pickup')Object.assign(payload,{order_type:'pickup',customer_name:fields.customer||'',phone:fields.phone||''});   // самовывоз: только имя и телефон
+    if(mode==='delivery')Object.assign(payload,{order_type:'delivery',customer_name:fields.customer||'',phone:fields.phone||'',address:fields.address||'',apartment:fields.apartment||'',entrance:fields.entrance||'',floor:fields.floor||'',courier_comment:fields.courierNote||''});
     return payload;
   }
   function orderAction(id,action,reason=''){
