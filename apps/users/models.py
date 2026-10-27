@@ -6,6 +6,8 @@
 
 from django.contrib.auth.models import AbstractUser  # стандартный пользователь Django: логин, пароль и т.д.
 from django.db import models                         # поля для таблиц
+from django.db.models import Q                       # условие «email не пустой»
+from django.db.models.functions import Lower         # сравнение без учёта регистра (A@x.com = a@x.com)
 
 
 class User(AbstractUser):
@@ -32,10 +34,21 @@ class User(AbstractUser):
         verbose_name = "Сотрудник"          # название в единственном числе (для админки)
         verbose_name_plural = "Сотрудники"  # во множественном
 
+        constraints = [
+            # Один email — один сотрудник (иначе непонятно, кого впускать). Пустой email можно у многих
+            models.UniqueConstraint(
+                Lower("email"),                       # сравниваем email маленькими буквами
+                condition=~Q(email=""),               # правило не касается пустых email
+                name="unique_user_email_ci",
+                violation_error_message="Сотрудник с таким email уже есть.",
+            ),
+        ]
+
     def save(self, *args, **kwargs):
         """Перед сохранением: суперпользователь всегда получает роль программиста."""
         if self.is_superuser:                 # если это суперпользователь (создан через createsuperuser)
             self.role = self.Role.PROGRAMMER  # делаем его программистом
+        self.email = (self.email or "").strip().lower()  # email храним без пробелов и маленькими буквами
         super().save(*args, **kwargs)         # сохраняем как обычно
 
     # ----- Проверки ролей. Будем использовать в правах доступа -----

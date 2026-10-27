@@ -14,19 +14,19 @@
     root.querySelectorAll('[data-icon]').forEach(element=>{element.innerHTML=icon(element.dataset.icon);});
     const rules=[
       ['[data-edit-dish]:not([data-edit-dish="new"]),[data-edit-table]','edit'],
-      ['[data-edit-dish="new"],[data-add-table],#add-size','plus'],
-      ['[data-delete-dish],[data-delete-table]','trash'],
+      ['[data-edit-dish="new"],[data-add-table],[data-add-staff],#add-size','plus'],
+      ['[data-delete-dish],[data-delete-table],[data-delete-staff]','trash'],
       ['[data-close],[data-remove-size]','close'],
       ['[data-reload]','refresh'],
       ['[data-download-qr],[data-download-all-qr],[data-download-checks]','download'],
       ['[data-print-qr]','print'],
       ['[data-export-report]',live?'download':'print'],
       ['[data-export-csv]','file'],
-      ['#dish-form [type="submit"],button[form="settings-form"],#table-form .form-footer .primary','save'],
+      ['#dish-form [type="submit"],button[form="settings-form"],#table-form .form-footer .primary,#staff-form .form-footer .primary','save'],
       ['#reason-form [type="submit"]','close'],
       ['[data-call-done],#confirm-action','check'],
       ['#logout','logout'],
-      ['#demo-login,#login-form [type="submit"]','logout']
+      ['#login-form [type="submit"]','logout']
     ];
     function apply(button,name){
       if(button.querySelector('.ui-icon'))return;
@@ -56,6 +56,7 @@
     return !live||['programmer','chef','admin'].includes(me?.role)||['orders',...(me?.role==='cook'?['menu']:[])].includes(id);
   }
   function showLogin(message=''){
+    stopWatch();   // вышли — уведомления больше не нужны
     ++loadSequence;live=false;me=null;cache={};
     document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
     $('#admin-shell').hidden=true;$('#login-screen').hidden=false;$('#content').innerHTML='';
@@ -73,11 +74,12 @@
     $('#environment-label').textContent=live?'Локальный API · данные с сервера':'Демо · изменения только в этом браузере · Telegram не подключён';
     const requested=location.hash.slice(1);view=views.some(v=>v[0]===requested)&&canAccess(requested)?requested:'orders';
     await render();
+    startWatch();   // следим за новыми заказами и вызовами
   }
-  async function render(){
+  async function render(quiet=false){   // quiet=true — тихое обновление, без надписи «Загружаем…»
     if(!canAccess(view))view='orders';
     const sequence=++loadSequence;nav();location.hash=view;
-    $('#content').innerHTML='<div class="loading">Загружаем…</div>';
+    if(!quiet)$('#content').innerHTML='<div class="loading">Загружаем…</div>';
     try{
       let html='';
       if(view==='orders')html=await ordersView();
@@ -94,7 +96,7 @@
     let orders,calls=[];
     if(live){const data=await Promise.all([API.request('/staff/orders/?active=true'),me.role==='cook'?Promise.resolve([]):API.request('/staff/table-calls/')]);orders=list(data[0]);calls=list(data[1]);}
     else orders=state.orders;
-    cache.orders=orders;cache.newCount=orders.filter(o=>o.status==='new').length;
+    cache.orders=orders;cache.newCount=orders.filter(o=>o.status===(live&&me.role==='cook'?'accepted':'new')).length;if(live)remember(orders,calls);   // то, что уже на экране, не «новое»
     const filtered=orders.filter(o=>orderFilter==='all'||(orderFilter==='delivery'?(live?o.kind==='delivery':o.type==='delivery'):(live?o.kind==='hall':o.type==='cafe')));
     const groups=[['new','Новые',['new']],['cooking','Готовятся',['accepted','cooking']],['ready','Готовы и в пути',['ready','on_the_way']]];
     const callHtml=calls.length?`<div class="notice">${calls.map(c=>`<div class="actions"><strong>${esc(c.table_name)}: ${esc(c.kind_display)}</strong><button class="secondary" data-call-done="${c.id}">Выполнено</button></div>`).join('')}</div>`:'';
@@ -163,14 +165,80 @@
     else{cache.users=state.users;cache.roles=['admin','cook','user'].map(value=>({value,label:roles[value]}));cache.audit=state.audit;}
     const users=cache.users.filter(u=>(userFilter==='all'||u.role===userFilter)&&`${u.name||u.first_name||''} ${u.handle||u.username}`.toLowerCase().includes(query.toLowerCase()));
     const filters=['all',...new Set(cache.users.map(u=>u.role))];
-    return heading('Пользователи и роли',live?'Права проверяются сервером':'Демо-роли не предоставляют настоящий доступ')+`<div class="toolbar"><div class="pills">${filters.map(r=>pill(r==='all'?`Все · ${cache.users.length}`:roles[r],r,userFilter===r,'user-filter')).join('')}</div><input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя или логин" value="${esc(query)}"></div><div class="users-layout"><div class="data-wrap"><table class="data-table"><thead><tr><th>Пользователь</th><th>Роль</th><th class="category-col">Статус</th></tr></thead><tbody>${users.map(u=>{const name=u.name||u.first_name||u.username,roleOptions=cache.roles.some(r=>r.value===u.role)?cache.roles:[{value:u.role,label:roles[u.role]},...cache.roles];return `<tr><td><div class="user-cell"><span class="avatar">${esc(name[0])}</span><div><strong>${esc(name)}</strong><small>@${esc(u.handle||u.username)}</small></div></div></td><td><select class="role-select" data-role-user="${u.id}" aria-label="Роль: ${esc(name)}" ${(live?!u.can_edit||u.id===me.id:u.role==='owner')?'disabled':''}>${roleOptions.map(r=>`<option value="${r.value}" ${r.value===u.role?'selected':''}>${esc(r.label)}</option>`).join('')}</select></td><td class="category-col">${live?u.is_active?'Активен':'Отключён':u.role==='blocked'?'Отключён':'Активен'}</td></tr>`;}).join('')||'<tr><td colspan="3" class="empty">Пользователи не найдены</td></tr>'}</tbody></table></div><aside class="panel"><h2>История смены ролей</h2>${cache.audit.slice().reverse().slice(0,20).map(a=>`<div class="audit-row"><strong>${esc(a.user_name||a.name)}</strong><br>${esc(a.old_role_display||roles[a.from])} → ${esc(a.new_role_display||roles[a.to])}<small>${esc(a.created_at||a.at)}</small></div>`).join('')||'<p class="fine">Пока нет изменений ролей</p>'}</aside></div>`;
+    const addButton=live&&cache.roles.length?'<button class="primary" data-add-staff>Добавить сотрудника</button>':'';   // кнопка есть у программиста, шефа и админа
+    return heading('Пользователи и роли',live?'Права проверяются сервером':'Демо-роли не предоставляют настоящий доступ',addButton)+`<div class="toolbar"><div class="pills">${filters.map(r=>pill(r==='all'?`Все · ${cache.users.length}`:roles[r],r,userFilter===r,'user-filter')).join('')}</div><input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя или логин" value="${esc(query)}"></div><div class="users-layout"><div class="data-wrap"><table class="data-table"><thead><tr><th>Пользователь</th><th>Роль</th><th class="category-col">Статус</th><th aria-label="Действия"></th></tr></thead><tbody>${users.map(u=>{const name=u.name||u.first_name||u.username,roleOptions=cache.roles.some(r=>r.value===u.role)?cache.roles:[{value:u.role,label:roles[u.role]},...cache.roles];return `<tr><td><div class="user-cell"><span class="avatar">${esc(name[0])}</span><div><strong>${esc(name)}</strong><small>@${esc(u.handle||u.username)}${u.email?' · '+esc(u.email):''}</small></div></div></td><td><select class="role-select" data-role-user="${u.id}" aria-label="Роль: ${esc(name)}" ${(live?!u.can_edit||u.id===me.id:u.role==='owner')?'disabled':''}>${roleOptions.map(r=>`<option value="${r.value}" ${r.value===u.role?'selected':''}>${esc(r.label)}</option>`).join('')}</select></td><td class="category-col">${live?u.is_active?'Активен':'Отключён':u.role==='blocked'?'Отключён':'Активен'}</td><td>${live&&u.can_edit&&u.id!==me.id?`<button class="icon-button danger" data-delete-staff="${u.id}" aria-label="Удалить: ${esc(name)}" title="Удалить сотрудника"></button>`:''}</td></tr>`;}).join('')||'<tr><td colspan="4" class="empty">Пользователи не найдены</td></tr>'}</tbody></table></div><aside class="panel"><h2>История смены ролей</h2>${cache.audit.slice().reverse().slice(0,20).map(a=>`<div class="audit-row"><strong>${esc(a.user_name||a.name)}</strong><br>${esc(a.old_role_display||roles[a.from])} → ${esc(a.new_role_display||roles[a.to])}<small>${esc(a.created_at||a.at)}</small></div>`).join('')||'<p class="fine">Пока нет изменений ролей</p>'}</aside></div>`;
   }
+  // Окно «Новый сотрудник». Роли в списке — только те, что сервер разрешает назначать
+  function addStaff(){
+    $('#editor-title').textContent='Новый сотрудник';
+    $('#editor-content').innerHTML=`<form id="staff-form">
+      <div class="two-fields">${field('Имя','first_name','','text','maxlength="150" required')}${field('Фамилия','last_name','','text','maxlength="150"')}</div>
+      <label>Роль<select name="role" required>${cache.roles.map(r=>`<option value="${esc(r.value)}">${esc(r.label)}</option>`).join('')}</select></label>
+      ${field('Логин','username','','text','maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9@.+_\\-]+" title="Латинские буквы, цифры и символы @ . + - _"')}
+      ${field('Email','email','','email','maxlength="254" autocomplete="off" placeholder="Можно оставить пустым"')}
+      <div class="two-fields">${field('Телефон','phone','','tel','maxlength="20" placeholder="+996"')}${field('Telegram ID','telegram_id','','number','min="1" placeholder="Для бота"')}</div>
+      <div class="two-fields">${field('Пароль','password','','password','minlength="8" required autocomplete="new-password"')}${field('Повторите пароль','password2','','password','minlength="8" required autocomplete="new-password"')}</div>
+      <p class="fine">Логин или email и пароль передайте сотруднику лично. Он сможет войти сразу.</p>
+      <p id="editor-error" class="error"></p>
+      <footer class="form-footer"><button class="primary" type="submit">Добавить</button></footer>
+    </form>`;
+    paintControls(editor);editor.showModal();
+  }
+  // Отправка формы «Новый сотрудник» на сервер
+  async function saveStaff(form){
+    const v=new FormData(form),text=name=>String(v.get(name)||'').trim();
+    if(String(v.get('password'))!==String(v.get('password2')))throw new Error('Пароли не совпадают.');
+    const tg=text('telegram_id');
+    await API.request('/admin/staff/',{method:'POST',body:{
+      first_name:text('first_name'),last_name:text('last_name'),role:text('role'),
+      username:text('username'),email:text('email').toLowerCase(),phone:text('phone'),
+      telegram_id:tg?Number(tg):null,password:String(v.get('password'))
+    }});
+    editor.close();toast(`Сотрудник ${text('first_name')} добавлен`);await render();
+  }
+  // ===== Уведомления: раз в 10 секунд спрашиваем сервер, не появилось ли что-то новое =====
+  // Официант (и админ): новый заказ, «Позвать официанта», «Попросить счёт», заказ готов.
+  // Повар: заказ подтверждён официантом — пора готовить.
+  let watchTimer=null,seen=null;
+  const WATCH_EVERY=10000;                                      // 10 секунд
+  function startWatch(){stopWatch();if(!live)return;watch();watchTimer=setInterval(watch,WATCH_EVERY);paintBell();}
+  function stopWatch(){clearInterval(watchTimer);watchTimer=null;seen=null;MuslimNotify.title(0);}
+  // Запоминаем, что сотрудник уже видел (чтобы не звенеть повторно)
+  function remember(orders,calls){seen={orders:new Map(orders.map(o=>[o.id,o.status])),calls:new Set(calls.map(c=>c.id)),key:orders.map(o=>o.id+':'+o.status).join(',')+'|'+calls.map(c=>c.id).join(',')};}
+  // Человек сейчас что-то вводит — не перерисовываем страницу у него под руками
+  function typing(){const el=document.activeElement;return Boolean(el&&$('#content').contains(el)&&/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));}
+  async function watch(){
+    if(!live)return;
+    const role=me.role,isCook=role==='cook',isBoss=['programmer','chef','admin'].includes(role);
+    let orders,calls;
+    try{const data=await Promise.all([API.request('/staff/orders/?active=true'),isCook?[]:API.request('/staff/table-calls/')]);orders=list(data[0]);calls=list(data[1]);}
+    catch{return;}                                              // нет связи — попробуем через 10 секунд
+    if(!live)return;                                            // пока ждали ответ, сотрудник вышел
+    const place=o=>o.table_name||(o.kind==='delivery'?'Доставка':'');
+    const events=[],before=seen;
+    if(before){
+      for(const o of orders){
+        const was=before.orders.get(o.id);if(was===o.status)continue;              // ничего не поменялось
+        if(!isCook&&o.status==='new'&&was===undefined)events.push(`Новый заказ №${o.number} · ${place(o)}`);
+        if(isCook&&o.status==='accepted')events.push(`На кухню: заказ №${o.number} · ${place(o)}`);
+        if(o.status==='ready'&&(role==='waiter'||(isBoss&&o.kind==='delivery')))events.push(`Готов: заказ №${o.number} · ${place(o)}`);
+      }
+      for(const c of calls)if(!before.calls.has(c.id))events.push(`${c.table_name}: ${c.kind_display}`);  // «Стол 5: Попросить счёт»
+    }
+    remember(orders,calls);
+    const waiting=orders.filter(o=>o.status===(isCook?'accepted':'new')).length;   // ждут реакции
+    cache.newCount=waiting;nav();MuslimNotify.title(waiting+calls.length);           // цифра в меню и во вкладке
+    if(events.length){MuslimNotify.alert(events);toast(events.slice(0,3).join(' · ')+(events.length>3?` и ещё ${events.length-3}`:''));}
+    if(before&&before.key!==seen.key&&view==='orders'&&!document.querySelector('dialog[open]')&&!typing())await render(true);   // список сам обновился
+  }
+  // Кнопка «Звук» в верхней полосе
+  function paintBell(){const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span>${on?'Звук вкл':'Звук выкл'}</span>`;b.classList.toggle('muted',!on);}
   async function reportsView(){
     const actions=`<button class="secondary" data-export-report>${live?'Скачать PDF':'Печать / PDF'}</button><button class="secondary" data-export-csv>${live?'JSON':'CSV'}</button>`;
     const top=heading('Отчёты',live?'Данные с API':'Демонстрационные данные',actions)+`<div class="toolbar"><div class="pills">${pill('За день','day',reportPeriod==='day','report-period')}${!live||['chef','programmer'].includes(me?.role)?pill('За 45 дней','period',reportPeriod==='period','report-period'):''}</div>${reportPeriod==='day'?`<input class="report-date" type="date" id="report-date" value="${reportDate}" max="${Store.today()}" aria-label="Дата отчёта">`:`<span class="fine">${Store.dayOffset(Store.today(),-44)} — ${Store.today()}</span>`}</div>`;
     if(live){
       try{cache.report=await API.request(reportPeriod==='day'?`/admin/reports/day/?date=${reportDate}`:'/admin/reports/period/');
-        return top+`<div class="panel"><h2>Отчёт API</h2><pre class="raw-report">${esc(JSON.stringify(cache.report,null,2))}</pre></div>`;
+        return top+liveReport(cache.report,reportPeriod==='period'?await loadArchive():[]);
       }catch(error){cache.report=null;return top+`<div class="panel"><h2>Отчёт недоступен</h2><p class="error">${esc(error.message)}</p><br><p class="fine">${error.status===500?'API вернул 500. Данные не подменены примерами. Ошибка зарегистрирована в разделе «Проверка API».':'Проверьте подключение к API.'}</p></div>`;}
     }
     const start=reportPeriod==='day'?reportDate:Store.dayOffset(Store.today(),-44),end=reportPeriod==='day'?reportDate:Store.today();
@@ -180,6 +248,65 @@
     const points=reportPeriod==='day'?Array.from({length:13},(_,i)=>({label:`${i+10}`,sum:completed.filter(o=>o.hour===i+10).reduce((s,o)=>s+Store.orderTotal(o),0)})):Array.from({length:45},(_,i)=>{const day=Store.dayOffset(start,i);return {label:day.slice(8),sum:completed.filter(o=>o.date===day).reduce((s,o)=>s+Store.orderTotal(o),0)};});
     const max=Math.max(1,...points.map(p=>p.sum));
     return top+`<div class="stats"><article class="stat"><span>Выручка</span><strong>${money(revenue)}</strong><small>Завершённые заказы</small></article><article class="stat"><span>Заказы</span><strong>${completed.length}</strong><small>За выбранный период</small></article><article class="stat"><span>Средний чек</span><strong>${money(completed.length?Math.round(revenue/completed.length):0)}</strong><small>Выручка / заказы</small></article><article class="stat"><span>Отменено</span><strong>${cancelled}</strong><small>Не входят в выручку</small></article></div><section class="panel chart-panel"><h2>Выручка ${reportPeriod==='day'?'по часам':'по дням'}, сом</h2><div class="chart ${reportPeriod==='period'?'period':''}" role="img" aria-label="График выручки">${points.map(p=>`<div class="bar-group" title="${p.label}: ${money(p.sum)}"><div class="bar" style="height:${p.sum/max*100}%"></div>${reportPeriod==='day'||Number(p.label)%5===0?`<small>${p.label}${reportPeriod==='day'?':00':''}</small>`:''}</div>`).join('')}</div></section><div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${ranked.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.qty}</td><td>${money(p.sum)}</td><td class="category-col"><div class="progress"><span style="width:${p.sum/(ranked[0]?.sum||1)*100}%"></span></div></td></tr>`).join('')||'<tr><td colspan="4" class="empty">Нет заказов за выбранный день</td></tr>'}</tbody></table></div>`;
+  }
+  // Архив закрытых периодов по 45 дней. Ошибка — просто пустой архив.
+  async function loadArchive(){
+    try{return await API.request('/admin/reports/periods/');}catch{return [];}
+  }
+
+  // Отчёт с сервера: карточки, график, разбивки, топ блюд — как в макете.
+  function liveReport(r,archive){
+    const isDay=reportPeriod==='day';                                   // за день или за 45 дней
+    const pct=r.compare?.change_percent;                                // изменение к прошлому, %
+    const trend=pct==null?'Сравнивать не с чем':`${pct>=0?'▲':'▼'} ${Math.abs(pct)}% ${isDay?'к этому дню прошлой недели':'к прошлому периоду'}`;
+
+    // Точки графика: по часам (день) или по дням (45 дней)
+    const points=isDay
+      ?(r.by_hour||[]).map(h=>({title:h.label,short:h.label,sum:h.revenue,count:h.count}))
+      :(r.by_day||[]).map((d,i)=>({title:d.date,short:i%5===0?d.date.slice(8,10)+'.'+d.date.slice(5,7):'',sum:d.revenue,count:d.count}));
+    const max=Math.max(1,...points.map(p=>p.sum));                     // самый высокий столбик = 100%
+
+    // Плашка периода (только для 45 дней)
+    const p=r.period;
+    const banner=p?`<section class="panel"><h2>Период: ${esc(p.start_date)} — ${esc(p.end_date)}</h2>
+      <p class="fine">День ${p.day_number} из ${p.days_total}. Новый период начнётся ${esc(p.next_start)}, этот уйдёт в архив PDF.</p>
+      <div class="progress" style="margin-top:12px"><span style="width:${p.day_number/p.days_total*100}%"></span></div></section>`:'';
+
+    // Блок-разбивка: зал / доставка / самовывоз или наличные / карта
+    const split=(title,obj)=>{
+      const items=Object.values(obj||{}),total=items.reduce((s,i)=>s+i.revenue,0)||1;
+      return `<section class="panel"><h2>${title}</h2>${items.map(i=>`
+        <div style="display:flex;justify-content:space-between;margin:14px 0 6px"><span>${esc(i.label)} · ${i.count} зак.</span><strong>${money(i.revenue)}</strong></div>
+        <div class="progress"><span style="width:${i.revenue/total*100}%"></span></div>`).join('')}</section>`;
+    };
+
+    // Топ блюд
+    const top=r.top_dishes||[],topMax=top[0]?.revenue||1;
+    const topTable=`<div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${
+      top.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.quantity}</td><td>${money(d.revenue)}</td><td class="category-col"><div class="progress"><span style="width:${d.revenue/topMax*100}%"></span></div></td></tr>`).join('')
+      ||`<tr><td colspan="4" class="empty">Нет завершённых заказов за ${isDay?'этот день':'этот период'}</td></tr>`}</tbody></table></div>`;
+
+    // Причины отмен (если были)
+    const reasons=(r.cancel_reasons||[]).length?`<section class="panel"><h2>Причины отмен</h2>${r.cancel_reasons.map(c=>`<div style="display:flex;justify-content:space-between;margin:10px 0"><span>${esc(c.reason)}</span><strong>${c.count}</strong></div>`).join('')}</section>`:'';
+
+    // Архив прошлых периодов (только для 45 дней)
+    const archiveBlock=isDay?'':`<section class="panel"><h2>Архив прошлых периодов</h2>${
+      archive.length?archive.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0">
+        <span><strong>${esc(a.start_date)} — ${esc(a.end_date)}</strong><br><small class="fine">${money(a.revenue)} · ${a.orders_count} заказов</small></span>
+        ${a.has_pdf?`<button class="secondary" data-archive-pdf="${a.id}">PDF</button>`:''}</div>`).join('')
+      :'<p class="fine">Пока пусто: первый период ещё не закончился.</p>'}</section>`;
+
+    return banner+`<div class="stats">
+        <article class="stat"><span>Выручка</span><strong>${money(r.revenue)}</strong><small>${trend}</small></article>
+        <article class="stat"><span>Заказы</span><strong>${r.orders_count}</strong><small>Завершённые · ещё в работе: ${r.in_progress_count}</small></article>
+        <article class="stat"><span>Средний чек</span><strong>${money(r.avg_check)}</strong><small>Выручка / заказы</small></article>
+        <article class="stat"><span>Отменено</span><strong>${r.cancelled_count}</strong><small>Не входят в выручку</small></article>
+      </div>
+      <section class="panel chart-panel"><h2>Выручка ${isDay?'по часам':'по дням'}, сом</h2>
+        <div class="chart ${isDay?'':'period'}" role="img" aria-label="График выручки">${points.map(pt=>`<div class="bar-group" title="${esc(pt.title)}: ${money(pt.sum)} · ${pt.count} зак."><div class="bar" style="height:${pt.sum/max*100}%"></div>${pt.short?`<small>${esc(pt.short)}</small>`:''}</div>`).join('')}</div>
+      </section>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">${split('Откуда выручка',r.by_kind)}${split('Оплата',r.by_payment)}</div>
+      ${topTable}${reasons}${archiveBlock}`;
   }
   async function settingsView(){
     const s=live?await API.request('/admin/cafe/'):state.settings;cache.settings=s;
@@ -202,12 +329,18 @@
   function download(name,content,type='text/plain;charset=utf-8'){const blob=content instanceof Blob?content:new Blob([content],{type});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   async function act(button){
     if(button.dataset.view){view=button.dataset.view;query='';await render();return;}
+    if(button.id==='notify-toggle'){const on=!MuslimNotify.enabled();MuslimNotify.setEnabled(on);if(on){MuslimNotify.unlock();await MuslimNotify.askPermission();MuslimNotify.beep();}paintBell();toast(on?'Уведомления включены':'Уведомления выключены');return;}
     if(button.hasAttribute('data-reload')){await render();return;}
     if(button.hasAttribute('data-close')){button.closest('dialog').close();return;}
     if(button.dataset.orderFilter){orderFilter=button.dataset.orderFilter;await render();return;}
     if(button.dataset.menuFilter){menuFilter=button.dataset.menuFilter;await render();return;}
     if(button.dataset.userFilter){userFilter=button.dataset.userFilter;await render();return;}
     if(button.dataset.reportPeriod){reportPeriod=button.dataset.reportPeriod;await render();return;}
+    // «Добавить сотрудника» и «Удалить сотрудника»
+    if(button.hasAttribute('data-add-staff')){addStaff();return;}
+    if(button.dataset.deleteStaff){const id=button.dataset.deleteStaff,u=cache.users.find(u=>String(u.id)===id),name=u.first_name||u.username;confirm('Удалить сотрудника?',`${name} (${roles[u.role]||u.role_display}) будет удалён навсегда и больше не сможет войти. Его заказы останутся в истории, но без имени.`,async()=>{await API.request(`/admin/staff/${id}/`,{method:'DELETE'});toast(`${name} удалён`);await render();});return;}
+    // Кнопка «PDF» в архиве прошлых периодов
+    if(button.dataset.archivePdf){download(`Муслим-период-${button.dataset.archivePdf}.pdf`,await API.request(`/admin/reports/periods/${button.dataset.archivePdf}/pdf/`,{binary:true}));return;}
     if(button.dataset.editDish){if(!canManageMenu())throw new Error('Для этой роли доступно только изменение наличия.');editDish(button.dataset.editDish);syncBasePrice();return;}
     if(button.id==='add-size'){if($('#size-rows').children.length>=3){toast('Максимум три варианта размера');return;}$('#size-rows').insertAdjacentHTML('beforeend',sizeRow());syncBasePrice();return;}
     if(button.hasAttribute('data-remove-size')){button.closest('.sizes-row').remove();syncBasePrice();return;}
@@ -240,29 +373,28 @@
     }catch(error){toast(error.message);if(input.dataset.availability)await render();if(input.id==='dish-photo'){input.value='';uploadFile=null;if($('#photo-status')){$('#photo-status').textContent=error.message;$('#photo-status').classList.add('error');}}}finally{input.disabled=false;if(input.id==='dish-photo')input.closest('.upload-button')?.removeAttribute('aria-busy');}
   });
   document.addEventListener('submit',async event=>{
-    const form=event.target;if(!['dish-form','table-form','settings-form','reason-form'].includes(form.id))return;event.preventDefault();const submit=form.querySelector('[type=submit]')||form.querySelector('.primary');if(submit)submit.disabled=true;
+    const form=event.target;if(!['dish-form','table-form','settings-form','reason-form','staff-form'].includes(form.id))return;event.preventDefault();const submit=form.querySelector('[type=submit]')||form.querySelector('.primary');if(submit)submit.disabled=true;
     try{
       if(form.id==='dish-form')await saveDish(form);
+      if(form.id==='staff-form')await saveStaff(form);   // новый сотрудник
       if(form.id==='table-form'){const values=new FormData(form),payload={name:String(values.get('name')).trim(),number:Number(values.get('number'))};if(!payload.name)throw new Error('Укажите название стола.');if(live)await API.request(editingId?`/admin/tables/${editingId}/`:'/admin/tables/',{method:editingId?'PATCH':'POST',body:{...payload,kind:values.get('kind')}});else await localChange(s=>{if(s.tables.some(t=>t.number===payload.number&&t.number!==editingId))throw new Error('Стол с таким номером уже существует.');s.orders.forEach(o=>{if(o.table===editingId)o.table=payload.number;});s.tables=s.tables.filter(t=>t.number!==editingId);s.tables.push(payload);s.tables.sort((a,b)=>a.number-b.number);},'Стол сохранён');editor.close();await render();}
       if(form.id==='settings-form'){const values=new FormData(form),s={acceptOrders:values.has('acceptOrders'),acceptDelivery:values.has('acceptDelivery'),opens:String(values.get('opens')),closes:String(values.get('closes')),deliveryMin:Number(values.get('deliveryMin')),deliveryFee:Number(values.get('deliveryFee')),deliveryTime:String(values.get('deliveryTime')).trim(),freeFrom:Number(values.get('freeFrom')),address:String(values.get('address')).trim(),phone:String(values.get('phone')).trim()};if(live)await API.request('/admin/cafe/',{method:'PATCH',body:{is_accepting_orders:s.acceptOrders,is_delivery_enabled:s.acceptDelivery,opens_at:s.opens,closes_at:s.closes,delivery_min_sum:s.deliveryMin,delivery_fee:s.deliveryFee,delivery_time:s.deliveryTime,free_delivery_from:s.freeFrom,address:s.address,phone:s.phone}});else await localChange(next=>Object.assign(next.settings,s,{menuUrl:String(values.get('menuUrl'))}),'Настройки сохранены');toast('Настройки сохранены');}
       if(form.id==='reason-form'){const reason=new FormData(form).get('reason').trim();if(!reason)throw new Error('Укажите причину отмены.');await cache.reasonHandler(reason);editor.close();}
     }catch(error){const target=form.querySelector('.error');if(target)target.textContent=error.message;else toast(error.message);}finally{if(submit)submit.disabled=false;}
   });
-  $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{if(!API.enabled)throw new Error('Запустите локальную версию сайта для подключения к API.');const data=new FormData(form),user=await API.login(String(data.get('username')).trim(),String(data.get('password')));form.reset();await enter(true,user);}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}});
-  $('#demo-login').addEventListener('click',()=>enter(false,null).catch(error=>toast(error.message)));
+  $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{if(!API.enabled)throw new Error('Запустите локальную версию сайта для подключения к API.');const data=new FormData(form),user=await API.login(String(data.get('username')).trim(),String(data.get('password')),data.has('remember'));form.reset();await enter(true,user);}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}});
   function logout(){API.logout();try{sessionStorage.removeItem('muslim-demo-open');}catch{/* Нет сохранённой демо-сессии. */}location.hash='';showLogin();}
   $('#logout').addEventListener('click',logout);
   $('#session-logout').addEventListener('click',logout);
   window.addEventListener('muslim-session-expired',()=>{if(live)showLogin('Сессия истекла. Войдите повторно.');});
   window.addEventListener('muslim-api-result',()=>{if(view==='api'&&$('#api-results'))$('#api-results').innerHTML=resultRows();});
-  $('#login-description').textContent=API.enabled?'Войдите под своей учётной записью локального API.':'Панель без базы данных. Вы можете проверить все разделы на демонстрационных данных.';
+  $('#login-description').textContent=API.enabled?'Войдите по email или логину, который выдал администратор.':'Панель без базы данных. Вы можете проверить все разделы на демонстрационных данных.';
   if(!API.enabled){
-    $('#login-form').hidden=true;$('.divider').hidden=true;
-    $('#login-description').textContent='Для работы с локальным API откройте локальную версию сайта. Здесь также доступен демонстрационный режим.';
+    $('#login-form').hidden=true;
+    $('#login-description').textContent='Сервер не подключён. Откройте панель с запущенным сервером, чтобы войти.';
     const localUrl=window.MUSLIM_CONFIG?.localAppUrl;
     if(localUrl){const link=document.createElement('a');link.className='primary local-api-link';link.href=new URL('/admin',localUrl).href;link.textContent='Открыть с API';$('#login-description').after(link);}
   }
   paintControls(document);
   if(API.enabled&&API.hasSession())API.request('/auth/me/').then(user=>enter(true,user)).catch(error=>{$('#login-error').textContent=error.message;});
-  if(!API.enabled){try{if(sessionStorage.getItem('muslim-demo-open')==='1')enter(false,null).catch(error=>toast(error.message));}catch{/* Показываем начальный экран. */}}
 })();

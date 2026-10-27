@@ -108,6 +108,9 @@ DATABASES = {
 # Говорим Django: используй НАШУ модель пользователя, а не стандартную
 AUTH_USER_MODEL = "users.User"
 
+# Как проверять вход: по логину ИЛИ по email (вместо стандартной проверки только по логину)
+AUTHENTICATION_BACKENDS = ["apps.users.auth_backends.EmailOrUsernameBackend"]
+
 # Проверки надёжности паролей
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},  # не похож на логин
@@ -164,6 +167,7 @@ REST_FRAMEWORK = {
         "DEFAULT_THROTTLE_RATES": {
         "orders": "60/min",   # гости в кафе сидят на одном Wi-Fi (один IP), поэтому лимит с запасом
         "calls": "30/min",    # от повторных нажатий и так защищает правило «не чаще раза в 2 минуты со стола»
+        "login": "10/min",    # не больше 10 попыток входа в минуту с одного IP (защита от подбора пароля)
     },
 }
 
@@ -172,6 +176,11 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),  # токен входа живёт 12 часов (смена в кафе)
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),   # токен обновления — 7 дней
 }
+
+# Сколько держится вход сотрудника (см. apps/users/auth_serializers.py)
+LOGIN_SESSION_LIFETIME = timedelta(hours=12)   # без галочки «Запомнить меня» — одна смена
+LOGIN_REMEMBER_LIFETIME = timedelta(days=30)   # с галочкой — 30 дней, потом снова ввести пароль
+
 
 # Настройки Swagger-документации
 SPECTACULAR_SETTINGS = {

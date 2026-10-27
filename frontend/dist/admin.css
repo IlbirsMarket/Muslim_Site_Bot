@@ -25,3 +25,9 @@ fieldset{border:0;margin:0;padding:0}legend{font-size:12px;font-weight:800;margi
 @media(max-width:800px){.sidebar footer button{justify-content:center}.nav-label{font-size:8px}.sidebar .nav-icon{width:21px;flex-basis:auto}.nav-button{gap:5px}}
 @media(max-width:550px){.nav-label{display:none}.nav-label-short{display:block;font-size:8px;line-height:1.4}.sidebar .nav-icon .ui-icon{width:20px;height:20px}.nav-button{gap:5px;padding:5px 2px}.nav-badge{top:0;right:5px}.search-control{width:100%}.page-heading .primary,.page-heading .secondary{gap:6px}.page-heading .ui-icon{width:15px;height:15px}.image-editor{gap:14px}.upload-button{font-size:12px;padding:10px 13px}.photo-file-name,.photo-status{font-size:10px}.form-footer .ui-icon{width:17px;height:17px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Галочка «Запомнить меня» на экране входа */
+.login-form .remember-me{flex-direction:row;align-items:center;gap:10px;font-size:14px;font-weight:600;cursor:pointer;user-select:none}.login-form .remember-me input{width:18px;height:18px;margin:0;accent-color:var(--green);cursor:pointer}
+/* Логотип кафе вместо буквы «М» */
+.logo{background:#fdfbf3;overflow:hidden;padding:0}.logo img{width:100%;height:100%;object-fit:cover;display:block}
+/* Кнопка «Звук» (уведомления) в верхней полосе */
+#notify-toggle{display:inline-flex;gap:5px;align-items:center;padding:0;background:transparent;font-size:10px;color:inherit;font-weight:700}#notify-toggle[hidden]{display:none}#notify-toggle .ui-icon{width:14px;height:14px}#notify-toggle.muted{opacity:.55}
