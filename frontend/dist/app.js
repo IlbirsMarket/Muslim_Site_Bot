@@ -206,7 +206,9 @@
     renderMenu(); renderCart();
   }
   function deliveryFee(){return mode==='delivery'&&cafe?cafe.free_delivery_from>0&&total()>=cafe.free_delivery_from?0:cafe.delivery_fee:0;}
-  function deviceKey(){let value=storage.read('muslim-device-key',null);if(typeof value!=='string'){value=crypto.randomUUID();storage.write('muslim-device-key',value);}return value;}
+  // Случайный ключ телефона. crypto.randomUUID есть только на https, поэтому на http (сайт по IP) собираем ключ сами
+  function randomKey(){if(crypto.randomUUID)return crypto.randomUUID();const bytes=crypto.getRandomValues(new Uint8Array(16));return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');}
+  function deviceKey(){let value=storage.read('muslim-device-key',null);if(typeof value!=='string'){value=randomKey();storage.write('muslim-device-key',value);}return value;}
   function dishArt(dish){
     if(dish.image&&/^(https?:|data:image\/(png|jpeg|webp);base64,)/.test(dish.image)){let url=dish.image;try{const parsed=new URL(url);if(live&&parsed.pathname.startsWith('/media/'))url='/backend'+parsed.pathname;}catch{/* Локальное фото. */}return `<img src="${escape(url)}" alt="" loading="lazy">`;}
     return art(dish.category);
