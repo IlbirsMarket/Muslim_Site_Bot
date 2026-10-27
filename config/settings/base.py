@@ -25,6 +25,10 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 # Адрес сайта для гостей (фронтенд). На него ведут QR-коды столов
 SITE_URL = os.getenv("SITE_URL", "http://localhost:5173")
 
+# Адрес стандартной Django-админки. На сервере меняем на "django-admin/",
+# потому что /admin занят нашей панелью кафе
+DJANGO_ADMIN_URL = os.getenv("DJANGO_ADMIN_URL", "admin/")
+
 # ---------- ПРИЛОЖЕНИЯ ----------
 
 # Встроенные приложения Django
