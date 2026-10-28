@@ -32,9 +32,9 @@ fieldset{border:0;margin:0;padding:0}legend{font-size:12px;font-weight:800;margi
 /* Кнопка «Звук» (уведомления) в верхней полосе */
 #notify-toggle{display:inline-flex;gap:5px;align-items:center;padding:0;background:transparent;font-size:10px;color:inherit;font-weight:700}#notify-toggle[hidden]{display:none}#notify-toggle .ui-icon{width:14px;height:14px}#notify-toggle.muted{opacity:.55}
 
-/* ===== Цвета заказов: в кафе — зелёный, с собой — жёлтый, доставка — красный, самовывоз — оранжевый ===== */
+/* ===== Цвета заказов: в кафе — зелёный, с собой — ярко-жёлтый (фон — светлый, почти прозрачный), доставка — красный, самовывоз — оранжевый ===== */
 :root{--hall:#2E7D4F;--hall-bg:#E2F1E7;--hall-ink:#1F5F38;
-  --take:#D4A72C;--take-bg:#FBF0CF;--take-ink:#6B5317;
+  --take:#FFD21F;--take-bg:#FFF9DB;--take-ink:#6B5300;
   --deliv:#B23A2A;--deliv-bg:#F8E1DC;--deliv-ink:#8E2A1D;
   --pick:#E8892B;--pick-bg:#FDEBD8;--pick-ink:#8A4B0F}
 .order-card.kind-hall{border-top:4px solid var(--hall)}.order-card.kind-takeaway{border-top:4px solid var(--take)}
@@ -82,7 +82,7 @@ fieldset{border:0;margin:0;padding:0}legend{font-size:12px;font-weight:800;margi
 .dish-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.dish-head h2{font-size:19px;margin-right:auto}.dish-head input{width:260px;max-width:100%}
 .check-line{flex-direction:row;align-items:center;gap:10px;font-size:14px}.check-line input{width:18px;height:18px;accent-color:var(--green)}
 @media(max-width:1150px){.menu-layout{grid-template-columns:260px minmax(0,1fr)}.cat-row .switch{display:none}}
-@media(max-width:700px){
+@media(max-width:1000px){
   .seg-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#EAE6DC;border-radius:12px;padding:4px;margin-bottom:14px}
   .seg-tabs button{border:0;background:transparent;border-radius:9px;padding:10px 4px;font-weight:700}
   .seg-tabs button[aria-selected=true]{background:white;color:var(--green);font-weight:800;box-shadow:0 1px 4px #1f3d2b14}
@@ -93,3 +93,120 @@ fieldset{border:0;margin:0;padding:0}legend{font-size:12px;font-weight:800;margi
 
 /* Цифра на «Заказах» в нижнем меню телефона — всегда у иконки, сколько бы разделов ни было */
 @media(max-width:550px){.nav-badge{right:calc(50% - 26px)}}
+
+/* Текст только для экранного диктора (не виден глазами) */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* ===== Перетаскивание как в iPhone ===== */
+.cat-row.lifted,.data-table tr.lifted{position:relative;z-index:5;transition:none}
+.cat-row.lifted{background:white;box-shadow:0 10px 28px #1f3d2b33;transform-origin:center}
+.data-table tr.lifted td{background:#fffdf6;box-shadow:0 1px 0 #e4e1d8 inset}
+.data-table tr.lifted{box-shadow:0 10px 28px #1f3d2b33}
+.cat-row.shifting,.data-table tr.shifting{transition:transform .2s ease}
+.cat-row.settling,.data-table tr.settling{transition:transform .2s ease}
+.cat-row.lifted .drag-handle,.data-table tr.lifted .drag-handle{cursor:grabbing;color:var(--green)}
+body:has(.lifted){user-select:none;-webkit-user-select:none}
+/* Ручка ⋮⋮ у блюд — только когда выбрана одна категория */
+.data-table .drag-col{display:none;width:40px;padding-left:6px!important;padding-right:0!important}
+.data-table.sorting .drag-col{display:table-cell}
+.data-table .drag-handle{height:36px}
+.sort-hint{margin-top:-4px}.sort-hint:empty{display:none}
+
+/* ===== Столы и QR: 4 одинаковые кнопки сеткой 2×2 под QR ===== */
+.qr-card{display:flex;flex-direction:column;gap:10px;padding:16px}
+.qr-card .qr-top{margin:0}
+.qr-image{background:#fff;border:1px solid #efece4;border-radius:12px;padding:8px}
+.qr-card .qr-image svg{max-width:190px}
+.qr-card .qr-link{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.qr-note{text-align:center;line-height:1.6}
+.qr-card .qr-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:auto;flex-direction:row;align-items:stretch}
+.qr-card .qr-actions button,.qr-card .qr-actions a{width:100%;min-height:42px;padding:8px 6px;font-size:12px;font-weight:700;border-radius:10px;white-space:nowrap;text-decoration:none;gap:6px}
+.qr-card .qr-actions .ui-icon{width:15px;height:15px}
+.qr-card .qr-actions button:disabled{opacity:.4;cursor:not-allowed}
+@media(max-width:550px){
+  .qr-grid{grid-template-columns:minmax(0,1fr);gap:14px}
+  .qr-card{padding:14px}.qr-top h2{font-size:15px}.qr-card .tag{font-size:10px}
+  .qr-card .qr-image svg{max-width:170px}
+  .qr-card .qr-actions button,.qr-card .qr-actions a{font-size:13px;min-height:44px}
+}
+
+/* ===== Настройки: поля времени и чисел не вылезают за карточку ===== */
+.two-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.three-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
+.two-fields>label,.three-fields>label,.settings-grid label{min-width:0}
+input[type=time],input[type=date]{-webkit-appearance:none;appearance:none;min-height:44px;display:block;max-width:100%;text-align:left}
+input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and-time-value{text-align:left}
+.settings-grid .panel{min-width:0}
+@media(max-width:550px){.two-fields,.three-fields{grid-template-columns:minmax(0,1fr);gap:14px}.three-fields label{font-size:12px}.three-fields input{padding:11px 12px}.settings-grid{gap:16px}}
+
+/* ===== Отчёты: одинаковые зазоры между всеми окошками ===== */
+.report{--gap:20px;display:flex;flex-direction:column;gap:var(--gap)}
+.report>*,.report-grid>*{margin:0!important}
+.report .stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--gap)}
+.report .stat{min-width:0}.report .stat strong{overflow-wrap:anywhere;font-size:clamp(20px,2.2vw,27px)}
+.report .stat.up small{color:#27804b;font-weight:700}.report .stat.down small{color:var(--red);font-weight:700}
+.report-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap);grid-auto-flow:row dense;align-items:start}
+.report-grid>.wide{grid-column:span 2}.report-grid>.full{grid-column:1/-1}
+.report .panel{min-width:0}.report .panel h2{margin-bottom:14px}
+.report-period{display:flex;flex-direction:column;gap:12px}.report-period h2{margin:0!important}
+.progress{background:#ecefe9;height:8px;border-radius:10px;overflow:hidden}.progress span{display:block;height:100%;background:var(--green);border-radius:10px}
+.panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}.panel-head h2{margin:0!important}
+.chart-scroll{overflow-x:auto;overscroll-behavior-x:contain;padding:0 12px 4px}
+.report .chart{margin-top:14px;min-width:100%}
+.report .chart.period small{display:block}
+.chart .bar-group{background:transparent;border:0;padding:0;border-radius:4px;cursor:pointer;height:100%}
+.chart .bar-group .bar{display:block;background:#9db5a3;width:80%}
+.chart .bar-group:nth-child(4n) .bar{background:#9db5a3}
+.chart .bar-group:hover .bar{background:#6f9179}
+.chart .bar-group.best .bar{background:var(--green)}
+.chart .bar-group.picked .bar{background:var(--gold)}
+.chart .bar-group:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.split-row{margin-top:14px}.split-row:first-of-type{margin-top:0}
+.split-line{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.split-line small{color:var(--muted);font-weight:500}
+.split-line i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.dot-hall,.fill-hall{background:var(--hall)!important}.dot-take,.fill-take{background:var(--take)!important}
+.dot-deliv,.fill-deliv{background:var(--deliv)!important}.dot-pick,.fill-pick{background:var(--pick)!important}
+.list-line{padding:10px 0;border-bottom:1px solid #eeede8;margin:0}.list-line:last-child{border-bottom:0}
+.top-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.top-list li{display:flex;gap:12px;align-items:flex-start}
+.top-list .rank{flex:none;width:26px;height:26px;border-radius:50%;background:#eef4ef;color:var(--green);font-weight:800;font-size:12px;display:grid;place-items:center}
+.top-list li:first-child .rank{background:var(--gold);color:#fff}
+.top-main{flex:1;min-width:0}.top-main .split-line{margin-bottom:3px}.top-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top-main .progress{margin-top:4px;height:6px}
+/* Планшет: плитки 2×2, блоки по два в ряд */
+@media(max-width:1150px){
+  .report{--gap:18px}
+  .report .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-grid>.wide,.report-grid>.reasons-panel{grid-column:1/-1}
+}
+/* Телефон: всё в одну колонку, плитки 2×2, график листается пальцем */
+@media(max-width:550px){
+  .report{--gap:16px}
+  .report-grid{grid-template-columns:minmax(0,1fr)}
+  .report-grid>.wide,.report-grid>.full,.report-grid>.reasons-panel{grid-column:auto}
+  .report .stat{padding:14px}.report .stat strong{font-size:19px}
+  .report .chart.period{min-width:560px}
+  .report .chart.period small{display:block}
+  .panel-head{flex-direction:column;gap:2px}
+}
+
+/* ===== Добавить категорию: кнопка в правом верхнем углу блока «Категории», форма появляется сверху ===== */
+.cat-head h2 .fine{font-weight:600;margin-left:4px}
+.add-cat-small{min-height:36px;padding:7px 12px;font-size:12px;gap:6px}.add-cat-small .ui-icon{width:15px;height:15px}
+.cat-panel .new-category{margin:6px 8px 4px;border:1px solid #d9e4da;border-top:1px solid #d9e4da;background:#f6faf6;border-radius:12px;padding:12px}
+.cat-panel .new-category label{font-size:12px}
+.cat-panel .new-category>div{display:grid;grid-template-columns:1fr 1fr;gap:14px 10px}
+.cat-panel .new-category>div input{grid-column:1/-1}
+/* Сохранить — зелёная кнопка с галочкой, Отмена — красная с крестиком */
+.cat-ok,.cat-cancel{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;padding:0;border:2px solid}
+.cat-ok{background:#25844c1f;border-color:#25844c;color:#25844c}.cat-ok:hover{background:#25844c33}          /* прозрачный зелёный фон, чёткая зелёная обводка */
+.cat-cancel{background:#aa3e291a;border-color:var(--red);color:var(--red)}.cat-cancel:hover{background:#aa3e292e}   /* прозрачный красный фон, чёткая красная обводка */
+.cat-ok .ui-icon,.cat-cancel .ui-icon{width:22px;height:22px;stroke-width:2.6}
+.cat-panel{padding-bottom:10px}
+.heading-add-cat{display:none!important}
+@media(max-width:1000px){
+  .add-cat-small{display:none!important}
+  #content:has(.menu-layout.tab-cats) .page-heading [data-edit-dish="new"]{display:none!important}
+  #content:has(.menu-layout.tab-cats) .page-heading .heading-add-cat{display:inline-flex!important}
+}

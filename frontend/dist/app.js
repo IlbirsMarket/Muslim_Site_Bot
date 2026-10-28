@@ -95,7 +95,7 @@
     $('#customer-fields').hidden = noContacts;
     $('#address-fields').hidden = mode !== 'delivery';
     const form = $('#checkout-form');
-    if(live){$('#checkout-dialog .info').textContent='Заказ будет отправлен в локальный API кафе. Итоговую цену и наличие проверит сервер.';form.querySelector('[type=submit]').textContent='Отправить заказ';}
+    if(live){$('#checkout-dialog .info').textContent='Проверьте заказ. Кафе подтвердит его и сверит наличие блюд.';form.querySelector('[type=submit]').textContent='Отправить заказ';}
     form.elements.customer.required = !noContacts;
     form.elements.phone.required = !noContacts;
     form.elements.address.required = mode === 'delivery';
@@ -185,10 +185,10 @@
     if(!menu.categories.some(c=>c.id===category))category=menu.categories[0]?.id||'';
     if(live){
       cafe=await API.request('/cafe/',{auth:false});
-      $('#menu-note').textContent='Меню и цены загружены с API кафе. Наличие и итог заказа проверяет сервер.';
-      $('.draft-note').textContent='Заказ отправляется в локальный API после подтверждения.';
+      $('#menu-note').textContent='Цены актуальные. Итог заказа кафе подтвердит после отправки.';
+      $('.draft-note').textContent='Заказ сразу увидят в кафе.';
       // Есть токен — это QR стола. Нет токена — главная страница = QR доставки
-      if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){toast('QR не найден: '+error.message);}}
+      if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
       else{tableInfo={kind:'delivery',name:'Доставка'};$('#table-label').textContent='Доставка';}
       applyModes();
       if(tableInfo?.kind==='hall'&&!$('#guest-services')){

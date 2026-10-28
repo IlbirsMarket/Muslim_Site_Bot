@@ -7,14 +7,15 @@
   const icon=window.MuslimIcons.render;
   const roles={owner:'Программист',programmer:'Программист',chef:'Шеф',admin:'Админ',cook:'Повар',waiter:'Официант',user:'Пользователь',blocked:'Заблокирован'};
   const views=[['orders','orders','Заказы'],['menu','menu','Блюда и категории'],['tables','tables','Столы и QR'],['users','users','Пользователи и роли'],['reports','reports','Отчёты'],['settings','settings','Настройки'],...(API.enabled?[['api','api','Проверка API']]:[])];
-  let live=false,state,me,view='orders',orderFilter='all',menuFilter='all',menuTab='dishes',query='',userFilter='all',reportPeriod='day',reportDate=Store.today(),loadSequence=0,cache={},confirmation,editorImage='',uploadFile=null,editingId=null,toastTimer;
+  let live=false,state,me,view='orders',orderFilter='all',menuFilter='all',menuTab='cats',query='',userFilter='all',reportPeriod='day',reportDate=Store.today(),loadSequence=0,cache={},confirmation,editorImage='',uploadFile=null,editingId=null,toastTimer;
   const editor=$('#editor-dialog');
   document.body.classList.toggle('api-mode',API.enabled);
   function paintControls(root=document){
     root.querySelectorAll('[data-icon]').forEach(element=>{element.innerHTML=icon(element.dataset.icon);});
     const rules=[
       ['[data-edit-dish]:not([data-edit-dish="new"]),[data-edit-table]','edit'],
-      ['[data-edit-dish="new"],[data-add-table],[data-add-staff],#add-size','plus'],
+      ['[data-edit-dish="new"],[data-add-table],[data-add-staff],#add-size,[data-add-category]','plus'],
+      ['[data-cancel-category]','close'],
       ['[data-close-table]','check'],
       ['[data-add-table]','plus'],
       ['[data-delete-dish],[data-delete-table],[data-delete-staff],[data-delete-category]','trash'],
@@ -131,13 +132,13 @@
     const [catData,dishData,extraData]=await Promise.all([API.request('/admin/categories/'),API.request('/admin/dishes/'),API.request('/admin/extras/')]);
     cache.categories=list(catData);cache.dishes=list(dishData);cache.extras=list(extraData);
     if(menuFilter!=='all'&&!cache.categories.some(c=>String(c.id)===menuFilter))menuFilter='all';
-    const tabs=`<div class="seg-tabs" role="tablist" aria-label="Что показать"><button role="tab" data-menu-tab="dishes" aria-selected="${menuTab==='dishes'}">Блюда · ${cache.dishes.length}</button><button role="tab" data-menu-tab="cats" aria-selected="${menuTab==='cats'}">Категории · ${cache.categories.length}</button></div>`;
+    const tabs=`<div class="seg-tabs" role="tablist" aria-label="Что показать"><button role="tab" data-menu-tab="cats" aria-selected="${menuTab==='cats'}">Категории · ${cache.categories.length}</button><button role="tab" data-menu-tab="dishes" aria-selected="${menuTab==='dishes'}">Блюда · ${cache.dishes.length}</button></div>`;
     const catRow=c=>{const n=c.dishes_count||0,count=n?`${n} ${plural(n,'блюдо','блюда','блюд')}`:'Пусто';return `<li class="cat-row ${String(c.id)===menuFilter?'selected':''} ${c.is_active?'':'hidden-cat'}" data-cat-id="${c.id}"><button type="button" class="drag-handle" data-drag-cat aria-label="Перетащить «${esc(c.name)}»" title="Потяните, чтобы поменять порядок">${icon('grip')}</button><button type="button" class="cat-select" data-menu-filter="${c.id}"><strong>${esc(c.name)}</strong><small>${count}${c.is_active?'':' · скрыта от гостей'}</small></button>${toggle(`Видна гостям: ${c.name}`,c.is_active,`data-cat-visible="${c.id}"`)}<button type="button" class="icon-button" data-edit-category="${c.id}" aria-label="Переименовать «${esc(c.name)}»"></button><button type="button" class="danger icon-button" data-delete-category="${c.id}" aria-label="Удалить «${esc(c.name)}»" ${n?'disabled title="Сначала перенесите или удалите блюда"':''}></button></li>`;};
-    const cats=`<section class="panel cat-panel" aria-labelledby="cats-title"><div class="cat-head"><h2 id="cats-title">Категории</h2><span class="fine">${cache.categories.length}</span></div><p class="fine">Потяните за ⋮⋮, чтобы поменять порядок в меню гостей</p><ul class="cat-list" id="cat-list"><li class="cat-row ${menuFilter==='all'?'selected':''}"><span class="drag-space"></span><button type="button" class="cat-select" data-menu-filter="all"><strong>Все блюда</strong><small>${cache.dishes.length} ${plural(cache.dishes.length,'блюдо','блюда','блюд')}</small></button></li>${cache.categories.map(catRow).join('')}</ul><form id="new-category" class="new-category"><label for="new-cat-name">Новая категория</label><div><input id="new-cat-name" name="name" maxlength="100" required placeholder="Например, Супы"><button class="primary" type="submit">Добавить</button></div><p class="fine">Удалить можно только пустую категорию</p><p class="error" role="alert"></p></form></section>`;
+    const cats=`<section class="panel cat-panel" aria-labelledby="cats-title"><div class="cat-head"><h2 id="cats-title">Категории <span class="fine">${cache.categories.length}</span></h2><button type="button" class="secondary add-cat-small" data-add-category>Категория</button></div><form id="new-category" class="new-category" hidden><label for="new-cat-name">Название новой категории</label><div><input id="new-cat-name" name="name" maxlength="100" required placeholder="Например, Супы"><button class="cat-ok" type="submit" aria-label="Сохранить категорию" title="Сохранить">${icon('check')}</button><button type="button" class="cat-cancel" data-cancel-category aria-label="Отмена" title="Отмена"></button></div><p class="error" role="alert"></p></form><p class="fine">Потяните за ⋮⋮, чтобы поменять порядок в меню гостей. Удалить можно только пустую категорию.</p><ul class="cat-list" id="cat-list"><li class="cat-row ${menuFilter==='all'?'selected':''}"><span class="drag-space"></span><button type="button" class="cat-select" data-menu-filter="all"><strong>Все блюда</strong><small>${cache.dishes.length} ${plural(cache.dishes.length,'блюдо','блюда','блюд')}</small></button></li>${cache.categories.map(catRow).join('')}</ul></section>`;
     const selected=cache.categories.find(c=>String(c.id)===menuFilter);
-    const rows=cache.dishes.map(d=>`<tr data-search="${esc(`${d.name} ${d.description||''}`.toLowerCase())}" data-cat="${d.category}"><td><div class="dish-cell">${image(d.photo||d.image)}<div><strong>${esc(d.name)}</strong><p class="description">${esc(d.description)}</p></div></div></td><td class="category-col">${esc(cache.categories.find(c=>c.id===d.category)?.name||d.category_name||'')}</td><td>${d.sizes?.length?d.sizes.map(s=>s.price).join(' / '):d.price} сом</td><td>${toggle(`В наличии: ${d.name}`,d.is_available,`data-availability="${d.id}"`)}</td><td><div class="row-actions"><button class="icon-button" data-edit-dish="${d.id}" aria-label="Изменить: ${esc(d.name)}">✎</button><button class="danger icon-button" data-delete-dish="${d.id}" aria-label="Удалить: ${esc(d.name)}">×</button></div></td></tr>`).join('');
-    const dishes=`<section class="dish-panel" aria-labelledby="dishes-title"><div class="dish-head"><h2 id="dishes-title">${esc(selected?.name||'Все блюда')}</h2><input id="menu-search" type="search" aria-label="Поиск по всем блюдам" placeholder="Поиск по всем блюдам" value="${esc(query)}"></div><div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th class="category-col">Категория</th><th>Цена</th><th>В наличии</th><th>Действия</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">Блюд пока нет — нажмите «Добавить блюдо»</td></tr>'}</tbody></table></div></section>`;
-    return heading('Блюда и категории','Гости видят изменения сразу','<button class="primary" data-edit-dish="new">Добавить блюдо</button>')+tabs+`<div class="menu-layout tab-${menuTab}">${cats}${dishes}</div>`;
+    const rows=cache.dishes.map(d=>`<tr data-search="${esc(`${d.name} ${d.description||''}`.toLowerCase())}" data-cat="${d.category}" data-dish-id="${d.id}"><td class="drag-col"><button type="button" class="drag-handle" data-drag-dish aria-label="Перетащить «${esc(d.name)}»" title="Потяните, чтобы поменять порядок">${icon('grip')}</button></td><td><div class="dish-cell">${image(d.photo||d.image)}<div><strong>${esc(d.name)}</strong><p class="description">${esc(d.description)}</p></div></div></td><td class="category-col">${esc(cache.categories.find(c=>c.id===d.category)?.name||d.category_name||'')}</td><td>${d.sizes?.length?d.sizes.map(s=>s.price).join(' / '):d.price} сом</td><td>${toggle(`В наличии: ${d.name}`,d.is_available,`data-availability="${d.id}"`)}</td><td><div class="row-actions"><button class="icon-button" data-edit-dish="${d.id}" aria-label="Изменить: ${esc(d.name)}">✎</button><button class="danger icon-button" data-delete-dish="${d.id}" aria-label="Удалить: ${esc(d.name)}">×</button></div></td></tr>`).join('');
+    const dishes=`<section class="dish-panel" aria-labelledby="dishes-title"><div class="dish-head"><h2 id="dishes-title">${esc(selected?.name||'Все блюда')}</h2><input id="menu-search" type="search" aria-label="Поиск по всем блюдам" placeholder="Поиск по всем блюдам" value="${esc(query)}"></div><p class="fine sort-hint" id="dish-sort-hint"></p><div class="data-wrap"><table class="data-table" id="dish-table"><thead><tr><th class="drag-col"><span class="sr-only">Порядок</span></th><th>Блюдо</th><th class="category-col">Категория</th><th>Цена</th><th>В наличии</th><th>Действия</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">Блюд пока нет — нажмите «Добавить блюдо»</td></tr>'}</tbody></table></div></section>`;
+    return heading('Блюда и категории','Гости видят изменения сразу','<button class="primary" data-edit-dish="new">Добавить блюдо</button><button class="primary heading-add-cat" data-add-category>Добавить категорию</button>')+tabs+`<div class="menu-layout tab-${menuTab}">${cats}${dishes}</div>`;
   }
   // Выбрали категорию: показываем её блюда без загрузки с сервера
   function applyMenuFilter(){
@@ -211,8 +212,15 @@
   function tableStatus(t){return t.occupied_since?`Занят с ${clock(t.occupied_since)}`:t.active_orders?`Новый заказ`:'Свободен';}
   function freeButton(t){return t.occupied_since?`<button class="secondary" data-close-table="${t.id}">Освободить стол</button>`:'';}
   function tableTile(t){return `<article class="table-tile ${t.occupied_since?'busy':''}"><strong>${esc(t.name)}</strong><span class="tag">${tableStatus(t)}</span>${t.active_orders?`<small>Заказов в работе: ${t.active_orders}</small>`:''}${freeButton(t)}</article>`;}
-  function deliveryCard(t){const url=tableUrl(t);return `<article class="qr-card kind-delivery"><header class="qr-top"><h2>Доставка</h2><span class="tag kind-tag">${icon('truck')}Всегда одна</span></header>${qrSvg(url)}<a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><p class="fine">Ведёт на главную страницу сайта: меню с доставкой.${t.active_orders?` Заказов в работе: ${t.active_orders}.`:''}</p><div class="actions"><button class="primary" data-download-qr="${t.id}">Скачать QR</button></div></article>`;}
-  function tableCard(t){const url=tableUrl(t);return `<article class="qr-card ${t.occupied_since?'busy':''}"><header class="qr-top"><h2>${esc(t.name)}</h2><span class="tag ${t.occupied_since||t.active_orders?'delivery':''}">${tableStatus(t)}</span></header>${qrSvg(url)}<a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><div class="actions"><button class="primary" data-download-qr="${t.id}">Скачать QR</button><button class="secondary" data-regenerate-qr="${t.id}">Обновить QR</button>${freeButton(t)}<button class="danger icon-button" data-delete-table="${t.id}" aria-label="Удалить ${esc(t.name)}"></button></div></article>`;}
+  // Карточка «Доставка»: QR главной страницы. Его нельзя удалить или перевыпустить — адрес сайта не меняется
+  function deliveryCard(t){const url=tableUrl(t);return `<article class="qr-card kind-delivery"><header class="qr-top"><h2>Доставка</h2><span class="tag kind-tag">${icon('truck')}Всегда одна</span></header><div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><p class="fine qr-note">Главная страница сайта: доставка и самовывоз.${t.active_orders?` В работе: ${t.active_orders}.`:''}</p><div class="actions qr-actions"><button class="primary" data-download-qr="${t.id}">Скачать QR</button><a class="secondary" href="${esc(url)}" target="_blank" rel="noopener">${icon('external')}Открыть</a></div></article>`;}
+  // Карточка стола: под QR всегда 4 одинаковые кнопки (2×2). Недоступная — серая, но остаётся на месте
+  function tableCard(t){const url=tableUrl(t),busy=Boolean(t.occupied_since),locked=busy||t.active_orders>0;
+    return `<article class="qr-card ${busy?'busy':''}"><header class="qr-top"><h2>${esc(t.name)}</h2><span class="tag ${busy||t.active_orders?'delivery':''}">${tableStatus(t)}</span></header><div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><div class="actions qr-actions">
+      <button class="primary" data-download-qr="${t.id}">Скачать QR</button>
+      <button class="secondary" data-regenerate-qr="${t.id}">Обновить QR</button>
+      <button class="secondary" data-close-table="${t.id}" aria-label="Освободить ${esc(t.name)}" ${busy?'':'disabled title="Стол и так свободен"'}>Освободить</button>
+      <button class="danger" data-delete-table="${t.id}" aria-label="Удалить ${esc(t.name)}" ${locked?'disabled title="Сначала освободите стол и завершите его заказы"':''}>Удалить</button></div></article>`;}
   // Демо-режим без сервера (как было)
   async function demoTablesView(){
     cache.tables=live?list(await API.request('/admin/tables/')):state.tables;
@@ -316,14 +324,17 @@
     const ranked=[...products.values()].sort((a,b)=>b.sum-a.sum);cache.reportRows=ranked;
     const points=reportPeriod==='day'?Array.from({length:13},(_,i)=>({label:`${i+10}`,sum:completed.filter(o=>o.hour===i+10).reduce((s,o)=>s+Store.orderTotal(o),0)})):Array.from({length:45},(_,i)=>{const day=Store.dayOffset(start,i);return {label:day.slice(8),sum:completed.filter(o=>o.date===day).reduce((s,o)=>s+Store.orderTotal(o),0)};});
     const max=Math.max(1,...points.map(p=>p.sum));
-    return top+`<div class="stats"><article class="stat"><span>Выручка</span><strong>${money(revenue)}</strong><small>Завершённые заказы</small></article><article class="stat"><span>Заказы</span><strong>${completed.length}</strong><small>За выбранный период</small></article><article class="stat"><span>Средний чек</span><strong>${money(completed.length?Math.round(revenue/completed.length):0)}</strong><small>Выручка / заказы</small></article><article class="stat"><span>Отменено</span><strong>${cancelled}</strong><small>Не входят в выручку</small></article></div><section class="panel chart-panel"><h2>Выручка ${reportPeriod==='day'?'по часам':'по дням'}, сом</h2><div class="chart ${reportPeriod==='period'?'period':''}" role="img" aria-label="График выручки">${points.map(p=>`<div class="bar-group" title="${p.label}: ${money(p.sum)}"><div class="bar" style="height:${p.sum/max*100}%"></div>${reportPeriod==='day'||Number(p.label)%5===0?`<small>${p.label}${reportPeriod==='day'?':00':''}</small>`:''}</div>`).join('')}</div></section><div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${ranked.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.qty}</td><td>${money(p.sum)}</td><td class="category-col"><div class="progress"><span style="width:${p.sum/(ranked[0]?.sum||1)*100}%"></span></div></td></tr>`).join('')||'<tr><td colspan="4" class="empty">Нет заказов за выбранный день</td></tr>'}</tbody></table></div>`;
+    return top+`<div class="report"><div class="stats"><article class="stat"><span>Выручка</span><strong>${money(revenue)}</strong><small>Завершённые заказы</small></article><article class="stat"><span>Заказы</span><strong>${completed.length}</strong><small>За выбранный период</small></article><article class="stat"><span>Средний чек</span><strong>${money(completed.length?Math.round(revenue/completed.length):0)}</strong><small>Выручка / заказы</small></article><article class="stat"><span>Отменено</span><strong>${cancelled}</strong><small>Не входят в выручку</small></article></div><section class="panel chart-panel"><h2>Выручка ${reportPeriod==='day'?'по часам':'по дням'}, сом</h2><div class="chart ${reportPeriod==='period'?'period':''}" role="img" aria-label="График выручки">${points.map(p=>`<button type="button" class="bar-group" data-bar="${esc(`${p.label}: ${money(p.sum)}`)}" title="${p.label}: ${money(p.sum)}"><span class="bar" style="height:${p.sum/max*100}%"></span>${reportPeriod==='day'||Number(p.label)%5===0?`<small>${p.label}${reportPeriod==='day'?':00':''}</small>`:''}</button>`).join('')}</div></section><div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${ranked.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.qty}</td><td>${money(p.sum)}</td><td class="category-col"><div class="progress"><span style="width:${p.sum/(ranked[0]?.sum||1)*100}%"></span></div></td></tr>`).join('')||'<tr><td colspan="4" class="empty">Нет заказов за выбранный день</td></tr>'}</tbody></table></div></div>`;
   }
   // Архив закрытых периодов по 45 дней. Ошибка — просто пустой архив.
   async function loadArchive(){
     try{return await API.request('/admin/reports/periods/');}catch{return [];}
   }
 
-  // Отчёт с сервера: карточки, график, разбивки, топ блюд — как в макете.
+  // Отчёт с сервера. Раскладка: плитки → график + «откуда выручка» → оплата + топ блюд → отмены + архив.
+  // Между всеми блоками одинаковый зазор (задаётся в admin.css, класс .report).
+  const KIND_COLOR={hall:'hall',takeaway:'take',delivery:'deliv',pickup:'pick',cash:'hall',card:'take'};   // цвет полоски по типу
+  const shortDate=iso=>`${String(iso).slice(8,10)}.${String(iso).slice(5,7)}`;                       // 2026-10-12 → 12.10
   function liveReport(r,archive){
     const isDay=reportPeriod==='day';                                   // за день или за 45 дней
     const pct=r.compare?.change_percent;                                // изменение к прошлому, %
@@ -332,50 +343,38 @@
     // Точки графика: по часам (день) или по дням (45 дней)
     const points=isDay
       ?(r.by_hour||[]).map(h=>({title:h.label,short:h.label,sum:h.revenue,count:h.count}))
-      :(r.by_day||[]).map((d,i)=>({title:d.date,short:i%5===0?d.date.slice(8,10)+'.'+d.date.slice(5,7):'',sum:d.revenue,count:d.count}));
+      :(r.by_day||[]).map((d,i)=>({title:shortDate(d.date),short:i%5===0?shortDate(d.date):'',sum:d.revenue,count:d.count}));
     const max=Math.max(1,...points.map(p=>p.sum));                     // самый высокий столбик = 100%
+    const best=points.reduce((b,p)=>p.sum>(b?b.sum:0)?p:b,null);         // лучший день или час
 
-    // Плашка периода (только для 45 дней)
+    // 1. Плашка периода (только 45 дней)
     const p=r.period;
-    const banner=p?`<section class="panel"><h2>Период: ${esc(p.start_date)} — ${esc(p.end_date)}</h2>
-      <p class="fine">День ${p.day_number} из ${p.days_total}. Новый период начнётся ${esc(p.next_start)}, этот уйдёт в архив PDF.</p>
-      <div class="progress" style="margin-top:12px"><span style="width:${p.day_number/p.days_total*100}%"></span></div></section>`:'';
+    const banner=p?`<section class="panel report-period"><div><h2>Период ${esc(shortDate(p.start_date))} — ${esc(shortDate(p.end_date))}</h2><p class="fine">День ${p.day_number} из ${p.days_total}. ${esc(shortDate(p.next_start))} начнётся новый период, этот уйдёт в архив PDF.</p></div><div class="progress"><span style="width:${p.day_number/p.days_total*100}%"></span></div></section>`:'';
 
-    // Блок-разбивка: зал / доставка / самовывоз или наличные / карта
+    // 2. Четыре плитки
+    const tile=(name,value,note,cls='')=>`<article class="stat ${cls}"><span>${name}</span><strong>${value}</strong><small>${note}</small></article>`;
+    const stats=`<div class="stats">${tile('Выручка',money(r.revenue),trend,pct==null?'':pct>=0?'up':'down')}${tile('Заказы',r.orders_count,isDay?`Завершены · в работе: ${r.in_progress_count}`:`Отменено: ${r.cancelled_count} · в работе: ${r.in_progress_count}`)}${tile('Средний чек',money(r.avg_check),'Выручка / заказы')}${isDay?tile('Отменено',r.cancelled_count,'Не входят в выручку'):tile('Лучший день',best?money(best.sum):'—',best?`${best.title} · ${best.count} зак.`:'Пока нет продаж')}</div>`;
+
+    // 3. График. Нажмите на столбик — сверху появится сумма (на телефоне подсказка при наведении не работает)
+    const chart=`<section class="panel chart-panel wide"><div class="panel-head"><h2>Выручка ${isDay?'по часам':'по дням'}</h2><span class="fine" id="chart-readout">Нажмите на столбик, чтобы увидеть сумму</span></div><div class="chart-scroll"><div class="chart ${isDay?'':'period'}" role="img" aria-label="График выручки">${points.map(pt=>`<button type="button" class="bar-group ${best&&pt===best?'best':''}" data-bar="${esc(`${pt.title}: ${money(pt.sum)} · ${pt.count} зак.`)}" title="${esc(pt.title)}: ${money(pt.sum)}"><span class="bar" style="height:${pt.sum/max*100}%"></span>${pt.short?`<small>${esc(pt.short)}</small>`:''}</button>`).join('')}</div></div></section>`;
+
+    // 4. Разбивка: «Откуда выручка» (цвета типов заказа) и «Оплата»
     const split=(title,obj)=>{
-      const items=Object.values(obj||{}),total=items.reduce((s,i)=>s+i.revenue,0)||1;
-      return `<section class="panel"><h2>${title}</h2>${items.map(i=>`
-        <div style="display:flex;justify-content:space-between;margin:14px 0 6px"><span>${esc(i.label)} · ${i.count} зак.</span><strong>${money(i.revenue)}</strong></div>
-        <div class="progress"><span style="width:${i.revenue/total*100}%"></span></div>`).join('')}</section>`;
+      const items=Object.entries(obj||{}),total=items.reduce((s,[,i])=>s+i.revenue,0);
+      return `<section class="panel split-panel"><h2>${title}</h2>${items.map(([key,i])=>`<div class="split-row"><div class="split-line"><span><i class="dot-${KIND_COLOR[key]||'hall'}"></i>${esc(i.label)} <small>· ${i.count} зак.</small></span><strong>${money(i.revenue)}</strong></div><div class="progress"><span class="fill-${KIND_COLOR[key]||'hall'}" style="width:${total?i.revenue/total*100:0}%"></span></div></div>`).join('')}</section>`;
     };
 
-    // Топ блюд
+    // 5. Топ блюд
     const top=r.top_dishes||[],topMax=top[0]?.revenue||1;
-    const topTable=`<div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${
-      top.map(d=>`<tr><td>${esc(d.name)}</td><td>${d.quantity}</td><td>${money(d.revenue)}</td><td class="category-col"><div class="progress"><span style="width:${d.revenue/topMax*100}%"></span></div></td></tr>`).join('')
-      ||`<tr><td colspan="4" class="empty">Нет завершённых заказов за ${isDay?'этот день':'этот период'}</td></tr>`}</tbody></table></div>`;
+    const topBlock=`<section class="panel wide top-panel"><h2>Топ блюд</h2>${top.length?`<ol class="top-list">${top.map((d,i)=>`<li><span class="rank">${i+1}</span><div class="top-main"><div class="split-line"><strong>${esc(d.name)}</strong><strong>${money(d.revenue)}</strong></div><div class="split-line"><small>${d.quantity} шт.</small><small>${Math.round(d.revenue/(r.revenue||1)*100)}% выручки</small></div><div class="progress"><span style="width:${d.revenue/topMax*100}%"></span></div></div></li>`).join('')}</ol>`:`<p class="empty">Нет завершённых заказов за ${isDay?'этот день':'этот период'}</p>`}</section>`;
 
-    // Причины отмен (если были)
-    const reasons=(r.cancel_reasons||[]).length?`<section class="panel"><h2>Причины отмен</h2>${r.cancel_reasons.map(c=>`<div style="display:flex;justify-content:space-between;margin:10px 0"><span>${esc(c.reason)}</span><strong>${c.count}</strong></div>`).join('')}</section>`:'';
-
-    // Архив прошлых периодов (только для 45 дней)
-    const archiveBlock=isDay?'':`<section class="panel"><h2>Архив прошлых периодов</h2>${
-      archive.length?archive.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0">
-        <span><strong>${esc(a.start_date)} — ${esc(a.end_date)}</strong><br><small class="fine">${money(a.revenue)} · ${a.orders_count} заказов</small></span>
-        ${a.has_pdf?`<button class="secondary" data-archive-pdf="${a.id}">PDF</button>`:''}</div>`).join('')
+    // 6. Причины отмен (если были) и архив прошлых периодов (только 45 дней)
+    const reasons=(r.cancel_reasons||[]).length?`<section class="panel reasons-panel"><h2>Причины отмен</h2>${r.cancel_reasons.map(c=>`<div class="split-line list-line"><span>${esc(c.reason)}</span><strong>${c.count}</strong></div>`).join('')}</section>`:'';
+    const archiveBlock=isDay?'':`<section class="panel ${reasons?'wide':'full'}"><h2>Архив прошлых периодов</h2>${
+      archive.length?archive.map(a=>`<div class="split-line list-line"><span><strong>${esc(shortDate(a.start_date))} — ${esc(shortDate(a.end_date))}</strong><br><small class="fine">${money(a.revenue)} · ${a.orders_count} заказов</small></span>${a.has_pdf?`<button class="secondary" data-archive-pdf="${a.id}">PDF</button>`:''}</div>`).join('')
       :'<p class="fine">Пока пусто: первый период ещё не закончился.</p>'}</section>`;
 
-    return banner+`<div class="stats">
-        <article class="stat"><span>Выручка</span><strong>${money(r.revenue)}</strong><small>${trend}</small></article>
-        <article class="stat"><span>Заказы</span><strong>${r.orders_count}</strong><small>Завершённые · ещё в работе: ${r.in_progress_count}</small></article>
-        <article class="stat"><span>Средний чек</span><strong>${money(r.avg_check)}</strong><small>Выручка / заказы</small></article>
-        <article class="stat"><span>Отменено</span><strong>${r.cancelled_count}</strong><small>Не входят в выручку</small></article>
-      </div>
-      <section class="panel chart-panel"><h2>Выручка ${isDay?'по часам':'по дням'}, сом</h2>
-        <div class="chart ${isDay?'':'period'}" role="img" aria-label="График выручки">${points.map(pt=>`<div class="bar-group" title="${esc(pt.title)}: ${money(pt.sum)} · ${pt.count} зак."><div class="bar" style="height:${pt.sum/max*100}%"></div>${pt.short?`<small>${esc(pt.short)}</small>`:''}</div>`).join('')}</div>
-      </section>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">${split('Откуда выручка',r.by_kind)}${split('Оплата',r.by_payment)}</div>
-      ${topTable}${reasons}${archiveBlock}`;
+    return `<div class="report">${banner}${stats}<div class="report-grid">${chart}${split('Откуда выручка',r.by_kind)}${split('Оплата',r.by_payment)}${topBlock}${reasons}${archiveBlock}</div></div>`;
   }
   async function settingsView(){
     const s=live?await API.request('/admin/cafe/'):state.settings;cache.settings=s;
@@ -400,6 +399,9 @@
     if(button.dataset.view){view=button.dataset.view;query='';await render();return;}
     if(button.id==='notify-toggle'){const on=!MuslimNotify.enabled();MuslimNotify.setEnabled(on);if(on){MuslimNotify.unlock();await MuslimNotify.askPermission();MuslimNotify.beep();}paintBell();toast(on?'Уведомления включены':'Уведомления выключены');return;}
     if(button.hasAttribute('data-reload')){await render();return;}
+    if(button.hasAttribute('data-add-category')){const form=$('#new-category');if(!form)return;form.hidden=false;form.querySelector('.error').textContent='';$('#new-cat-name').focus();return;}   // «+ Категория»: поле названия сверху списка
+    if(button.hasAttribute('data-cancel-category')){const form=$('#new-category');form.reset();form.hidden=true;return;}
+    if(button.dataset.bar){const out=$('#chart-readout');if(out)out.textContent=button.dataset.bar;document.querySelectorAll('.bar-group.picked').forEach(b=>b.classList.remove('picked'));button.classList.add('picked');return;}   // столбик графика
     if(button.hasAttribute('data-close')){button.closest('dialog').close();return;}
     if(button.dataset.orderFilter){orderFilter=button.dataset.orderFilter;await render();return;}
     if(button.dataset.menuFilter){menuFilter=button.dataset.menuFilter;if($('.menu-layout')){menuTab='dishes';$('.menu-layout').className='menu-layout tab-dishes';document.querySelectorAll('[data-menu-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.menuTab==='dishes')));applyMenuFilter();}else await render();return;}
@@ -439,18 +441,65 @@
   function reasonDialog(title,handler){$('#editor-title').textContent=title;$('#editor-content').innerHTML='<form id="reason-form"><label>Причина<textarea name="reason" maxlength="255" required></textarea></label><p id="editor-error" class="error"></p><button class="danger" type="submit">Отменить заказ</button></form>';cache.reasonHandler=handler;paintControls(editor);editor.showModal();}
   document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button||button.disabled)return;if(button.id==='confirm-action'||button.id==='demo-login'||button.id==='logout'||button.id==='session-logout')return;if(button.form&&button.type==='submit')return;button.disabled=true;act(button).catch(error=>toast(error.message)).finally(()=>{if(button.isConnected)button.disabled=false;});});
   $('#confirm-action').addEventListener('click',async event=>{const b=event.currentTarget;b.disabled=true;try{await confirmation();$('#confirm-dialog').close();}catch(error){toast(error.message);}finally{b.disabled=false;}});
-  // Перетаскивание категорий за ⋮⋮ — работает и мышью, и пальцем. Отпустили — сохраняем новый порядок
+  // ===== Перетаскивание как в iPhone (категории и блюда одной категории) =====
+  // Строка «приподнимается» и едет за пальцем, соседи плавно расступаются. Отпустили — строка остаётся там, где её оставили,
+  // и порядок сразу сохраняется на сервере. Ошибка связи — строка возвращается на место. У края экрана список прокручивается сам.
   document.addEventListener('pointerdown',event=>{
-    const handle=event.target.closest('[data-drag-cat]');if(!handle||!live)return;
-    const row=handle.closest('.cat-row'),listEl=row.parentElement;event.preventDefault();
-    row.classList.add('dragging');
-    const move=e=>{const over=document.elementFromPoint(e.clientX,e.clientY)?.closest('.cat-row[data-cat-id]');if(!over||over===row||over.parentElement!==listEl)return;const box=over.getBoundingClientRect();listEl.insertBefore(row,e.clientY<box.top+box.height/2?over:over.nextSibling);};
-    const up=async()=>{document.removeEventListener('pointermove',move);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);row.classList.remove('dragging');
-      const ids=[...listEl.querySelectorAll('.cat-row[data-cat-id]')].map(r=>Number(r.dataset.catId));
-      if(ids.join()===cache.categories.map(c=>c.id).join())return;                                   // порядок не поменялся
-      try{await API.request('/admin/categories/reorder/',{method:'POST',body:{ids}});toast('Порядок сохранён — гости видят его сразу');}catch(error){toast(error.message);}
-      await render(true);};
-    document.addEventListener('pointermove',move);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);   // слушаем весь документ: строка переезжает в списке
+    const handle=event.target.closest('[data-drag-cat],[data-drag-dish]');if(!handle||!live||event.button>0)return;
+    const isDish=handle.hasAttribute('data-drag-dish');
+    const row=handle.closest(isDish?'tr':'.cat-row'),box=row.parentElement;
+    // Кого можно двигать: видимые строки категорий или видимые блюда той же категории
+    const rows=[...box.children].filter(r=>!r.hidden&&(isDish?r.dataset.dishId&&r.dataset.cat===row.dataset.cat:r.dataset.catId));
+    if(rows.length<2)return;
+    event.preventDefault();
+    const from=rows.indexOf(row),startY=event.clientY+scrollY;               // откуда тащим (в координатах страницы)
+    const rects=rows.map(r=>{const b=r.getBoundingClientRect();return {top:b.top+scrollY,height:b.height};});
+    const mids=rects.map(b=>b.top+b.height/2);                               // середины строк
+    const step=from<rows.length-1?rects[from+1].top-rects[from].top:rects[from].top-rects[from-1].top;   // высота строки + зазор
+    const nextSibling=row.nextSibling;                                       // чтобы вернуть строку при ошибке
+    let pointerY=event.clientY,target=from,frame=0;
+    row.classList.add('lifted');rows.forEach(r=>{if(r!==row)r.classList.add('shifting');});
+    function place(){                                                        // двигаем строку и раздвигаем соседей
+      const dy=pointerY+scrollY-startY,center=mids[from]+dy;
+      target=from;
+      for(let i=0;i<from;i++)if(center<mids[i]){target=i;break;}              // уехали вверх
+      for(let i=rows.length-1;i>from;i--)if(center>mids[i]){target=i;break;}  // уехали вниз
+      row.style.transform=`translateY(${dy}px)`;
+      rows.forEach((r,i)=>{if(r===row)return;const shift=i>=target&&i<from?step:i<=target&&i>from?-step:0;r.style.transform=shift?`translateY(${shift}px)`:'';});
+    }
+    function autoScroll(){                                                   // у верхнего или нижнего края — прокручиваем
+      const bottomBar=innerWidth<=550?80:0,edge=70;
+      const speed=pointerY<edge?-Math.ceil((edge-pointerY)/6):pointerY>innerHeight-bottomBar-edge?Math.ceil((pointerY-(innerHeight-bottomBar-edge))/6):0;
+      if(speed){scrollBy(0,speed);place();}
+      frame=requestAnimationFrame(autoScroll);
+    }
+    const move=e=>{pointerY=e.clientY;place();};
+    const up=async()=>{
+      document.removeEventListener('pointermove',move);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);cancelAnimationFrame(frame);
+      const before=row.getBoundingClientRect().top;                           // где строку отпустили
+      rows.forEach(r=>{r.classList.remove('shifting');r.style.transform='';});
+      if(target!==from){if(target>from)rows[target].after(row);else rows[target].before(row);}   // ставим строку на новое место
+      const after=row.getBoundingClientRect().top;
+      row.style.transform=`translateY(${before-after}px)`;row.getBoundingClientRect();   // плавно «опускаем» строку в её ячейку
+      row.classList.add('settling');row.style.transform='';
+      setTimeout(()=>row.classList.remove('lifted','settling'),220);
+      if(target===from)return;                                               // порядок не поменялся
+      const order=rows.filter(r=>r!==row);order.splice(target,0,row);
+      try{
+        if(isDish){
+          const category=Number(row.dataset.cat),ids=order.map(r=>Number(r.dataset.dishId));
+          await API.request('/admin/dishes/reorder/',{method:'POST',body:{category,ids}});
+          ids.forEach((id,i)=>{const d=cache.dishes.find(d=>d.id===id);if(d)d.position=(i+1)*10;});   // запоминаем новый порядок
+        }else{
+          const ids=order.map(r=>Number(r.dataset.catId));
+          await API.request('/admin/categories/reorder/',{method:'POST',body:{ids}});
+          cache.categories.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));          // кэш в новом порядке
+        }
+        toast('Порядок сохранён — гости видят его сразу');
+      }catch(error){box.insertBefore(row,nextSibling);toast(error.message);}  // не сохранилось — возвращаем строку на место
+    };
+    document.addEventListener('pointermove',move);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);   // слушаем весь документ
+    frame=requestAnimationFrame(autoScroll);
   });
   // Поиск: прячем неподходящие строки прямо на странице — без запросов к серверу и без мигания
   function filterRows(){
@@ -458,6 +507,14 @@
     let shown=0;rows.forEach(row=>{const inCat=row.dataset.cat===undefined||menuFilter==='all'||row.dataset.cat===menuFilter;const ok=q?row.dataset.search.includes(q):inCat;row.hidden=!ok;if(ok)shown++;});   // поиск — по всем блюдам, без поиска — выбранная категория
     let empty=$('#search-empty');if(!empty){empty=document.createElement('p');empty.id='search-empty';empty.className='empty';empty.textContent='Ничего не найдено';rows[0].closest('.data-wrap')?.after(empty);}
     empty.hidden=shown>0;
+    sortMode(q);
+  }
+  // Ручки ⋮⋮ у блюд видны, только когда выбрана одна категория и нет поиска
+  function sortMode(q){
+    const table=$('#dish-table'),hint=$('#dish-sort-hint');if(!table)return;
+    const on=menuFilter!=='all'&&!q;
+    table.classList.toggle('sorting',on);
+    if(hint)hint.textContent=q?'':on?'Потяните за ⋮⋮, чтобы поменять порядок блюд в этой категории':'Чтобы поменять порядок блюд, выберите категорию';
   }
   document.addEventListener('input',event=>{
     if(event.target.id==='menu-search'||event.target.id==='user-search'){query=event.target.value;filterRows();}

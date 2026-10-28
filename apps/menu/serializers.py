@@ -8,7 +8,6 @@ from rest_framework import serializers                 # инструменты 
 
 from .models import Category, Dish, DishSize, Extra   # модели меню
 
-
 MAX_PHOTO_BYTES = 5 * 1024 * 1024                      # фото блюда — не больше 5 МБ
 ALLOWED_PHOTO_FORMATS = {"JPEG", "PNG", "WEBP"}        # какие картинки принимаем
 
@@ -92,6 +91,12 @@ class CategoryOrderSerializer(serializers.Serializer):
     ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
 
 
+class DishOrderSerializer(serializers.Serializer):
+    """Новый порядок блюд одной категории: {"category": 2, "ids": [7, 5, 6]} — сверху вниз."""
+    category = serializers.IntegerField()                                          # в какой категории меняем порядок
+    ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)  # все блюда категории по порядку
+
+
 class ExtraAdminSerializer(serializers.ModelSerializer):
     """Добавка: все поля для редактирования."""
     class Meta:
@@ -123,7 +128,25 @@ class DishAdminSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["updated_at"]  # дату изменения ставит сервер
 
-        
+    @staticmethod
+    def _last_position(category):
+        """Место в самом конце категории: последний номер + 10."""
+        last = Dish.objects.filter(category=category).order_by("-position").values_list("position", flat=True).first() or 0
+        return last + 10
+
+    def create(self, validated_data):
+        """Новое блюдо встаёт в конец своей категории, если порядок не указали."""
+        if "position" not in validated_data:
+            validated_data["position"] = self._last_position(validated_data["category"])
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """Блюдо перенесли в другую категорию — ставим его в конец новой категории."""
+        category = validated_data.get("category")
+        if category is not None and category != instance.category and "position" not in validated_data:
+            validated_data["position"] = self._last_position(category)
+        return super().update(instance, validated_data)
+
     def validate_photo(self, value):
         """Фото: только настоящие картинки JPG, PNG или WebP и не больше 5 МБ (проверяем само содержимое файла)."""
         if not value:
@@ -134,5 +157,3 @@ class DishAdminSerializer(serializers.ModelSerializer):
         if image is not None and (image.format or "").upper() not in ALLOWED_PHOTO_FORMATS:
             raise serializers.ValidationError("Подойдёт только JPG, PNG или WebP.")
         return value
-
-    

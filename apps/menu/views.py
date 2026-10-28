@@ -17,6 +17,7 @@ from .serializers import (
     CategoryAdminSerializer,
     CategoryOrderSerializer,
     DishAdminSerializer,
+    DishOrderSerializer,
     DishSizeAdminSerializer,
     ExtraAdminSerializer,
     MenuCategorySerializer,
@@ -45,7 +46,8 @@ class PublicMenuView(generics.ListAPIView):
 
 class CategoryAdminViewSet(viewsets.ModelViewSet):
     """/api/admin/categories/ — список, создание, изменение, удаление категорий."""
-    queryset = Category.objects.annotate(dishes_count=Count("dishes"))   # у каждой категории — число блюд
+    # У каждой категории — число блюд. order_by обязателен: при подсчёте (Count) Django не применяет порядок из модели
+    queryset = Category.objects.annotate(dishes_count=Count("dishes")).order_by("position", "id")
     serializer_class = CategoryAdminSerializer
     permission_classes = [IsCafeAdmin]
     pagination_class = None                                              # категорий немного — все сразу
@@ -112,3 +114,20 @@ class DishAdminViewSet(viewsets.ModelViewSet):
         dish.is_available = not dish.is_available                      # меняем на противоположное
         dish.save(update_fields=["is_available", "updated_at"])        # сохраняем только эти поля
         return Response({"id": dish.id, "is_available": dish.is_available})  # отвечаем новым состоянием
+
+    
+    @extend_schema(request=DishOrderSerializer, responses=DishAdminSerializer(many=True))
+    @action(detail=False, methods=["post"])
+    def reorder(self, request):
+        """POST /api/admin/dishes/reorder/ {"category": 2, "ids": [7, 5, 6]} — новый порядок блюд в одной категории."""
+        body = DishOrderSerializer(data=request.data)                      # проверяем, что прислали
+        body.is_valid(raise_exception=True)
+        category_id, ids = body.validated_data["category"], body.validated_data["ids"]
+        known = set(Dish.objects.filter(category_id=category_id).values_list("id", flat=True))   # все блюда этой категории
+        if len(ids) != len(set(ids)) or set(ids) != known:                 # повторы, не все блюда или блюда из другой категории
+            raise ValidationError({"ids": "Нужно прислать все блюда этой категории в новом порядке."})
+        with transaction.atomic():                                         # всё или ничего
+            for index, dish_id in enumerate(ids):
+                Dish.objects.filter(pk=dish_id).update(position=(index + 1) * 10)   # 10, 20, 30…
+        dishes = self.get_queryset().filter(category_id=category_id)       # блюда категории уже в новом порядке
+        return Response(self.get_serializer(dishes, many=True).data)

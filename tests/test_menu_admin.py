@@ -45,9 +45,48 @@ class CategoryTests(BaseAPITest):
         self.assertGreater(created["position"], Category.objects.get(name="Бургеры").position)
         self.assertEqual(self.client.post(CATS, {"name": "  супы "}, format="json").status_code, 400)
 
+    def test_admin_list_shows_new_order(self):
+        self.as_user(self.admin)
+        self.client.post(f"{CATS}reorder/", {"ids": [self.burgers.id, self.pizzas.id]}, format="json")
+        names = [c["name"] for c in self.client.get(CATS).data]
+        self.assertEqual(names, ["Бургеры", "Пиццы"])                    # в админке тот же порядок, что у гостей
+
     def test_waiter_cannot_reorder(self):
         self.as_user(self.waiter)
         self.assertEqual(self.client.post(f"{CATS}reorder/", {"ids": []}, format="json").status_code, 403)
+
+
+class DishOrderTests(BaseAPITest):
+    """Порядок блюд внутри категории: перетащили — так и видят гости."""
+
+    def reorder(self, ids, category=None):
+        self.as_user(self.admin)
+        return self.client.post("/api/admin/dishes/reorder/", {"category": category or self.burgers.id, "ids": ids}, format="json")
+
+    def test_reorder_inside_category(self):
+        response = self.reorder([self.stopped.id, self.burger.id])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([d["name"] for d in response.data], ["Стоп-блюдо", "Чизбургер"])
+        self.as_user(None)
+        burgers = next(c for c in self.client.get("/api/menu/").data if c["name"] == "Бургеры")
+        self.assertEqual([d["name"] for d in burgers["dishes"]], ["Стоп-блюдо", "Чизбургер"])   # гости видят новый порядок
+
+    def test_reorder_needs_all_dishes_of_category(self):
+        self.assertEqual(self.reorder([self.burger.id]).status_code, 400)                      # не все блюда
+        self.assertEqual(self.reorder([self.burger.id, self.stopped.id, self.pizza.id]).status_code, 400)   # чужое блюдо
+        self.assertEqual(self.reorder([self.burger.id, self.burger.id]).status_code, 400)      # повтор
+
+    def test_new_dish_goes_last(self):
+        self.reorder([self.stopped.id, self.burger.id])                                        # позиции 10 и 20
+        self.as_user(self.admin)
+        created = self.client.post("/api/admin/dishes/", {"category": self.burgers.id, "name": "Дабл", "price": 450}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertGreater(created.data["position"], 20)                                       # встало в конец
+
+    def test_waiter_cannot_reorder_dishes(self):
+        self.as_user(self.waiter)
+        response = self.client.post("/api/admin/dishes/reorder/", {"category": self.burgers.id, "ids": []}, format="json")
+        self.assertEqual(response.status_code, 403)
 
 
 class DishPhotoTests(BaseAPITest):
