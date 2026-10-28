@@ -82,6 +82,7 @@
     $('#environment-label').textContent=live?'Панель кафе «Муслим»':'Демо · изменения только в этом браузере · Telegram не подключён';
     const requested=location.hash.slice(1);view=views.some(v=>v[0]===requested)&&canAccess(requested)?requested:'orders';
     await render();
+    paintTelegram();   // кнопка «Привязать Telegram»
     startWatch();   // следим за новыми заказами и вызовами
   }
   async function render(quiet=false){   // quiet=true — тихое обновление, без надписи «Загружаем…»
@@ -342,6 +343,31 @@
     if(events.length){MuslimNotify.alert(events);toast(events.slice(0,3).join(' · ')+(events.length>3?` и ещё ${events.length-3}`:''),kinds[0]);}
     if(before&&before.key!==seen.key&&['orders','tables'].includes(view)&&!document.querySelector('dialog[open]')&&!typing())await render(true);   // список сам обновился
   }
+  // ===== Кнопка «Telegram» в верхней полосе: привязан ли Telegram (привязка — входом в боте), «Отвязать» =====
+  function paintTelegram(){
+    let b=$('#telegram-toggle');
+    if(!b){b=document.createElement('button');b.type='button';b.id='telegram-toggle';$('#notify-toggle').before(b);}   // кнопка рядом со «Звук»
+    b.hidden=!live;if(!live)return;
+    const on=Boolean(me?.telegram_id);                                                  // уже привязан?
+    b.innerHTML=icon('telegram')+`<span class="tg-long">${on?'Telegram ✓':'Telegram не привязан'}</span><span class="tg-short">${on?'TG ✓':'Telegram'}</span>`;
+    b.classList.toggle('linked',on);b.setAttribute('aria-label',on?'Telegram привязан. Нажмите, чтобы отвязать':'Telegram не привязан. Как привязать');
+  }
+  async function telegramDialog(){
+    const state=await API.request('/staff/telegram/');                                  // привязан ли Telegram и где бот
+    me.telegram_id=state.telegram_id;paintTelegram();
+    if(me.telegram_id){                                                                 // привязан — можно отвязать (например, сменил телефон)
+      confirm('Отвязать Telegram?','Кнопки в Telegram-боте перестанут работать для вас. Чтобы привязать снова, войдите в боте своим логином и паролем.',async()=>{const next=await API.request('/staff/telegram/',{method:'DELETE'});me.telegram_id=next.telegram_id;paintTelegram();toast('Telegram отвязан');});
+      return;
+    }
+    $('#editor-title').textContent='Telegram не привязан';                             // подсказка, как привязать
+    $('#editor-content').innerHTML=`<div class="tg-link"><p>1. Откройте нашего бота${state.bot_username?` <b>@${esc(state.bot_username)}</b>`:''} в Telegram и нажмите <b>«Старт»</b>.<br>2. Нажмите «Войти» и введите <b>тот же логин и пароль</b>, что на сайте.<br>3. Готово — кнопки в группе будут работать для вас.</p>${state.bot_url?`<a class="primary wide" href="${esc(state.bot_url)}" target="_blank" rel="noopener">${icon('telegram')}Открыть бота</a>`:'<p class="fine">Бот ещё не настроен на сервере.</p>'}<p class="error" id="tg-status" role="status"></p><button type="button" class="secondary wide" id="telegram-check">${icon('refresh')}Проверить</button></div>`;
+    editor.showModal();
+  }
+  async function telegramCheck(){                                                       // сотрудник вошёл в боте?
+    const state=await API.request('/staff/telegram/');me.telegram_id=state.telegram_id;paintTelegram();
+    if(me.telegram_id){editor.close();toast('Telegram привязан ✓ Теперь кнопки в боте работают для вас');}
+    else $('#tg-status').textContent='Пока не привязан. Войдите в боте своим логином и паролем и нажмите «Проверить» снова.';
+  }
   // Кнопка «Звук» в верхней полосе
   function paintBell(){const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span>${on?'Звук вкл':'Звук выкл'}</span>`;b.classList.toggle('muted',!on);}
   async function reportsView(){
@@ -433,6 +459,8 @@
   function download(name,content,type='text/plain;charset=utf-8'){const blob=content instanceof Blob?content:new Blob([content],{type});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   async function act(button){
     if(button.dataset.view){view=button.dataset.view;query='';await render();return;}
+    if(button.id==='telegram-toggle'){await telegramDialog();return;}   // привязать / отвязать Telegram
+    if(button.id==='telegram-check'){await telegramCheck();return;}     // проверить привязку
     if(button.id==='notify-toggle'){const on=!MuslimNotify.enabled();MuslimNotify.setEnabled(on);if(on){MuslimNotify.unlock();await MuslimNotify.askPermission();MuslimNotify.beep();}paintBell();toast(on?'Уведомления включены':'Уведомления выключены');return;}
     if(button.hasAttribute('data-reload')){await render();return;}
     if(button.hasAttribute('data-add-category')){const form=$('#new-category');if(!form)return;form.hidden=false;form.querySelector('.error').textContent='';$('#new-cat-name').focus();return;}   // «+ Категория»: поле названия сверху списка

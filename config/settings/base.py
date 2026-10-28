@@ -199,3 +199,13 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = [
     origin for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if origin
 ]
+
+
+# ===== Telegram-бот (всё из .env; если пусто — бот выключен, сайт работает как обычно) =====
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")                       # токен от @BotFather — секрет, только в .env
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").lstrip("@")     # имя бота без @: для ссылки привязки
+TELEGRAM_GROUP_ID = int(os.getenv("TELEGRAM_GROUP_ID") or 0)                   # ID группы «Муслим — смена» (отрицательное число)
+TELEGRAM_TOPICS = {                                                            # ID тем группы; 0 — тема не настроена
+    place: int(os.getenv(f"TELEGRAM_TOPIC_{place.upper()}") or 0)
+    for place in ("admins", "kitchen", "hall", "delivery", "reports")
+}

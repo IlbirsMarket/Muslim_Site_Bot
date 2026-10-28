@@ -9,6 +9,7 @@ from django.db import transaction                                  # "всё и�
 from django.utils import timezone                                  # текущее время
 from rest_framework.exceptions import PermissionDenied, ValidationError  # ошибки 403 и 400
 
+from apps.bot.events import Kind as BotKind, add_event             # «почтовый ящик» для Telegram-бота
 from apps.tables.models import Table                               # стол: отмечаем «занят / свободен»
 from .models import Order, OrderStatusLog, TableVisit
 
@@ -48,9 +49,11 @@ def close_visits(table, user) -> int:
     все телефоны за ним перестают быть доверенными. Возвращает, сколько телефонов было.
     """
     Table.objects.filter(pk=table.pk).update(occupied_since=None, freed_at=timezone.now())   # стол свободен; гости за ним выходят из режима стола
-    return TableVisit.objects.filter(table=table, closed_at__isnull=True).update(
+    closed = TableVisit.objects.filter(table=table, closed_at__isnull=True).update(
         closed_at=timezone.now(), closed_by=user,
     )
+    add_event(BotKind.TABLE_FREED, table=table, user_id=user.id)          # бот напишет в «Зал»: стол свободен
+    return closed
 
 
 # ===================== КТО ЧТО МОЖЕТ =====================
@@ -146,6 +149,7 @@ def claim_order(order, user) -> Order:
         raise ValidationError({"action": f"Этот стол уже взял(а) {name}."})
     order.claimed_by = user                                         # записываем, кто взял
     order.save(update_fields=["claimed_by", "updated_at"])
+    add_event(BotKind.ORDER_CHANGED, order=order, action="claim", user_id=user.id)   # бот покажет «Стол взял(а): …»
     return order
 
 def _claim_delivery(order, user) -> Order:
@@ -155,8 +159,9 @@ def _claim_delivery(order, user) -> Order:
     if order.claimed_by_id and order.claimed_by_id != user.id:      # уже взял другой курьер
         name = order.claimed_by.first_name or order.claimed_by.username
         raise ValidationError({"action": f"Этот заказ уже взял(а) {name}."})
-    order.claimed_by = user
+    order.claimed_by = user                                         # записываем, кто везёт
     order.save(update_fields=["claimed_by", "updated_at"])
+    add_event(BotKind.ORDER_CHANGED, order=order, action="claim", user_id=user.id)   # бот покажет «Курьер: …»
     return order
 
 
@@ -196,4 +201,5 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
 
     order.save(update_fields=fields)                                # сохраняем
     OrderStatusLog.objects.create(order=order, status=order.status, changed_by=user)  # пишем в историю
+    add_event(BotKind.ORDER_CHANGED, order=order, action=action, user_id=user.id)    # бот обновит сообщения о заказе
     return order

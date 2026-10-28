@@ -12,6 +12,8 @@ from rest_framework.views import APIView                     # простой vi
 from datetime import date                                      # проверка формата даты
 from rest_framework.exceptions import ValidationError          # ответ 400
 
+from django.db import transaction                            # «всё или ничего»
+from apps.bot.events import Kind as BotKind, add_event       # «почтовый ящик» для Telegram-бота
 from apps.tables.models import Table
 from core.permissions import IsStaffMember, IsWaiterOrAdmin
 from .models import Order, TableCall
@@ -105,10 +107,13 @@ class StaffTableCallViewSet(viewsets.ReadOnlyModelViewSet):
     def done(self, request, pk=None):
         """POST /api/staff/table-calls/{id}/done/ — официант подошёл, вызов выполнен."""
         call = self.get_object()
-        call.is_done = True                                          # отмечаем выполненным
-        call.done_by = request.user                                  # кто подошёл
-        call.done_at = timezone.now()                                # когда
-        call.save(update_fields=["is_done", "done_by", "done_at"])
+        if not call.is_done:                                         # повторное «Выполнено» ничего не меняет
+            with transaction.atomic():                               # отметка и событие для бота — вместе
+                call.is_done = True                                  # отмечаем выполненным
+                call.done_by = request.user                          # кто подошёл
+                call.done_at = timezone.now()                        # когда
+                call.save(update_fields=["is_done", "done_by", "done_at"])
+                add_event(BotKind.CALL_DONE, call=call, user_id=request.user.id)   # бот отметит вызов в «Зал»
         return Response(self.get_serializer(call).data)
 
 

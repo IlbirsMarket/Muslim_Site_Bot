@@ -7,9 +7,11 @@
 
 from datetime import timedelta                     # промежуток времени (2 минуты)
 
+from django.db import transaction                  # вызов и событие для бота — вместе
 from django.utils import timezone                  # текущее время
 from rest_framework import serializers             # инструменты DRF
 
+from apps.bot.events import Kind as BotKind, add_event   # «почтовый ящик» для Telegram-бота
 from apps.cafe.models import CafeSettings
 from apps.menu.models import Dish
 from apps.tables.models import Table
@@ -209,5 +211,8 @@ class TableCallCreateSerializer(serializers.ModelSerializer):
             created_at__gte=timezone.now() - timedelta(minutes=2),
         ).first()
         if recent:
-            return recent                                   # возвращаем существующий вызов
-        return TableCall.objects.create(table=table, kind=kind)
+            return recent                                   # возвращаем существующий вызов (нового события нет)
+        with transaction.atomic():                          # вызов и событие для бота сохраняются вместе
+            call = TableCall.objects.create(table=table, kind=kind)
+            add_event(BotKind.CALL_CREATED, call=call)      # бот напишет в «Зал»: «Стол 5: Позвать официанта»
+        return call

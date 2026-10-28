@@ -19,6 +19,7 @@ urlpatterns = [
     path("api/", include("apps.cafe.urls")),         # настройки: /api/cafe/, /api/admin/cafe/
     path("api/", include("apps.orders.urls")),       # заказы: /api/orders/, /api/staff/orders/ ...
     path("api/", include("apps.reports.urls")),      # отчёты: /api/admin/reports/day/, /api/admin/reports/periods/
+    path("api/", include("apps.bot.urls")),          # Telegram: /api/staff/telegram/
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),                   # схема API (OpenAPI)
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),  # страница Swagger
 ]

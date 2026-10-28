@@ -1,0 +1,1 @@
+"""Всё, что работает с Telegram (aiogram). Остальная логика бота — в apps/bot/services.py и texts.py."""        

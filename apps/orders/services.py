@@ -6,6 +6,7 @@
 from django.db import transaction                       # "всё или ничего": если ошибка — в базу ничего не попадёт
 from rest_framework.exceptions import ValidationError   # ошибка, которую DRF вернёт фронту как 400
 
+from apps.bot.events import Kind as BotKind, add_event         # «почтовый ящик» для Telegram-бота
 from apps.cafe.models import CafeSettings
 from .models import Order, OrderItem, OrderStatusLog
 from .status_service import active_visit, occupy_table  # доверенный телефон; отметка «стол занят»
@@ -89,6 +90,7 @@ def create_order(data: dict) -> Order:
         OrderStatusLog.objects.create(order=order, status=Order.Status.ACCEPTED)  # и сразу принят (доверенный телефон)
         occupy_table(order.table_id)                                              # стол занят (если его успели закрыть)
 
-    # 7. Здесь позже будет отправка заказа в Telegram-группу (этап «Бот»)
+    # 7. Событие для Telegram-бота: он отправит заказ в нужные темы группы
+    add_event(BotKind.ORDER_CREATED, order=order, trusted=trusted)
 
     return order
