@@ -16,7 +16,10 @@ S = Order.Status   # короткие имена, чтобы правила ни
 K = Order.Kind
 
 VISIT_HOURS = 4    # сколько часов телефон остаётся доверенным, если стол не закрыли вручную
-REJECT_DEFAULT_REASON = "Стол не подтвердил заказ"
+# Причина по умолчанию, если отклонили без своей причины
+REJECT_REASON_TABLE = "Официант не подтвердил заказ со стола"
+REJECT_REASON_SITE = "Кафе не смогло принять заказ"
+COURIER_STATUSES = [S.ACCEPTED, S.COOKING, S.READY]                 # когда курьер может взять доставку
 
 
 # ===================== ДОВЕРЕННЫЙ ТЕЛЕФОН =====================
@@ -44,7 +47,7 @@ def close_visits(table, user) -> int:
     «Освободить стол»: гости ушли, стол снова свободен,
     все телефоны за ним перестают быть доверенными. Возвращает, сколько телефонов было.
     """
-    Table.objects.filter(pk=table.pk).update(occupied_since=None)          # стол свободен
+    Table.objects.filter(pk=table.pk).update(occupied_since=None, freed_at=timezone.now())   # стол свободен; гости за ним выходят из режима стола
     return TableVisit.objects.filter(table=table, closed_at__isnull=True).update(
         closed_at=timezone.now(), closed_by=user,
     )
@@ -73,15 +76,22 @@ def _can_cook(user, order) -> bool:
     return user.is_cafe_admin or user.is_cook
 
 
+def _courier_owns(user, order) -> bool:
+    """Курьер и заказ: доставку взял он сам (или никто, если админ сразу отправил в путь)."""
+    return user.is_courier and order.kind == K.DELIVERY and order.claimed_by_id in (None, user.id)
+
+
 def _can_send(user, order) -> bool:
-    """«В пути» — только доставка, только админ."""
-    return order.kind == K.DELIVERY and user.is_cafe_admin
+    """«В пути» — только доставка: админ или курьер, который взял этот заказ."""
+    if order.kind != K.DELIVERY:
+        return False
+    return user.is_cafe_admin or (user.is_courier and order.claimed_by_id == user.id)
 
 
 def _can_complete(user, order) -> bool:
     """Завершить: подан / доставлен / выдан."""
     if order.kind == K.DELIVERY:                                    # доставку завершаем только после «В пути»
-        return order.status == S.ON_THE_WAY and user.is_cafe_admin
+        return order.status == S.ON_THE_WAY and (user.is_cafe_admin or _courier_owns(user, order))
     if order.status != S.READY:                                     # остальные — после «Готов»
         return False
     if at_table(order):
@@ -115,6 +125,8 @@ def available_actions(order, user) -> list:
             result.append({"action": name, "label": label, "needs_reason": rule["reason"]})
     if at_table(order) and order.status == S.NEW and not order.claimed_by_id and (user.is_waiter or user.is_cafe_admin):
         result.insert(0, {"action": "claim", "label": "Беру стол", "needs_reason": False})  # кнопка "Беру стол" первой
+    if user.is_courier and order.kind == K.DELIVERY and order.status in COURIER_STATUSES and not order.claimed_by_id:
+        result.insert(0, {"action": "claim", "label": "Беру заказ", "needs_reason": False})  # курьер берёт доставку
     return result
 
 
@@ -123,7 +135,8 @@ def available_actions(order, user) -> list:
 @transaction.atomic
 def claim_order(order, user) -> Order:
     """Официант нажал «Беру стол»: остальные видят, что стол уже взят."""
-    order = Order.objects.select_for_update().get(pk=order.pk)      # блокируем строку: два официанта не возьмут одновременно
+    if user.is_courier:                                             # курьер берёт доставку
+        return _claim_delivery(order, user)
     if not at_table(order) or order.status != S.NEW:
         raise ValidationError({"action": "Взять можно только новый заказ в зале."})
     if not (user.is_waiter or user.is_cafe_admin):
@@ -132,6 +145,17 @@ def claim_order(order, user) -> Order:
         name = order.claimed_by.first_name or order.claimed_by.username
         raise ValidationError({"action": f"Этот стол уже взял(а) {name}."})
     order.claimed_by = user                                         # записываем, кто взял
+    order.save(update_fields=["claimed_by", "updated_at"])
+    return order
+
+def _claim_delivery(order, user) -> Order:
+    """Курьер нажал «Беру заказ»: остальные курьеры видят, кто везёт."""
+    if order.kind != K.DELIVERY or order.status not in COURIER_STATUSES:
+        raise ValidationError({"action": "Взять можно только подтверждённую доставку, пока она не в пути."})
+    if order.claimed_by_id and order.claimed_by_id != user.id:      # уже взял другой курьер
+        name = order.claimed_by.first_name or order.claimed_by.username
+        raise ValidationError({"action": f"Этот заказ уже взял(а) {name}."})
+    order.claimed_by = user
     order.save(update_fields=["claimed_by", "updated_at"])
     return order
 
@@ -167,7 +191,7 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
             occupy_table(order.table_id)                            # официант подтвердил — стол занят
 
     if rule["to"] == S.CANCELLED:                                   # отклонение или отмена
-        order.cancel_reason = reason or REJECT_DEFAULT_REASON
+        order.cancel_reason = reason or (REJECT_REASON_TABLE if at_table(order) else REJECT_REASON_SITE)
         fields.append("cancel_reason")
 
     order.save(update_fields=fields)                                # сохраняем

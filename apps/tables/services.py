@@ -9,7 +9,7 @@ def build_qr_png(url: str) -> bytes:
     """Создаёт PNG-картинку QR-кода с адресом url и возвращает её байты."""
     qr = qrcode.QRCode(
         error_correction=qrcode.constants.ERROR_CORRECT_M,  # средняя защита: QR читается, даже если немного испачкан
-        box_size=12,                                         # размер одного квадратика в пикселях
+        box_size=30,                                         # размер одного квадратика в пикселях
         border=2,                                            # белая рамка вокруг (в квадратиках)
     )
     qr.add_data(url)                     # какой адрес зашиваем

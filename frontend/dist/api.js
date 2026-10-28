@@ -21,8 +21,12 @@
     if (typeof body?.detail==='string') return body.detail;
     if (Array.isArray(body)) return body.join(' ');                // ошибка списком: ["Текст"]
     // Названия полей в ошибках по-русски: «email: …» → «Email: …»
-    const labels={username:'Логин',email:'Email',password:'Пароль',role:'Роль',first_name:'Имя',last_name:'Фамилия',phone:'Телефон',telegram_id:'Telegram ID'};
-    if (body && typeof body==='object') return Object.entries(body).map(([key,value])=>`${key==='non_field_errors'?'':(labels[key]||key)+': '}${Array.isArray(value)?value.join(', '):typeof value==='object'?JSON.stringify(value):value}`).join('; ').slice(0,1000);
+    const labels={username:'Логин',email:'Email',password:'Пароль',role:'Роль',first_name:'Имя',last_name:'Фамилия',phone:'Телефон',telegram_id:'Telegram ID',
+      name:'Название',price:'Цена',category:'Категория',description:'Описание',photo:'Фото',number:'Номер',customer_name:'Имя',address:'Адрес',reason:'Причина',
+      opens_at:'Открываемся',closes_at:'Закрываемся',delivery_min_sum:'Мин. сумма',delivery_fee:'Стоимость доставки',free_delivery_from:'Бесплатная доставка от'};
+    const hidden=['non_field_errors','items','action','ids','detail','table_token','order_type'];        // эти поля без подписи: текст ошибки и так понятен
+    const flat=value=>Array.isArray(value)?value.map(flat).join(', '):value&&typeof value==='object'?Object.values(value).map(flat).join(', '):String(value);   // вложенные ошибки — в одну строку
+    if (body && typeof body==='object') return Object.entries(body).map(([key,value])=>`${hidden.includes(key)?'':(labels[key]||key)+': '}${flat(value)}`).join('; ').slice(0,1000);
     return `Ошибка API (${status})`;
   }
   async function request(path,{method='GET',body,auth=true,binary=false,retry=true}={}) {

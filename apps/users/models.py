@@ -20,6 +20,7 @@ class User(AbstractUser):
         ADMIN = "admin", "Админ"                  # управляющий, подчиняется шефу
         COOK = "cook", "Повар"                    # кухня
         WAITER = "waiter", "Официант"             # зал
+        COURIER = "courier", "Курьер"             # доставка
 
     # Роль сотрудника. Значения по умолчанию нет: при создании роль нужно выбрать явно
     role = models.CharField("Роль", max_length=20, choices=Role.choices)
@@ -78,18 +79,23 @@ class User(AbstractUser):
         """Официант: заказы зала, вызовы со столов, «Подан на стол»."""
         return self.role == self.Role.WAITER
 
+    @property
+    def is_courier(self) -> bool:
+        """Курьер: видит доставки, берёт заказ, «В пути», «Доставлен»."""
+        return self.role == self.Role.COURIER
+
         # ----- Смена ролей -----
 
     def assignable_roles(self) -> list:
         """Какие роли этот сотрудник может назначать другим."""
         R = self.Role
         if self.role == R.PROGRAMMER:
-            return [R.CHEF, R.ADMIN, R.COOK, R.WAITER]
+            return [R.CHEF, R.ADMIN, R.COOK, R.WAITER, R.COURIER]
         if self.role == R.CHEF:
-            return [R.ADMIN, R.COOK, R.WAITER]
+            return [R.ADMIN, R.COOK, R.WAITER, R.COURIER]
         if self.role == R.ADMIN:
-            return [R.COOK, R.WAITER]
-        return []                                        # повар и официант никому роли не назначают
+            return [R.COOK, R.WAITER, R.COURIER]    
+        return []                                        # повар, официант и курьер никому роли не назначают                           # повар и официант никому роли не назначают
 
     def can_manage(self, target: "User") -> bool:
         """Может ли редактировать / блокировать сотрудника target: себя нельзя, и только тех, чью роль сам назначает."""

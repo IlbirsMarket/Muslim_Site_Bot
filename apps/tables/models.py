@@ -36,6 +36,7 @@ class Table(models.Model):
     # С какого времени стол занят: ставится, когда официант подтвердил первый заказ,
     # и очищается кнопкой «Гости ушли — закрыть стол». Пусто — стол свободен
     occupied_since = models.DateTimeField("Занят с", null=True, blank=True)
+    freed_at = models.DateTimeField("Освобождён", null=True, blank=True)   # когда последний раз нажали «Освободить стол»
 
     class Meta:
         ordering = ["kind", "number"]   # сначала доставка, потом столы по номерам

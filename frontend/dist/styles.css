@@ -17,3 +17,23 @@
 /* Пока меню грузится: надпись вместо пустого места; пустая плашка стола не показывается */
 .loading-note{grid-column:1/-1;padding:40px 10px;text-align:center;color:var(--muted)}
 .table:empty{display:none}
+
+/* ===== «Мои заказы» под корзиной ===== */
+.my-orders{display:flex;flex-direction:column;gap:6px;margin-top:14px;border-top:1px solid var(--border);padding-top:12px}
+.my-orders h3{margin:0 0 4px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.my-order{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:#fff;font:inherit;font-size:13px;cursor:pointer;text-align:left}
+.my-order strong{font-size:12px;padding:3px 8px;border-radius:20px;background:#e5f0e7;color:var(--green);white-space:nowrap}
+.my-order.status-new strong{background:#f4eace;color:#88671c}
+.my-order.status-completed strong{background:#eceae4;color:var(--muted)}
+.my-order.status-cancelled strong{background:#f8e1dc;color:#8e2a1d}
+/* Окно заказа: причина отмены и время этапов */
+.order-state.cancelled{background:#f8e1dc;color:#8e2a1d}
+.order-timeline p{display:flex;justify-content:space-between;gap:10px}
+/* ===== Стол освобождён: меню только для просмотра ===== */
+.view-only-note{display:flex;flex-direction:column;gap:4px;margin:14px 0;padding:14px 16px;border-radius:14px;background:#f4eace;border:1px solid #e3d3a6;color:#6b5317;font-size:14px;line-height:1.5}
+.view-only-note strong{font-size:16px;color:#4a3a10}
+body.view-only #cart-items,body.view-only .order-comment,body.view-only .total,body.view-only #checkout,body.view-only .draft-note,
+body.view-only .mode-switch,body.view-only .dish-actions,body.view-only .choose,body.view-only [data-service],body.view-only .guest-services{display:none!important}
+body.view-only #open-cart>*{display:none}
+body.view-only #open-cart::after{content:'Мои заказы';font-weight:800}
+body.view-only .cart-bottom{margin-top:0}body.view-only .my-orders{border-top:0;margin-top:0;padding-top:0}body.view-only .my-orders h3{display:none}

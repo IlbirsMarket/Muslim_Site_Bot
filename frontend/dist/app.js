@@ -6,6 +6,8 @@
   const API=window.MuslimAPI,live=API.enabled;
   let cafe=null,tableInfo=null;
   const tableToken=new URLSearchParams(location.search).get('token');
+  let viewOnly=live&&new URLSearchParams(location.search).get('view')==='menu';   // стол освободили — меню только для просмотра
+  let freedAt0=null;                                                              // когда стол освобождали до того, как гость открыл QR
   const cartKey=live?'muslim-api-cart-v1':'muslim-cart-v1';
   const maxQty=live?50:99;
   const MenuRepository = { async load() { return live?API.normalizeMenu(await API.request('/menu/',{auth:false})):window.MuslimStore.load().menu; } };
@@ -18,7 +20,7 @@
   const table = new URLSearchParams(location.search).get('table');
   const tableNumber = table && /^\d{1,3}$/.test(table) && Number(table) > 0 ? Number(table) : null;
   if (tableNumber) $('#table-label').textContent = `Стол №${tableNumber}`;
-  if (live && !tableToken) $('#table-label').textContent = 'Доставка';   // главная страница без QR стола — это доставка
+  if (live && !tableToken && !viewOnly) $('#table-label').textContent = 'Доставка';   // главная страница без QR стола — это доставка
 
   function art(type) {
     const path = type === 'drinks' ? '<path d="M7 8h10l-1 13H8L7 8ZM13 8l2-6h4M6 8h12"/>' : '<path d="M12 3 3 20h18L12 3Z"/><path d="M5 17h14"/><circle cx="12" cy="9" r="1"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/>';
@@ -86,6 +88,7 @@
   }
   function openCheckout() {
     if (!cart.length) return;
+    if(viewOnly){toast('Стол освобождён. Чтобы заказать, отсканируйте QR-код на столе.');return;}
     if(live&&!tableInfo){toast('Откройте меню по QR стола или доставки из админ-панели.');return;}
     if(live&&cafe&&!cafe.is_open){toast('Сейчас кафе не принимает заказы.');return;}
     if(live&&mode==='delivery'&&cafe&&!cafe.is_delivery_enabled){toast('Доставка сейчас отключена.');return;}
@@ -156,7 +159,8 @@
         const payload=API.orderPayload({menu,cart,tableToken,deviceKey:deviceKey(),mode,fields:Object.fromEntries(values),comment:$('#order-comment').value.trim()});
         const order=await API.request('/orders/',{method:'POST',auth:false,body:payload});
         // Корзина очищается только после подтверждённого ответа сервера.
-        cart=[];saveCart();renderCart();$('#checkout-dialog').close();showOrder(order);storage.write('muslim-last-order',order.public_id);
+        cart=[];$('#order-comment').value='';saveCart();renderCart();$('#checkout-dialog').close();showOrder(order);   // корзина и комментарий очищены
+        rememberOrder(order);renderMyOrders();                                                                         // заказ сразу появляется в «Мои заказы»
       }catch(error){const message=document.createElement('p');message.id='checkout-api-error';message.className='info';message.setAttribute('role','alert');message.textContent=error.message;button.before(message);}finally{button.disabled=false;}
       return;
     }
@@ -188,16 +192,14 @@
       $('#menu-note').textContent='Цены актуальные. Итог заказа кафе подтвердит после отправки.';
       $('.draft-note').textContent='Заказ сразу увидят в кафе.';
       // Есть токен — это QR стола. Нет токена — главная страница = QR доставки
-      if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
+      if(viewOnly){enterViewOnly(false);}
+      else if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});freedAt0=tableInfo.freed_at||null;$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
       else{tableInfo={kind:'delivery',name:'Доставка'};$('#table-label').textContent='Доставка';}
       applyModes();
       if(tableInfo?.kind==='hall'&&!$('#guest-services')){
         const services=document.createElement('div');services.id='guest-services';services.className='guest-services';services.innerHTML='<button type="button" class="secondary" data-service="waiter">Позвать официанта</button><button type="button" class="secondary" data-service="bill">Попросить счёт</button>';$('.welcome').after(services);
       }
-      const previous=storage.read('muslim-last-order',null);
-      if(typeof previous==='string'&&/^[0-9a-f-]{36}$/i.test(previous)&&!$('#last-order')){
-        const button=document.createElement('button');button.type='button';button.id='last-order';button.className='secondary';button.textContent='Статус последнего заказа';$('.cart-bottom').append(button);button.onclick=async()=>{button.disabled=true;try{showOrder(await API.request(`/orders/${encodeURIComponent(previous)}/`,{auth:false}));}catch(error){toast(error.message);}finally{button.disabled=false;}};
-      }
+      renderMyOrders();                                                   // «Мои заказы» с этого телефона
     }
     const saved = storage.read(cartKey, {});
     if (Array.isArray(saved.cart)) cart = saved.cart.filter(validItem);
@@ -234,8 +236,8 @@
     if ($('#dish-dialog').open && selection && !menu.dishes.some(d => d.id === selection.id && d.available)) { $('#dish-dialog').close(); toast('Это блюдо только что закончилось.'); }
     renderMenu();
   }
-  setInterval(refreshMenu, 30000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshMenu(); });
+  setInterval(()=>{refreshMenu();checkTable();if(!document.hidden)renderMyOrders();}, 30000);   // меню, стол и статусы — раз в 30 секунд
+  document.addEventListener('visibilitychange', () => { if (!document.hidden){refreshMenu();checkTable();renderMyOrders();} });
   // Какие способы можно выбрать: со стола — «В кафе» и «С собой», с главной страницы — «Доставка» и «Самовывоз»
   function allowedModes(){return !live?['cafe','delivery','pickup']:tableInfo?.kind==='hall'?['cafe','takeaway']:['delivery','pickup'];}
   function applyModes(){
@@ -252,12 +254,65 @@
     if(dish.image&&/^(https?:|data:image\/(png|jpeg|webp);base64,)/.test(dish.image)){let url=dish.image;try{const parsed=new URL(url);if(live&&parsed.pathname.startsWith('/media/'))url='/backend'+parsed.pathname;}catch{/* Локальное фото. */}return `<img src="${escape(url)}" alt="" loading="lazy">`;}
     return art(dish.category);
   }
+  // Окно заказа у гостя: номер, статус, состав, история. Отменён — видна причина
   function showOrder(order){
     let dialog=$('#order-status-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='order-status-dialog';document.body.append(dialog);}
-    dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть статус">×</button><div class="checkout-body"><span class="eyebrow">Ответ сервера</span><h2>Заказ №${order.number}</h2><p class="info">${escape(order.status_label)}</p>${order.items.map(i=>`<div class="summary-line"><span>${escape(i.dish_name)} ${escape(i.size_name)} × ${i.quantity}</span><strong>${money(i.line_total)}</strong></div>`).join('')}<div class="total"><span>Итого</span><strong>${money(order.total)}</strong></div><div class="order-timeline">${(order.timeline||[]).map(t=>`<p>${escape(t.label)} · ${escape(t.at?new Date(t.at).toLocaleTimeString('ru-RU'): '')}</p>`).join('')}</div><button class="primary" id="refresh-order-status">Обновить статус</button><p id="order-status-error" class="info" hidden></p></div>`;
-    $('#refresh-order-status').onclick=async()=>{const button=$('#refresh-order-status');button.disabled=true;try{const next=await API.request(`/orders/${encodeURIComponent(order.public_id)}/`,{auth:false});dialog.close();showOrder(next);}catch(error){$('#order-status-error').hidden=false;$('#order-status-error').textContent=error.message;}finally{button.disabled=false;}};
-    dialog.showModal();
+    const place=order.kind==='hall'||order.kind==='takeaway'?`${order.table_name||''}${order.kind==='takeaway'?' · с собой':''}`:order.kind_display;
+    const cancelled=order.status==='cancelled';
+    const time=iso=>{try{return new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});}catch{return '';}};
+    dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body"><span class="eyebrow">Ваш заказ · ${escape(place)}</span><h2>Заказ №${order.number}</h2><p class="info order-state${cancelled?' cancelled':''}">${escape(order.status_label)}${cancelled&&order.cancel_reason?`<br><small>Причина: ${escape(order.cancel_reason)}</small>`:''}</p>${order.items.map(i=>`<div class="summary-line"><span>${escape(i.dish_name)} ${escape(i.size_name)} × ${i.quantity}</span><strong>${money(i.line_total)}</strong></div>`).join('')}${order.delivery_fee?`<div class="summary-line"><span>Доставка</span><strong>${money(order.delivery_fee)}</strong></div>`:''}<div class="total"><span>Итого</span><strong>${money(order.total)}</strong></div><div class="order-timeline">${(order.timeline||[]).map(t=>`<p><span>${escape(t.label)}</span><span>${escape(t.at?time(t.at):'')}</span></p>`).join('')}</div><button class="primary" id="refresh-order-status">Обновить статус</button><p id="order-status-error" class="info" hidden></p></div>`;
+    $('#refresh-order-status').onclick=async()=>{const button=$('#refresh-order-status');button.disabled=true;try{const next=await API.request(`/orders/${encodeURIComponent(order.public_id)}/`,{auth:false});dialog.close();showOrder(next);renderMyOrders();}catch(error){$('#order-status-error').hidden=false;$('#order-status-error').textContent=error.message;}finally{button.disabled=false;}};
+    if(!dialog.open)dialog.showModal();
   }
+  // ===== «Мои заказы»: последние заказы с этого телефона (до 5 штук за сутки) =====
+  const ORDERS_KEY='muslim-my-orders';
+  function myOrders(){
+    let list=storage.read(ORDERS_KEY,null);
+    if(!Array.isArray(list)){                                             // переносим старую «последнюю» запись
+      const old=storage.read('muslim-last-order',null);
+      list=typeof old==='string'?[{id:old,at:Date.now()}]:[];
+    }
+    const dayAgo=Date.now()-24*3600e3;
+    return list.filter(o=>o&&typeof o.id==='string'&&/^[0-9a-f-]{36}$/i.test(o.id)&&o.at>dayAgo).slice(0,5);
+  }
+  function rememberOrder(order){storage.write(ORDERS_KEY,[{id:order.public_id,at:Date.now()},...myOrders().filter(o=>o.id!==order.public_id)].slice(0,5));}
+  let myOrdersBusy=false;
+  async function renderMyOrders(){
+    if(!live||myOrdersBusy)return;
+    const list=myOrders();let box=$('#my-orders');
+    if(!list.length){box?.remove();if(viewOnly)$('#open-cart').hidden=true;return;}
+    if(!box){box=document.createElement('div');box.id='my-orders';box.className='my-orders';$('.cart-bottom').append(box);}
+    myOrdersBusy=true;
+    try{
+      const orders=(await Promise.all(list.map(o=>API.request(`/orders/${encodeURIComponent(o.id)}/`,{auth:false}).catch(()=>null)))).filter(Boolean);
+      cache.myOrders=orders;
+      box.innerHTML=`<h3>Мои заказы</h3>${orders.map((o,i)=>`<button type="button" class="my-order status-${escape(o.status)}" data-my-order="${i}"><span>№${o.number} · ${money(o.total)}</span><strong>${escape(o.status_label)}</strong></button>`).join('')}`;
+      if(viewOnly)$('#open-cart').hidden=false;                         // на телефоне кнопка внизу открывает «Мои заказы»
+    }finally{myOrdersBusy=false;}
+  }
+  const cache={myOrders:[]};
+  document.addEventListener('click',event=>{const b=event.target.closest('[data-my-order]');if(b){const order=cache.myOrders[Number(b.dataset.myOrder)];if(order)showOrder(order);}});
+  // ===== Стол освободили: гость остаётся в меню, но заказать как «Стол N» уже не может =====
+  function enterViewOnly(announce=true){
+    viewOnly=true;tableInfo=null;cart=[];saveCart();
+    try{history.replaceState(null,'','./?view=menu');}catch{/* Адрес не поменялся — не страшно. */}   // перезагрузка не вернёт стол
+    document.body.classList.add('view-only');
+    $('#table-label').textContent='Меню';
+    $('#cart h2').textContent='Мои заказы';
+    let note=$('#view-only-note');
+    if(!note){note=document.createElement('div');note.id='view-only-note';note.className='view-only-note';note.innerHTML='<strong>Стол освобождён</strong>Меню можно смотреть. Чтобы заказать снова, отсканируйте QR-код на столе.';$('.welcome').after(note);}
+    document.querySelectorAll('dialog[open]').forEach(d=>{if(d.id!=='order-status-dialog')d.close();});
+    if(menu)renderCart();
+    $('#open-cart').hidden=!myOrders().length;                            // на телефоне кнопка внизу — «Мои заказы»
+    if(announce)toast('Стол освобождён. Чтобы заказать снова, отсканируйте QR-код на столе.');
+    renderMyOrders();
+  }
+  async function checkTable(){                                            // раз в 30 секунд: не освободили ли стол
+    if(!live||viewOnly||!tableToken||tableInfo?.kind!=='hall')return;
+    try{const info=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});if((info.freed_at||null)!==freedAt0)enterViewOnly();}
+    catch(error){if(error.status===404)enterViewOnly();}                   // QR удалили или перевыпустили
+  }
+
   window.addEventListener('storage',event=>{if(!live&&event.key===window.MuslimStore.KEY){document.querySelectorAll('dialog[open]').forEach(d=>d.close());start().catch(error=>toast(error.message));}});
   document.addEventListener('error',event=>{if(event.target.tagName==='IMG'){event.target.hidden=true;}},true);
   function menuLoadError(error){$('#products').innerHTML='';$('#categories').innerHTML='';$('#empty').hidden=false;$('#empty').textContent=error.message;const retry=document.createElement('button');retry.className='secondary';retry.textContent='Повторить загрузку';retry.onclick=()=>{retry.disabled=true;start().then(()=>$('#empty').hidden=menu.dishes.length>0).catch(menuLoadError);};$('#empty').append(document.createElement('br'),retry);}

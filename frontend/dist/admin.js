@@ -5,7 +5,7 @@
   const money=n=>`${new Intl.NumberFormat('ru-RU').format(n||0)} сом`;
   const list=data=>Array.isArray(data)?data:data?.results||[];
   const icon=window.MuslimIcons.render;
-  const roles={owner:'Программист',programmer:'Программист',chef:'Шеф',admin:'Админ',cook:'Повар',waiter:'Официант',user:'Пользователь',blocked:'Заблокирован'};
+  const roles={owner:'Программист',programmer:'Программист',chef:'Шеф',admin:'Админ',cook:'Повар',waiter:'Официант',courier:'Курьер',user:'Пользователь',blocked:'Заблокирован'};
   const views=[['orders','orders','Заказы'],['menu','menu','Блюда и категории'],['tables','tables','Столы и QR'],['users','users','Пользователи и роли'],['reports','reports','Отчёты'],['settings','settings','Настройки'],...(API.enabled?[['api','api','Проверка API']]:[])];
   let live=false,state,me,view='orders',orderFilter='all',menuFilter='all',menuTab='cats',query='',userFilter='all',reportPeriod='day',reportDate=Store.today(),loadSequence=0,cache={},confirmation,editorImage='',uploadFile=null,editingId=null,toastTimer;
   const editor=$('#editor-dialog');
@@ -79,7 +79,7 @@
     $('#login-screen').hidden=true;$('#admin-shell').hidden=false;
     $('#staff-name').textContent=live?(me.first_name||me.username):'Администратор';
     $('#staff-role').textContent=live?`Роль: ${me.role_display}`:'Демонстрационный режим';
-    $('#environment-label').textContent=live?'Локальный API · данные с сервера':'Демо · изменения только в этом браузере · Telegram не подключён';
+    $('#environment-label').textContent=live?'Панель кафе «Муслим»':'Демо · изменения только в этом браузере · Telegram не подключён';
     const requested=location.hash.slice(1);view=views.some(v=>v[0]===requested)&&canAccess(requested)?requested:'orders';
     await render();
     startWatch();   // следим за новыми заказами и вызовами
@@ -102,11 +102,13 @@
   }
   async function ordersView(){
     let orders,calls=[];
-    if(live){const data=await Promise.all([API.request('/staff/orders/?active=true'),me.role==='cook'?Promise.resolve([]):API.request('/staff/table-calls/')]);orders=list(data[0]);calls=list(data[1]);}
+    if(live){const data=await Promise.all([API.request('/staff/orders/?active=true'),seesCalls()?API.request('/staff/table-calls/'):Promise.resolve([])]);orders=list(data[0]);calls=list(data[1]);}
     else orders=state.orders;
-    cache.orders=orders;cache.newCount=orders.filter(o=>o.status===(live&&me.role==='cook'?'accepted':'new')).length;if(live)remember(orders,calls);   // то, что уже на экране, не «новое»
+    cache.orders=orders;cache.newCount=waitingCount(orders);if(live)remember(orders,calls);   // то, что уже на экране, не «новое»
     const filtered=orders.filter(o=>orderFilter==='all'||kindOf(o)===orderFilter);   // фильтр по типу: в кафе / с собой / доставка / самовывоз
-    const groups=[['new','Новые',['new']],['cooking','Готовятся',['accepted','cooking']],['ready','Готовы и в пути',['ready','on_the_way']]];
+    const groups=live&&me.role==='courier'
+      ?[['cooking','Готовятся',['accepted','cooking']],['ready','Готовы к выдаче',['ready']],['way','В пути',['on_the_way']]]   // курьер: свои колонки
+      :[['new','Новые',['new']],['cooking','Готовятся',['accepted','cooking']],['ready','Готовы и в пути',['ready','on_the_way']]];
     const callHtml=calls.length?`<div class="notice">${calls.map(c=>`<div class="actions"><strong>${esc(c.table_name)}: ${esc(c.kind_display)}</strong><button class="secondary" data-call-done="${c.id}">Выполнено</button></div>`).join('')}</div>`:'';
     return heading('Заказы',live?`${orders.length} активных заказов`:'Примеры заказов из макета',`<div class="pills order-pills">${orderFilters().map(([id,label])=>pill(label,id,orderFilter===id,'order-filter')).join('')}</div><button class="secondary" data-reload>↻ Обновить</button>`)+callHtml+`<div class="board">${groups.map(([id,label,statuses])=>{const items=filtered.filter(o=>statuses.includes(o.status));return `<section class="column"><h2 class="column-heading"><i class="dot ${id}"></i>${label}<span>${items.length}</span></h2>${items.map(orderCard).join('')||'<div class="empty">Здесь пока нет заказов</div>'}</section>`;}).join('')}</div>`;
   }
@@ -114,15 +116,42 @@
   const KIND_ICON={hall:'tables',takeaway:'bag',delivery:'truck',pickup:'store'};
   const KIND_NAME={hall:'В кафе',takeaway:'С собой',delivery:'Доставка',pickup:'Самовывоз'};
   function kindOf(o){return live?o.kind:o.type==='cafe'?'hall':o.type;}
+  // Вызовы со столов видят официант и администрация (повару и курьеру они не нужны)
+  function seesCalls(){return ['programmer','chef','admin','waiter'].includes(me?.role);}
+  // Сколько заказов ждут реакции этого сотрудника (цифра в меню и во вкладке)
+  function waitingCount(orders){
+    if(live&&me.role==='cook')return orders.filter(o=>o.status==='accepted').length;                      // повар: ждут кухню
+    if(live&&me.role==='courier')return orders.filter(o=>!o.claimed_by_name&&o.status!=='on_the_way').length;   // курьер: никто не взял
+    return orders.filter(o=>o.status==='new').length;
+  }
+  const phoneLink=p=>`tel:${String(p).replace(/[^\d+]/g,'')}`;
+  // Данные гостя в карточке: имя, телефон, адрес, оплата, кто взял
+  function orderInfo(o){
+    if(!live)return '';
+    const kind=o.kind,rows=[];
+    const row=(name,html)=>rows.push(`<div class="info-row">${icon(name)}<span>${html}</span></div>`);
+    if(kind==='delivery'||kind==='pickup'){
+      if(o.customer_name)row('user',esc(o.customer_name));
+      if(o.phone)row('phone',`<a href="${esc(phoneLink(o.phone))}">${esc(o.phone)}</a>`);
+    }
+    if(kind==='delivery'){
+      const address=[o.address,o.apartment&&`кв. ${o.apartment}`,o.entrance&&`подъезд ${o.entrance}`,o.floor&&`этаж ${o.floor}`].filter(Boolean).join(', ');
+      if(address)row('pin',esc(address));
+      if(o.courier_comment)row('note',`Курьеру: ${esc(o.courier_comment)}`);
+    }
+    if(kind==='delivery'||kind==='pickup')row('wallet',`${esc(o.payment_display||'')}${o.change_from?` · сдача с ${money(o.change_from)}`:''}`);
+    if(o.claimed_by_name)row(kind==='delivery'?'truck':'users',`${kind==='delivery'?'Курьер':'Стол взял(а)'}: ${esc(o.claimed_by_name)}`);
+    return rows.length?`<div class="order-info">${rows.join('')}</div>`:'';
+  }
   // Фильтры над заказами: официант видит только заказы со столов, повар и админ — все
-  function orderFilters(){const kinds=live&&me.role==='waiter'?['hall','takeaway']:['hall','takeaway','delivery','pickup'];if(!live)kinds.splice(1,1);if(orderFilter!=='all'&&!kinds.includes(orderFilter))orderFilter='all';return [['all','Все'],...kinds.map(k=>[k,KIND_NAME[k]])];}
+  function orderFilters(){if(live&&me.role==='courier')return [];const kinds=live&&me.role==='waiter'?['hall','takeaway']:['hall','takeaway','delivery','pickup'];if(!live)kinds.splice(1,1);if(orderFilter!=='all'&&!kinds.includes(orderFilter))orderFilter='all';return [['all','Все'],...kinds.map(k=>[k,KIND_NAME[k]])];}
   function orderCard(o){
     const delivery=live?o.kind==='delivery':o.type==='delivery';
     const kind=kindOf(o);
     const title=live?(kind==='delivery'||kind==='pickup'?KIND_NAME[kind]:`${o.table_name||''}${kind==='takeaway'?' · с собой':''}`.trim()||o.kind_display):o.type==='cafe'?`Стол ${o.table}`:o.type==='pickup'?'Самовывоз':'Доставка';
     const items=live?o.items.map(i=>({name:[i.dish_name,i.size_name].filter(Boolean).join(' '),qty:i.quantity})):o.items;
     const actions=live?(o.available_actions||[]):o.status==='new'?[{action:'cooking',label:'Принять'},{action:'cancelled',label:'Отменить',needs_reason:true}]:o.status==='cooking'?[{action:'ready',label:'Готов'},{action:'cancelled',label:'Отменить',needs_reason:true}]:[{action:'completed',label:delivery?'Доставлен':'Выдан'},{action:'cancelled',label:'Отменить',needs_reason:true}];
-    return `<article class="order-card kind-${kind}"><div class="order-top"><strong>№${o.number||o.id}</strong><span class="tag kind-tag">${icon(KIND_ICON[kind]||'tables')}${esc(title)}</span><small>${live?esc(o.status_label):o.minutes+' мин'}</small></div>${kind==='takeaway'?'<p class="takeaway-mark">С СОБОЙ — упаковать</p>':''}<div class="order-items">${items.map(i=>`${esc(i.name)} × ${i.qty}`).join('<br>')}</div>${o.comment||o.note?`<p class="order-note">${esc(o.comment||o.note)}</p>`:''}<div class="order-bottom"><strong>${money(live?o.total:Store.orderTotal(o))}</strong><div class="actions">${actions.map(a=>`<button class="${a.needs_reason?'danger':'primary'}" data-order="${o.id}" data-action="${esc(a.action)}" data-reason="${Boolean(a.needs_reason)}">${esc(a.label)}</button>`).join('')}</div></div></article>`;
+    return `<article class="order-card kind-${kind}"><div class="order-top"><strong>№${o.number||o.id}</strong><span class="tag kind-tag">${icon(KIND_ICON[kind]||'tables')}${esc(title)}</span><small>${live?`${esc(clock(o.created_at))} · ${esc(o.status_label)}`:o.minutes+' мин'}</small></div>${kind==='takeaway'?'<p class="takeaway-mark">С СОБОЙ — упаковать</p>':''}${orderInfo(o)}<div class="order-items">${items.map(i=>`${esc(i.name)} × ${i.qty}`).join('<br>')}</div>${o.comment||o.note?`<p class="order-note">${esc(o.comment||o.note)}</p>`:''}<div class="order-bottom"><strong>${money(live?o.total:Store.orderTotal(o))}</strong><div class="actions">${actions.map(a=>`<button class="${a.needs_reason||a.action==='reject'?'danger':'primary'}" data-order="${o.id}" data-number="${o.number||o.id}" data-kind="${esc(kind)}" data-action="${esc(a.action)}" data-reason="${Boolean(a.needs_reason)}">${esc(a.label)}</button>`).join('')}</div></div></article>`;
   }
   // ===== Блюда и категории =====
   // Компьютер и планшет: слева категории (порядок, видимость, переименовать, удалить), справа блюда.
@@ -285,9 +314,9 @@
   function typing(){const el=document.activeElement;return Boolean(el&&$('#content').contains(el)&&/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));}
   async function watch(){
     if(!live)return;
-    const role=me.role,isCook=role==='cook',isBoss=['programmer','chef','admin'].includes(role);
+    const role=me.role,isCook=role==='cook',isCourier=role==='courier',isBoss=['programmer','chef','admin'].includes(role);
     let orders,calls;
-    try{const data=await Promise.all([API.request('/staff/orders/?active=true'),isCook?[]:API.request('/staff/table-calls/')]);orders=list(data[0]);calls=list(data[1]);}
+    try{const data=await Promise.all([API.request('/staff/orders/?active=true'),seesCalls()?API.request('/staff/table-calls/'):[]]);orders=list(data[0]);calls=list(data[1]);}
     catch{return;}                                              // нет связи — попробуем через 10 секунд
     if(!live)return;                                            // пока ждали ответ, сотрудник вышел
     const place=o=>o.kind==='delivery'||o.kind==='pickup'?KIND_NAME[o.kind]:(o.table_name||'');   // «Стол 3» / «Доставка» / «Самовывоз»
@@ -296,6 +325,11 @@
       for(const o of orders){
         const was=before.orders.get(o.id);if(was===o.status)continue;              // ничего не поменялось
         const tail=o.kind==='takeaway'?' · с собой':'';
+        if(isCourier){                                                             // курьер: новая доставка и «готово, забирайте»
+          if(was===undefined){events.push(`Новая доставка №${o.number}${o.address?' · '+o.address:''}`);kinds.push('delivery');}
+          else if(o.status==='ready'){events.push(`Готов к выдаче: заказ №${o.number}${o.address?' · '+o.address:''}`);kinds.push('delivery');}
+          continue;
+        }
         if(!isCook&&o.status==='new'&&was===undefined){events.push(`Новый заказ №${o.number} · ${place(o)}${tail}`);kinds.push(o.kind);}
         if(isCook&&o.status==='accepted'){events.push(`На кухню: заказ №${o.number} · ${place(o)}${tail}`);kinds.push(o.kind);}
         if(o.status==='ready'&&(role==='waiter'||(isBoss&&(o.kind==='delivery'||o.kind==='pickup')))){events.push(`Готов: заказ №${o.number} · ${place(o)}${tail}`);kinds.push(o.kind);}
@@ -303,7 +337,7 @@
       for(const c of calls)if(!before.calls.has(c.id)){events.push(`${c.table_name}: ${c.kind_display}`);kinds.push('hall');}  // «Стол 5: Попросить счёт»
     }
     remember(orders,calls);
-    const waiting=orders.filter(o=>o.status===(isCook?'accepted':'new')).length;   // ждут реакции
+    const waiting=waitingCount(orders);                                             // ждут реакции
     cache.newCount=waiting;nav();MuslimNotify.title(waiting+calls.length);           // цифра в меню и во вкладке
     if(events.length){MuslimNotify.alert(events);toast(events.slice(0,3).join(' · ')+(events.length>3?` и ещё ${events.length-3}`:''),kinds[0]);}
     if(before&&before.key!==seen.key&&['orders','tables'].includes(view)&&!document.querySelector('dialog[open]')&&!typing())await render(true);   // список сам обновился
@@ -312,19 +346,21 @@
   function paintBell(){const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span>${on?'Звук вкл':'Звук выкл'}</span>`;b.classList.toggle('muted',!on);}
   async function reportsView(){
     const actions=`<button class="secondary" data-export-report>${live?'Скачать PDF':'Печать / PDF'}</button><button class="secondary" data-export-csv>${live?'JSON':'CSV'}</button>`;
-    const top=heading('Отчёты',live?'Данные с API':'Демонстрационные данные',actions)+`<div class="toolbar"><div class="pills">${pill('За день','day',reportPeriod==='day','report-period')}${!live||['chef','programmer'].includes(me?.role)?pill('За 45 дней','period',reportPeriod==='period','report-period'):''}</div>${reportPeriod==='day'?`<input class="report-date" type="date" id="report-date" value="${reportDate}" max="${Store.today()}" aria-label="Дата отчёта">`:`<span class="fine">${Store.dayOffset(Store.today(),-44)} — ${Store.today()}</span>`}</div>`;
+    const top=heading('Отчёты',live?'':'Демонстрационные данные',actions)+`<div class="toolbar"><div class="pills">${pill('За день','day',reportPeriod==='day','report-period')}${!live||['chef','programmer'].includes(me?.role)?pill('За 45 дней','period',reportPeriod==='period','report-period'):''}</div>${reportPeriod==='day'?`<input class="report-date" type="date" id="report-date" value="${reportDate}" max="${Store.today()}" aria-label="Дата отчёта">`:'<span class="fine">%RANGE%</span>'}</div>`;
     if(live){
       try{cache.report=await API.request(reportPeriod==='day'?`/admin/reports/day/?date=${reportDate}`:'/admin/reports/period/');
-        return top+liveReport(cache.report,reportPeriod==='period'?await loadArchive():[]);
-      }catch(error){cache.report=null;return top+`<div class="panel"><h2>Отчёт недоступен</h2><p class="error">${esc(error.message)}</p><br><p class="fine">${error.status===500?'API вернул 500. Данные не подменены примерами. Ошибка зарегистрирована в разделе «Проверка API».':'Проверьте подключение к API.'}</p></div>`;}
+        const p=cache.report.period;                                    // настоящие даты текущего периода с сервера
+        return top.replace('%RANGE%',p?`${shortDate(p.start_date)}.${p.start_date.slice(0,4)} — ${shortDate(p.end_date)}.${p.end_date.slice(0,4)}`:'')+liveReport(cache.report,reportPeriod==='period'?await loadArchive():[]);
+      }catch(error){cache.report=null;return top.replace('%RANGE%','')+`<div class="panel"><h2>Отчёт недоступен</h2><p class="error">${esc(error.message)}</p><br><p class="fine">${error.status===500?'API вернул 500. Данные не подменены примерами. Ошибка зарегистрирована в разделе «Проверка API».':'Проверьте подключение к API.'}</p></div>`;}
     }
     const start=reportPeriod==='day'?reportDate:Store.dayOffset(Store.today(),-44),end=reportPeriod==='day'?reportDate:Store.today();
+    const demoTop=top.replace('%RANGE%',`${start} — ${end}`);
     const rows=state.history.filter(o=>o.date>=start&&o.date<=end),completed=rows.filter(o=>o.status==='completed'),revenue=completed.reduce((s,o)=>s+Store.orderTotal(o),0),cancelled=rows.filter(o=>o.status==='cancelled').length;
     const products=new Map();completed.forEach(o=>o.items.forEach(i=>{const p=products.get(i.name)||{name:i.name,qty:0,sum:0};p.qty+=i.qty;p.sum+=i.qty*i.price;products.set(i.name,p);}));
     const ranked=[...products.values()].sort((a,b)=>b.sum-a.sum);cache.reportRows=ranked;
     const points=reportPeriod==='day'?Array.from({length:13},(_,i)=>({label:`${i+10}`,sum:completed.filter(o=>o.hour===i+10).reduce((s,o)=>s+Store.orderTotal(o),0)})):Array.from({length:45},(_,i)=>{const day=Store.dayOffset(start,i);return {label:day.slice(8),sum:completed.filter(o=>o.date===day).reduce((s,o)=>s+Store.orderTotal(o),0)};});
     const max=Math.max(1,...points.map(p=>p.sum));
-    return top+`<div class="report"><div class="stats"><article class="stat"><span>Выручка</span><strong>${money(revenue)}</strong><small>Завершённые заказы</small></article><article class="stat"><span>Заказы</span><strong>${completed.length}</strong><small>За выбранный период</small></article><article class="stat"><span>Средний чек</span><strong>${money(completed.length?Math.round(revenue/completed.length):0)}</strong><small>Выручка / заказы</small></article><article class="stat"><span>Отменено</span><strong>${cancelled}</strong><small>Не входят в выручку</small></article></div><section class="panel chart-panel"><h2>Выручка ${reportPeriod==='day'?'по часам':'по дням'}, сом</h2><div class="chart ${reportPeriod==='period'?'period':''}" role="img" aria-label="График выручки">${points.map(p=>`<button type="button" class="bar-group" data-bar="${esc(`${p.label}: ${money(p.sum)}`)}" title="${p.label}: ${money(p.sum)}"><span class="bar" style="height:${p.sum/max*100}%"></span>${reportPeriod==='day'||Number(p.label)%5===0?`<small>${p.label}${reportPeriod==='day'?':00':''}</small>`:''}</button>`).join('')}</div></section><div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${ranked.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.qty}</td><td>${money(p.sum)}</td><td class="category-col"><div class="progress"><span style="width:${p.sum/(ranked[0]?.sum||1)*100}%"></span></div></td></tr>`).join('')||'<tr><td colspan="4" class="empty">Нет заказов за выбранный день</td></tr>'}</tbody></table></div></div>`;
+    return demoTop+`<div class="report"><div class="stats"><article class="stat"><span>Выручка</span><strong>${money(revenue)}</strong><small>Завершённые заказы</small></article><article class="stat"><span>Заказы</span><strong>${completed.length}</strong><small>За выбранный период</small></article><article class="stat"><span>Средний чек</span><strong>${money(completed.length?Math.round(revenue/completed.length):0)}</strong><small>Выручка / заказы</small></article><article class="stat"><span>Отменено</span><strong>${cancelled}</strong><small>Не входят в выручку</small></article></div><section class="panel chart-panel"><h2>Выручка ${reportPeriod==='day'?'по часам':'по дням'}, сом</h2><div class="chart ${reportPeriod==='period'?'period':''}" role="img" aria-label="График выручки">${points.map(p=>`<button type="button" class="bar-group" data-bar="${esc(`${p.label}: ${money(p.sum)}`)}" title="${p.label}: ${money(p.sum)}"><span class="bar" style="height:${p.sum/max*100}%"></span>${reportPeriod==='day'||Number(p.label)%5===0?`<small>${p.label}${reportPeriod==='day'?':00':''}</small>`:''}</button>`).join('')}</div></section><div class="data-wrap"><table class="data-table"><thead><tr><th>Блюдо</th><th>Продано</th><th>Выручка</th><th class="category-col">Доля</th></tr></thead><tbody>${ranked.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.qty}</td><td>${money(p.sum)}</td><td class="category-col"><div class="progress"><span style="width:${p.sum/(ranked[0]?.sum||1)*100}%"></span></div></td></tr>`).join('')||'<tr><td colspan="4" class="empty">Нет заказов за выбранный день</td></tr>'}</tbody></table></div></div>`;
   }
   // Архив закрытых периодов по 45 дней. Ошибка — просто пустой архив.
   async function loadArchive(){
@@ -417,9 +453,11 @@
     if(button.dataset.editDish){if(!canManageMenu())throw new Error('Для этой роли доступно только изменение наличия.');editDish(button.dataset.editDish);syncBasePrice();return;}
     if(button.id==='add-size'){if($('#size-rows').children.length>=3){toast('Максимум три варианта размера');return;}$('#size-rows').insertAdjacentHTML('beforeend',sizeRow());syncBasePrice();return;}
     if(button.hasAttribute('data-remove-size')){button.closest('.sizes-row').remove();syncBasePrice();return;}
-    if(button.dataset.deleteDish){const id=button.dataset.deleteDish,d=cache.dishes.find(d=>String(d.id)===id);confirm('Удалить блюдо?',`«${d.name}» будет удалено ${live?'с сервера':'из локального меню'}.`,async()=>{if(live)await API.request(`/admin/dishes/${id}/`,{method:'DELETE'});else await localChange(s=>{s.menu.dishes=s.menu.dishes.filter(d=>d.id!==id);},'Блюдо удалено');editor.close();await render();});return;}
-    if(button.dataset.order){const id=Number(button.dataset.order),action=button.dataset.action;const perform=async reason=>{if(live)await API.orderAction(id,action,reason);else await localChange(s=>Store.transition(s,id,action),'Статус обновлён');await render();};
-      if(button.dataset.reason==='true'){reasonDialog('Причина отмены',reason=>perform(reason));}else await perform('');return;
+    if(button.dataset.deleteDish){const id=button.dataset.deleteDish,d=cache.dishes.find(d=>String(d.id)===id);confirm('Удалить блюдо?',`«${d.name}» будет удалено ${live?'с сервера':'из локального меню'}.`,async()=>{if(live){await API.request(`/admin/dishes/${id}/`,{method:'DELETE'});toast(`«${d.name}» удалено`);}else await localChange(s=>{s.menu.dishes=s.menu.dishes.filter(d=>d.id!==id);},'Блюдо удалено');editor.close();await render();});return;}
+    if(button.dataset.order){const id=Number(button.dataset.order),action=button.dataset.action,label=button.textContent.trim(),number=button.dataset.number||id;
+      const perform=async reason=>{if(live){await API.orderAction(id,action,reason);toast(`Заказ №${number}: ${({claim:'вы взяли его',accept:'подтверждён',reject:'отклонён',cancel:'отменён',cook:'готовится',ready:'готов',send:'в пути'})[action]||label.toLowerCase()}`,button.dataset.kind);}else await localChange(s=>Store.transition(s,id,action),'Статус обновлён');await render();};
+      if(live&&action==='reject'){const site=['delivery','pickup'].includes(button.dataset.kind);reasonDialog(`Отклонить заказ №${number}?`,reason=>perform(reason),site?'Кафе не смогло принять заказ':'Официант не подтвердил заказ со стола','Отклонить заказ');return;}
+      if(button.dataset.reason==='true'){reasonDialog(`Отменить заказ №${number}?`,reason=>perform(reason));}else await perform('');return;
     }
     if(button.dataset.callDone){await API.request(`/staff/table-calls/${button.dataset.callDone}/done/`,{method:'POST',body:{}});await render();return;}
     if(button.hasAttribute('data-add-table')){if(!live){editTable('new');return;}const t=await API.request('/admin/tables/',{method:'POST',body:{}});toast(`${t.name} добавлен`);await render(true);return;}   // сразу «Стол N», без формы
@@ -429,7 +467,7 @@
     if(button.dataset.closeTable){const id=button.dataset.closeTable,t=(cache.tables||[]).find(t=>String(t.id)===id),name=t?.name||'Стол',left=t?.active_orders||0;confirm(`Освободить ${name}?`,`Нажимайте, когда гости ушли. Следующий заказ с этого стола снова подтвердит официант.${left?` Внимание: у стола ещё ${left} незавершённых заказ(а).`:''}`,async()=>{await API.request(`/staff/tables/${id}/close-visit/`,{method:'POST',body:{}});toast(`${name} свободен`);await render(true);});return;}
     if(button.dataset.deleteCategory){const id=button.dataset.deleteCategory,c=cache.categories.find(c=>String(c.id)===id);confirm('Удалить категорию?',`«${c?.name||''}» будет удалена. Если в ней есть блюда, сервер не даст удалить — сначала перенесите их.`,async()=>{try{await API.request(`/admin/categories/${id}/`,{method:'DELETE'});toast('Категория удалена');if(editor.open)editor.close();await render(true);}catch(error){toast(error.message);}});return;}
     if(button.dataset.editTable){editTable(button.dataset.editTable);return;}
-    if(button.dataset.deleteTable){const id=button.dataset.deleteTable;if(!live&&state.orders.some(o=>String(o.table)===id))throw new Error('Сначала завершите или отмените заказы этого стола.');confirm('Удалить стол?',live?'Напечатанный QR этого стола перестанет работать. Номер освободится для нового стола.':'Стол будет удалён из локального списка.',async()=>{if(live)await API.request(`/admin/tables/${id}/`,{method:'DELETE'});else await localChange(s=>{s.tables=s.tables.filter(t=>String(t.number)!==id);},'Стол удалён');editor.close();await render();});return;}
+    if(button.dataset.deleteTable){const id=button.dataset.deleteTable;if(!live&&state.orders.some(o=>String(o.table)===id))throw new Error('Сначала завершите или отмените заказы этого стола.');confirm('Удалить стол?',live?'Напечатанный QR этого стола перестанет работать. Номер освободится для нового стола.':'Стол будет удалён из локального списка.',async()=>{if(live){const t=cache.tables.find(t=>String(t.id)===id);await API.request(`/admin/tables/${id}/`,{method:'DELETE'});toast(`${t?.name||'Стол'} удалён`);}else await localChange(s=>{s.tables=s.tables.filter(t=>String(t.number)!==id);},'Стол удалён');editor.close();await render();});return;}
     if(button.dataset.downloadQr){const id=button.dataset.downloadQr,t=cache.tables.find(t=>String(live?t.id:t.number)===id);if(live)download(`Муслим-QR-${t.number||'доставка'}.png`,await API.request(`/admin/tables/${id}/qr/`,{binary:true}));else download(`Муслим-стол-${id}.svg`,qrSvg(tableUrl(t)),'image/svg+xml');return;}
     if(button.hasAttribute('data-download-all-qr')){download('Муслим-QR.pdf',await API.request('/admin/tables/qr-pdf/',{binary:true}));return;}
     if(button.hasAttribute('data-print-qr')){$('#print-area').innerHTML='<h1>Муслим — столы и QR</h1>'+$('.qr-grid').outerHTML;$('#print-area').querySelectorAll('.actions').forEach(e=>e.remove());window.print();return;}
@@ -438,7 +476,8 @@
     if(button.hasAttribute('data-run-checks')){await runChecks();return;}
     if(button.hasAttribute('data-download-checks')){if(!canAccess('api'))throw new Error('Проверка API доступна только программисту.');download('Муслим-проверка-API.json',JSON.stringify(API.results,null,2),'application/json');return;}
   }
-  function reasonDialog(title,handler){$('#editor-title').textContent=title;$('#editor-content').innerHTML='<form id="reason-form"><label>Причина<textarea name="reason" maxlength="255" required></textarea></label><p id="editor-error" class="error"></p><button class="danger" type="submit">Отменить заказ</button></form>';cache.reasonHandler=handler;paintControls(editor);editor.showModal();}
+  // Окно «Причина»: для отмены пишем сами, для отклонения причина уже подставлена (можно поменять). Гость увидит её в своём заказе
+  function reasonDialog(title,handler,preset='',submit='Отменить заказ'){$('#editor-title').textContent=title;$('#editor-content').innerHTML=`<form id="reason-form"><label>Причина (её увидит гость)<textarea name="reason" maxlength="255" required>${esc(preset)}</textarea></label><p id="editor-error" class="error"></p><button class="danger" type="submit">${esc(submit)}</button></form>`;cache.reasonHandler=handler;paintControls(editor);editor.showModal();}
   document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button||button.disabled)return;if(button.id==='confirm-action'||button.id==='demo-login'||button.id==='logout'||button.id==='session-logout')return;if(button.form&&button.type==='submit')return;button.disabled=true;act(button).catch(error=>toast(error.message)).finally(()=>{if(button.isConnected)button.disabled=false;});});
   $('#confirm-action').addEventListener('click',async event=>{const b=event.currentTarget;b.disabled=true;try{await confirmation();$('#confirm-dialog').close();}catch(error){toast(error.message);}finally{b.disabled=false;}});
   // ===== Перетаскивание как в iPhone (категории и блюда одной категории) =====
@@ -523,7 +562,7 @@
     try{
       if(input.id==='report-date'){reportDate=input.value||Store.today();await render();}
       if(input.dataset.catVisible){input.disabled=true;await API.request(`/admin/categories/${input.dataset.catVisible}/`,{method:'PATCH',body:{is_active:input.checked}});toast(input.checked?'Категория снова видна гостям':'Категория скрыта от гостей');await render(true);return;}
-      if(input.dataset.availability){const id=input.dataset.availability;input.disabled=true;if(live)await API.request(me.role==='cook'?`/admin/dishes/${id}/toggle-available/`:`/admin/dishes/${id}/`,{method:me.role==='cook'?'POST':'PATCH',body:me.role==='cook'?{}:{is_available:input.checked}});else await localChange(s=>{s.menu.dishes.find(d=>d.id===id).available=input.checked;},'Наличие обновлено');await render();}
+      if(input.dataset.availability){const id=input.dataset.availability;input.disabled=true;if(live)await API.request(me.role==='cook'?`/admin/dishes/${id}/toggle-available/`:`/admin/dishes/${id}/`,{method:me.role==='cook'?'POST':'PATCH',body:me.role==='cook'?{}:{is_available:input.checked}});if(live){const d=cache.dishes.find(d=>String(d.id)===String(id));toast(`«${d?.name||'Блюдо'}» ${input.checked?'снова в наличии':'— нет в наличии'}`);}else await localChange(s=>{s.menu.dishes.find(d=>d.id===id).available=input.checked;},'Наличие обновлено');await render();}
       if(input.dataset.roleUser){const id=input.dataset.roleUser,role=input.value,u=cache.users.find(u=>String(u.id)===id);confirm('Изменить роль?',`${u.name||u.first_name||u.username}: ${roles[u.role]} → ${roles[role]}. ${live?'Права изменятся на сервере.':'Это локальный пример.'}`,async()=>{if(live)await API.request(`/admin/staff/${id}/set-role/`,{method:'POST',body:{role}});else await localChange(s=>{const u=s.users.find(u=>u.id===id);s.audit.push({name:u.name,from:u.role,to:role,at:new Date().toLocaleString('ru-RU')});u.role=role;},'Роль изменена');await render();});input.value=u.role;}
       if(input.id==='dish-photo'){const file=input.files[0];if(!file)return;$('#photo-status').textContent='';$('#photo-status').classList.remove('error');if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>2*1024*1024)throw new Error('Нужно фото PNG, JPG или WebP до 2 МБ.');uploadFile=file;input.disabled=true;input.closest('.upload-button').setAttribute('aria-busy','true');const url=URL.createObjectURL(file);try{const photo=new Image();photo.src=url;await photo.decode();const canvas=document.createElement('canvas'),scale=Math.min(1,700/Math.max(photo.width,photo.height));canvas.width=Math.round(photo.width*scale);canvas.height=Math.round(photo.height*scale);canvas.getContext('2d').drawImage(photo,0,0,canvas.width,canvas.height);editorImage=canvas.toDataURL('image/jpeg',.8);$('#image-preview').innerHTML=image(editorImage);$('#photo-button-label').textContent='Заменить фото';$('#photo-help').textContent=file.name;$('#photo-help').title=file.name;$('#photo-status').textContent='Фото готово. Нажмите «Сохранить», чтобы применить.';}finally{URL.revokeObjectURL(url);}}
     }catch(error){toast(error.message);if(input.dataset.availability)await render();if(input.id==='dish-photo'){input.value='';uploadFile=null;if($('#photo-status')){$('#photo-status').textContent=error.message;$('#photo-status').classList.add('error');}}}finally{input.disabled=false;if(input.id==='dish-photo')input.closest('.upload-button')?.removeAttribute('aria-busy');}

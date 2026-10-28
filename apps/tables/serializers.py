@@ -9,7 +9,7 @@ class TablePublicSerializer(serializers.ModelSerializer):
     """Что видит гость, отсканировав QR: какой это стол и зал это или доставка."""
     class Meta:
         model = Table
-        fields = ["number", "name", "kind"]   # токен и id гостю не нужны
+        fields = ["number", "name", "kind", "freed_at"]   # токен и id гостю не нужны; freed_at — стол освободили
 
 
 class TableAdminSerializer(serializers.ModelSerializer):

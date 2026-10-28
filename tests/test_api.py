@@ -267,7 +267,7 @@ class OrderFlowTests(BaseAPITest):
         oid = self.hall_order().data["number"]
         rejected = self.act(self.waiter, oid, "reject").data
         self.assertEqual(rejected["status"], "cancelled")
-        self.assertEqual(rejected["cancel_reason"], "Стол не подтвердил заказ")
+        self.assertEqual(rejected["cancel_reason"], "Официант не подтвердил заказ со стола")
 
         oid2 = self.hall_order().data["number"]
         self.act(self.waiter, oid2, "accept")
@@ -354,7 +354,7 @@ class StaffTests(BaseAPITest):
 
     def test_roles_rules(self):
         self.as_user(self.admin)
-        self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 2)          # повар, официант
+        self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 3)          # повар, официант, курьер
         new_cook = self.client.post("/api/admin/staff/", {"username": "cook2", "password": PASSWORD, "role": "cook"},
                                     format="json")
         self.assertEqual(new_cook.status_code, 201)
@@ -370,9 +370,9 @@ class StaffTests(BaseAPITest):
         self.assertGreaterEqual(RoleChangeLog.objects.count(), 2)
 
         self.as_user(self.chef)
-        self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 3)          # админ, повар, официант
+        self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 4)          # админ, повар, официант, курьер
         self.as_user(self.programmer)
-        self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 4)
+        self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 5)
         self.as_user(self.cook)
         self.assertEqual(self.client.get("/api/admin/staff/").status_code, 403)
 

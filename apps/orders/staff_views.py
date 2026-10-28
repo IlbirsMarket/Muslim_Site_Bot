@@ -20,6 +20,7 @@ from .status_service import change_status, claim_order, close_visits
 from core.pagination import OptionalPageNumberPagination   # страницы по запросу
 
 KITCHEN_STATUSES = [Order.Status.ACCEPTED, Order.Status.COOKING, Order.Status.READY]   # что видит повар
+COURIER_STATUSES = KITCHEN_STATUSES + [Order.Status.ON_THE_WAY, Order.Status.COMPLETED, Order.Status.CANCELLED]   # курьер: доставки после подтверждения
 FINISHED_STATUSES = [Order.Status.COMPLETED, Order.Status.CANCELLED]                    # закрытые заказы
 
 
@@ -52,6 +53,8 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(table__kind=Table.Kind.HALL)   # только заказы со столов: «в кафе» и «с собой»
         elif user.is_cook:                                # повар — только подтверждённые
             queryset = queryset.filter(status__in=KITCHEN_STATUSES)
+        elif user.is_courier:                             # курьер — только доставки, уже подтверждённые админом
+            queryset = queryset.filter(kind=Order.Kind.DELIVERY, status__in=COURIER_STATUSES)
         else:
             return queryset.none()                        # на всякий случай: ничего
 

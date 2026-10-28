@@ -30,7 +30,13 @@
     back:'<path d="m12 5-7 7 7 7M5 12h15"/>',
     file:'<path d="M14 3H5v18h14V8l-5-5ZM14 3v5h5M8 13h8M8 17h6"/>',
     chef:'<path d="M7 15a4 4 0 0 1-3-7 4 4 0 0 1 6-4 4 4 0 0 1 6 0 4 4 0 0 1 4 7 4 4 0 0 1-3 4M7 14v7h10v-7M7 17h10"/>',
-    truck:'<path d="M3 5h12v12H3ZM15 9h4l3 4v4h-7"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>'
+    truck:'<path d="M3 5h12v12H3ZM15 9h4l3 4v4h-7"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+    phone:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
+    pin:'<path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12Z"/><circle cx="12" cy="9" r="2.5"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    wallet:'<path d="M4 7h15a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3M16 13h.01"/>',
+    user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    note:'<path d="M5 4h14v12l-4 4H5ZM15 20v-4h4M8 9h8M8 13h5"/>'
   };
   function render(name) {
     return `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name] || paths.image}</svg>`;
