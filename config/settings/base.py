@@ -58,6 +58,7 @@ LOCAL_APPS = [
     "apps.cafe",                     # настройки кафе
     "apps.orders",                   # заказы
     "apps.reports",                  # отчёты
+    "apps.bot",                      # Telegram-бот
 ]
 
 # Итоговый список: Django + библиотеки + наши
