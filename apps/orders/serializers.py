@@ -15,6 +15,8 @@ from apps.bot.events import Kind as BotKind, add_event   # «почтовый я
 from apps.cafe.models import CafeSettings
 from apps.menu.models import Dish
 from apps.tables.models import Table
+from core.client_ip import client_ip                     # настоящий IP гостя (за nginx)
+from .limits import check_order_limits, count_order       # защита от спама заказами
 from .models import Order, OrderItem, TableCall
 from .services import create_order
 
@@ -95,6 +97,12 @@ class OrderCreateSerializer(serializers.Serializer):
 
         # 5. Позиции: блюда, размеры, добавки
         attrs["resolved_items"] = self._resolve_items(attrs["items"])
+
+        # 6. Защита от спама: не больше 3 заказов ждут подтверждения, не больше 10 доставок в час с IP
+        check_order_limits(
+            attrs["kind"], table, attrs.get("phone", ""), attrs.get("device_key", ""),
+            client_ip(self.context.get("request")),
+        )
         return attrs
 
     def _resolve_items(self, items: list) -> list:
@@ -137,7 +145,9 @@ class OrderCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         """serializer.save() → создаём заказ через сервис."""
-        return create_order(validated_data)
+        order = create_order(validated_data)
+        count_order(order.kind, client_ip(self.context.get("request")))   # +1 в лимит доставок с этого IP
+        return order
 
 
 # ===================== ПОКАЗ ЗАКАЗА ГОСТЮ =====================
@@ -214,4 +224,4 @@ class TableCallCreateSerializer(serializers.ModelSerializer):
         with transaction.atomic():                          # вызов и событие для бота сохраняются вместе
             call = TableCall.objects.create(table=table, kind=kind)
             add_event(BotKind.CALL_CREATED, call=call)      # бот напишет в «Зал»: «Стол 5: Позвать официанта»
-        return call
+        return call

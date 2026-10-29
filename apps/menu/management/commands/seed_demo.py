@@ -1,9 +1,12 @@
 """
 Команда: python manage.py seed_demo
 Заполняет базу тестовыми данными. Можно запускать много раз — дубликатов не будет.
+Только на своём компьютере: на сервере команда откажется работать — у тестовых сотрудников
+известный всем пароль, с ним любой вошёл бы в панель кафе.
 """
 
-from django.core.management.base import BaseCommand   # базовый класс команд
+from django.conf import settings                                   # DEBUG: на компьютере True, на сервере False
+from django.core.management.base import BaseCommand, CommandError  # базовый класс команд; ошибка команды
 
 from apps.menu.models import Category, Dish, DishSize, Extra
 from apps.tables.models import Table
@@ -16,6 +19,9 @@ class Command(BaseCommand):
     help = "Тестовое меню, столы и сотрудники всех ролей."
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:                             # серверные настройки (prod.py) — отказ
+            raise CommandError("seed_demo запускается только на своём компьютере: на сервере он создал бы "
+                               "сотрудников с известным паролем.")
         # ----- Добавки -----
         cheese, _ = Extra.objects.get_or_create(name="Сыр моцарелла", defaults={"price": 80})
         jalapeno, _ = Extra.objects.get_or_create(name="Халапеньо", defaults={"price": 50})
@@ -73,4 +79,4 @@ class Command(BaseCommand):
                 user.set_password(DEMO_PASSWORD)                       # пароль сохраняется зашифрованным
                 user.save()
 
-        self.stdout.write(self.style.SUCCESS(f"Готово. Пароль сотрудников: {DEMO_PASSWORD}"))  # зелёное сообщение
+        self.stdout.write(self.style.SUCCESS(f"Готово. Пароль сотрудников: {DEMO_PASSWORD}"))  # зелёное сообщение

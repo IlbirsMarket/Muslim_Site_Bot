@@ -5,14 +5,24 @@
 """
 
 import os                    # чтение переменных окружения
+import re                    # проверка адреса Django-админки
+import secrets               # пример случайного адреса в подсказке
 
 from .base import *  # noqa: F401,F403 — импортируем все базовые настройки
 
 DEBUG = False                # на сервере подробные ошибки гостям не показываем
 
 # Без настоящего секретного ключа сервер не запустится — так ключ не забудут вписать в .env
-if SECRET_KEY == "dev-only-insecure-key":  # noqa: F405
-    raise RuntimeError("Впишите SECRET_KEY в .env на сервере.")
+# Короткий ключ легче подобрать — а им подписаны все токены входа. Нужно не меньше 50 символов
+if SECRET_KEY == "dev-only-insecure-key" or len(SECRET_KEY) < 50:  # noqa: F405
+    raise RuntimeError("Впишите в .env SECRET_KEY длиной от 50 символов (как его получить — в .env.example).")
+
+# Django-админка — только на секретном адресе вида manage-<не меньше 12 случайных символов>/.
+# Стандартный admin/ подбирают роботы; nginx пропускает к Django-админке только /manage-.../
+if not re.fullmatch(r"manage-[A-Za-z0-9_-]{12,}/", DJANGO_ADMIN_URL):  # noqa: F405
+    raise RuntimeError(
+        "Впишите в .env секретный адрес Django-админки, например DJANGO_ADMIN_URL=manage-" + secrets.token_urlsafe(12) + "/"
+    )
 
 # Адреса, с которых открывают сайт (IP сервера или домен), и откуда можно отправлять формы Django-админки
 CSRF_TRUSTED_ORIGINS = [o for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o]
@@ -53,4 +63,4 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "WARNING"},
-}
+}

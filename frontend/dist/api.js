@@ -6,16 +6,28 @@
   // Где храним вход: localStorage — «Запомнить меня» (переживает закрытие браузера), sessionStorage — до закрытия вкладки.
   let remembered=false;
   function storage(long){ try { return long?localStorage:sessionStorage; } catch { return null; } }
-  for (const long of [true,false]) { try { const saved=JSON.parse(storage(long)?.getItem(sessionKey));if(!tokens&&typeof saved?.access==='string'&&typeof saved?.refresh==='string'){tokens=saved;remembered=long;} } catch { /* Нет сохранённой сессии. */ } }
+  // Сохранённый вход (сначала «Запомнить меня», потом вкладка): {tokens, long} или null.
+  function savedSession(){ for (const long of [true,false]) { try { const saved=JSON.parse(storage(long)?.getItem(sessionKey));if(typeof saved?.access==='string'&&typeof saved?.refresh==='string')return {tokens:saved,long}; } catch { /* Нет сохранённой сессии. */ } } return null; }
+  { const saved=savedSession(); if(saved){tokens=saved.tokens;remembered=saved.long;} }
   const results=[];
   // Сохраняем токены. remember=true/false меняет место хранения; без него (продление входа) — место прежнее.
   function session(value,remember) {
     if(remember!==undefined)remembered=Boolean(remember);
     tokens=value;
-    for (const long of [true,false]) { try { storage(long)?.removeItem(sessionKey); } catch { /* Хранилище недоступно. */ } }   // стираем старые копии
+    for (const long of [true,false]) { if(value&&long===remembered)continue; try { storage(long)?.removeItem(sessionKey); } catch { /* Хранилище недоступно. */ } }   // стираем лишние копии (нужную — перезапишем)
     if(value){ try { storage(remembered)?.setItem(sessionKey,JSON.stringify(value)); } catch { /* Сессия продолжает работать в памяти. */ } }
   }
   function expireSession(){session(null);window.dispatchEvent(new Event('muslim-session-expired'));}
+  // Другая вкладка продлила вход или вышла: берём её ключи или тоже выходим (иначе старый ключ уже отменён сервером).
+  window.addEventListener('storage',event=>{ if(event.key!==sessionKey)return; const saved=savedSession(); if(saved){tokens=saved.tokens;remembered=saved.long;} else if(tokens){tokens=null;window.dispatchEvent(new Event('muslim-session-expired'));} });
+  // Продление входа: сервер выдаёт новый ключ продления, старый перестаёт работать.
+  async function refreshTokens(){
+    const sent=tokens.refresh;
+    try { const data=await request('/auth/refresh/',{method:'POST',body:{refresh:sent},auth:false,retry:false}); session({...tokens,...data}); }
+    catch(error){ const saved=savedSession(); if(saved&&saved.tokens.refresh!==sent){tokens=saved.tokens;remembered=saved.long;return;} expireSession(); throw error; }   // соседняя вкладка уже продлила — берём её ключи
+  }
+  // «Выйти»: сразу забываем вход и просим сервер отменить ключ продления (если сеть пропала — вход всё равно забыт здесь).
+  async function logout(){ const refresh=tokens?.refresh; session(null); if(!refresh||!base)return; try { await request('/auth/logout/',{method:'POST',body:{refresh},auth:false,retry:false}); } catch { /* Сервер недоступен: ключ сам истечёт. */ } }
   function record(path,method,status,elapsed) { results.unshift({path,method,status,elapsed,at:new Date().toISOString()}); results.splice(60); window.dispatchEvent(new Event('muslim-api-result')); }
   function errorMessage(body,status) {
     if (typeof body?.detail==='string') return body.detail;
@@ -41,7 +53,7 @@
     catch { record(path,method,'NETWORK',Math.round(performance.now()-started)); throw new Error('API недоступен. Проверьте локальный сервер и подключение к сети.'); }
     record(path,method,response.status,Math.round(performance.now()-started));
     if (response.status===401&&auth&&tokens?.refresh&&retry) {
-      if (!refreshPromise) refreshPromise=request('/auth/refresh/',{method:'POST',body:{refresh:tokens.refresh},auth:false,retry:false}).then(data=>session({...tokens,...data})).catch(error=>{expireSession();throw error;}).finally(()=>{refreshPromise=null;});
+      if (!refreshPromise) refreshPromise=refreshTokens().finally(()=>{refreshPromise=null;});
       await refreshPromise;
       return request(path,{method,body,auth,binary,retry:false});
     }
@@ -92,5 +104,5 @@
     if(!['accept','reject','cook','ready','send','complete','cancel'].includes(action))throw new Error('Недопустимое действие с заказом.');
     return request(`/staff/orders/${id}/status/`,{method:'POST',body:{action,reason}});
   }
-  window.MuslimAPI={enabled:Boolean(base),request,login,logout:()=>session(null),hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
-})();
+  window.MuslimAPI={enabled:Boolean(base),request,login,logout,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
+})();

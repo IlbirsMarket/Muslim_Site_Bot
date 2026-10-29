@@ -6,6 +6,8 @@ from django.contrib.auth import authenticate, get_user_model   # проверк�
 from django.core.cache import cache              # счётчик неверных попыток входа
 from django.db import transaction                # «всё или ничего»
 
+from core import login_guard                     # общая с сайтом защита от подбора пароля
+
 from .models import LinkCode                     # таблица кодов привязки (пока не используется)
 
 LOGIN_ATTEMPTS = 5                               # сколько неверных попыток подряд можно
@@ -19,7 +21,7 @@ def create_link_code(user) -> LinkCode:
 
 
 def _fails_key(telegram_id: int) -> str:
-    """Имя счётчика неверных попыток для этого Telegram-аккаунта."""
+    """Имя счётчика неверных попыток для этого Telegram-аккаунта (любые логины вместе)."""
     return f"bot-login-fails:{telegram_id}"
 
 
@@ -27,21 +29,30 @@ def login_from_telegram(login: str, password: str, telegram_id: int):
     """
     Сотрудник входит в боте своим логином (или email) и паролем с сайта.
     Возвращает (сотрудник, None) при успехе или (None, «текст ошибки для бота»).
-    После 5 неверных попыток — пауза 15 минут для этого Telegram-аккаунта.
+    Три защиты от подбора пароля:
+      - 5 ошибок с этого Telegram-аккаунта (любые логины) → пауза 15 минут;
+      - 5 ошибок на этот логин с этого Telegram → пауза 15 минут (общий охранник с сайтом, core/login_guard.py);
+      - 20 ошибок на этот логин за час со всех мест (сайт + бот) → логин закрыт до конца часа.
     """
     key = _fails_key(telegram_id)
-    fails = cache.get(key, 0)                                          # сколько раз уже ошибся
-    if fails >= LOGIN_ATTEMPTS:                                        # лимит исчерпан — ждём
+    source = f"tg:{telegram_id}"                                       # «откуда» для общего охранника
+    tg_fails = cache.get(key, 0)                                       # сколько раз ошибся этот Telegram
+    if tg_fails >= LOGIN_ATTEMPTS:                                     # лимит этого Telegram исчерпан — ждём
         return None, f"Слишком много неверных попыток. Попробуйте через {LOGIN_PAUSE_MINUTES} минут."
+    minutes = login_guard.wait_minutes(login, source)                  # не закрыт ли этот логин?
+    if minutes:
+        return None, f"Слишком много неверных попыток. Попробуйте через {minutes} минут."
     user = authenticate(None, username=login, password=password)       # та же проверка, что на сайте (логин или email)
     if not user or not user.role:                                      # неверно, заблокирован или не сотрудник
-        fails += 1
-        cache.set(key, fails, LOGIN_PAUSE_MINUTES * 60)                # счётчик живёт 15 минут
-        left = LOGIN_ATTEMPTS - fails                                  # сколько попыток осталось
+        tg_fails += 1
+        cache.set(key, tg_fails, LOGIN_PAUSE_MINUTES * 60)             # счётчик Telegram живёт 15 минут
+        login_left = login_guard.record_failure(login, source)         # общий счётчик логина + запись в журнал
+        left = min(LOGIN_ATTEMPTS - tg_fails, login_left)              # сколько осталось по самому строгому счётчику
         if left <= 0:
             return None, f"Неверный логин или пароль. Вход закрыт на {LOGIN_PAUSE_MINUTES} минут."
         return None, f"Неверный логин или пароль. Осталось попыток: {left}."
-    cache.delete(key)                                                  # вошёл — счётчик обнуляем
+    cache.delete(key)                                                  # вошёл — счётчики обнуляем
+    login_guard.record_success(login, source)
     bind_telegram(user, telegram_id)                                   # записываем Telegram ID
     return user, None
 
@@ -57,4 +68,4 @@ def bind_telegram(user, telegram_id: int) -> None:
 def unlink_telegram(user) -> None:
     """«Отвязать Telegram»: кнопки в боте для этого сотрудника перестают работать (например, сменил телефон)."""
     user.telegram_id = None
-    user.save(update_fields=["telegram_id"])
+    user.save(update_fields=["telegram_id"])

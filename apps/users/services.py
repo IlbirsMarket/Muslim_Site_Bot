@@ -20,3 +20,17 @@ def change_role(actor: User, target: User, new_role: str) -> User:
         user=target, changed_by=actor, old_role=old_role, new_role=new_role,
     )
     return target
+
+
+def end_all_sessions(user: User) -> int:
+    """
+    Отменить все входы сотрудника на всех устройствах: каждый его ключ продления — в чёрный список.
+    Токен входа (живёт 15 минут) после блокировки или смены пароля не принимается сразу же
+    (проверки в simplejwt), а после смены роли права и так берутся из базы при каждом запросе.
+    Возвращает, сколько ключей отменено.
+    """
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken  # таблицы ключей
+
+    tokens = OutstandingToken.objects.filter(user=user, blacklistedtoken__isnull=True)   # ещё не отменённые ключи
+    BlacklistedToken.objects.bulk_create([BlacklistedToken(token=t) for t in tokens], ignore_conflicts=True)
+    return len(tokens)

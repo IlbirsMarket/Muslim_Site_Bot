@@ -45,6 +45,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",                # Django REST Framework
     "rest_framework_simplejwt",      # JWT-токены для входа
+    "rest_framework_simplejwt.token_blacklist",  # чёрный список ключей продления: «Выйти» и отмена входов
     "corsheaders",                   # разрешаем запросы от React
     "django_filters",                # фильтры в API (?category=2)
     "drf_spectacular",               # Swagger-документация
@@ -119,7 +120,8 @@ AUTHENTICATION_BACKENDS = ["apps.users.auth_backends.EmailOrUsernameBackend"]
 # Проверки надёжности паролей
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},  # не похож на логин
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},            # минимум 8 символов
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+     "OPTIONS": {"min_length": 10}},                                                       # минимум 10 символов
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},           # не "123456"
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},           # не только цифры
 ]
@@ -173,18 +175,31 @@ REST_FRAMEWORK = {
         "orders": "60/min",   # гости в кафе сидят на одном Wi-Fi (один IP), поэтому лимит с запасом
         "calls": "30/min",    # от повторных нажатий и так защищает правило «не чаще раза в 2 минуты со стола»
         "login": "10/min",    # не больше 10 попыток входа в минуту с одного IP (защита от подбора пароля)
+        "refresh": "30/min",  # продление и выход: обычной панели хватает с большим запасом
     },
 }
 
 # Настройки JWT-токенов
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),  # токен входа живёт 12 часов (смена в кафе)
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),   # токен обновления — 7 дней
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),  # токен входа живёт 15 минут, панель сама его обновляет
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),     # ключ продления — не дольше 7 дней (точный срок — ниже)
+    "ROTATE_REFRESH_TOKENS": True,                   # при каждом продлении — новый ключ продления
+    "BLACKLIST_AFTER_ROTATION": True,                # а старый сразу попадает в чёрный список
+    "CHECK_REVOKE_TOKEN": True,                      # в токене «отпечаток» пароля: сменили пароль — все токены недействительны
 }
 
-# Сколько держится вход сотрудника (см. apps/users/auth_serializers.py)
+# Сколько держится вход сотрудника (см. apps/users/auth_serializers.py). Потом — снова пароль
 LOGIN_SESSION_LIFETIME = timedelta(hours=12)   # без галочки «Запомнить меня» — одна смена
-LOGIN_REMEMBER_LIFETIME = timedelta(days=30)   # с галочкой — 30 дней, потом снова ввести пароль
+LOGIN_REMEMBER_LIFETIME = timedelta(days=7)    # с галочкой — 7 дней
+
+# Общий кэш в базе: счётчики попыток входа и лимиты запросов одни на все процессы сервера и бота
+# (таблицу создаёт команда: python manage.py createcachetable)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",   # хранится в той же SQLite
+        "LOCATION": "muslim_cache",                                 # имя таблицы
+    }
+}
 
 
 # Настройки Swagger-документации
@@ -208,4 +223,4 @@ TELEGRAM_GROUP_ID = int(os.getenv("TELEGRAM_GROUP_ID") or 0)                   #
 TELEGRAM_TOPICS = {                                                            # ID тем группы; 0 — тема не настроена
     place: int(os.getenv(f"TELEGRAM_TOPIC_{place.upper()}") or 0)
     for place in ("admins", "kitchen", "hall", "delivery", "reports")
-}
+}

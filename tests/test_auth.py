@@ -61,7 +61,7 @@ class LoginTests(BaseAPITest):
         self.assertLess(self.hours_left(short), 13)                    # около 12 часов
         long = self.login("cook", remember=True)                       # с галочкой
         self.assertTrue(long.data["remember"])
-        self.assertGreater(self.hours_left(long), 29 * 24)             # около 30 дней
+        self.assertGreater(self.hours_left(long), 6.9 * 24)            # около 7 дней
 
     def test_refresh_works(self):
         refresh = self.login("cook", remember=True).data["refresh"]
@@ -70,8 +70,8 @@ class LoginTests(BaseAPITest):
         self.assertIn("access", response.data)
 
     def test_too_many_attempts(self):
-        codes = [self.login("cook", "wrong-password").status_code for _ in range(11)]
-        self.assertEqual(codes[-1], 429)                               # 11-я попытка за минуту — «подождите»
+        codes = [self.login("cook", "wrong-password").status_code for _ in range(6)]
+        self.assertEqual(codes[-1], 429)                               # после 5 ошибок — «подождите 15 минут»
 
     def test_email_must_be_unique(self):
         self.as_user(self.admin)
@@ -84,4 +84,4 @@ class LoginTests(BaseAPITest):
             "username": "cook3", "password": PASSWORD, "role": "cook",
         }, format="json")
         self.assertEqual(ok.status_code, 201)
-        self.assertGreaterEqual(User.objects.filter(email="").count(), 2)
+        self.assertGreaterEqual(User.objects.filter(email="").count(), 2)
