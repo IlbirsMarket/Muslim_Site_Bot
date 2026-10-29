@@ -123,6 +123,12 @@ body:has(.lifted){user-select:none;-webkit-user-select:none}
 .qr-card .qr-actions button,.qr-card .qr-actions a{width:100%;min-height:42px;padding:8px 6px;font-size:12px;font-weight:700;border-radius:10px;white-space:nowrap;text-decoration:none;gap:6px}
 .qr-card .qr-actions .ui-icon{width:15px;height:15px}
 .qr-card .qr-actions button:disabled{opacity:.4;cursor:not-allowed}
+/* Узкая карточка (планшет, маленькое окно): значок над надписью — 4 кнопки всегда помещаются */
+.qr-card .qr-actions{container-type:inline-size}                           /* кнопки подстраиваются под ширину своего блока в карточке, а не окна */
+@container (max-width:270px){                                              /* блок кнопок уже 270px — места для «значок + текст в строку» мало */
+  .qr-card .qr-actions button,.qr-card .qr-actions a{flex-direction:column;gap:3px;min-height:52px;padding:6px 4px;font-size:11px;line-height:1.2;white-space:normal;text-align:center}   /* значок сверху, надпись снизу, перенос разрешён */
+  .qr-card .qr-actions .ui-icon{width:17px;height:17px}                    /* значок чуть крупнее — он теперь главный ориентир */
+}
 @media(max-width:550px){
   .qr-grid{grid-template-columns:minmax(0,1fr);gap:14px}
   .qr-card{padding:14px}.qr-top h2{font-size:15px}.qr-card .tag{font-size:10px}
@@ -227,3 +233,40 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 .tg-link{display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:1.7}
 .tg-link a.primary{text-decoration:none}
 .tg-link .error:empty{display:none}
+/* ===== Отчёты v2: ряды без пустот ===== */
+.report-cards{display:grid;gap:var(--gap);align-items:stretch}
+.report-cards.cards-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.report-cards.cards-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.report-cards>.panel{margin:0!important;height:100%}
+.report>.panel{grid-column:auto!important}
+.report .top-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 32px}
+@media(max-width:1150px){
+  .report-cards.cards-3{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-cards.cards-3>.reasons-panel{grid-column:1/-1}
+  .report .top-list{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:550px){.report-cards.cards-2,.report-cards.cards-3{grid-template-columns:minmax(0,1fr)}.report-cards.cards-3>.reasons-panel{grid-column:auto}}
+
+/* ===== Столы: вкладки этажей, доставка отдельной строкой ===== */
+.delivery-row{margin-bottom:18px}
+.floor-tabs{display:inline-grid;grid-auto-flow:column;gap:4px;background:#EAE6DC;border-radius:12px;padding:4px;margin-bottom:16px}
+.floor-tabs button{border:0;background:transparent;border-radius:9px;padding:9px 22px;font-weight:700;font-size:13px;display:inline-flex;gap:8px;align-items:center}
+.floor-tabs button span{font-size:11px;background:#fff9;border-radius:20px;padding:1px 7px;color:var(--muted)}
+.floor-tabs button[aria-selected=true]{background:white;color:var(--green);font-weight:800;box-shadow:0 1px 4px #1f3d2b14}
+.floor-block{margin-bottom:22px}.floor-title{font-size:17px;margin:0 0 12px;display:flex;gap:10px;align-items:baseline}
+@media(max-width:550px){.floor-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.floor-tabs button{justify-content:center;padding:9px 6px}}
+
+/* ===== Телефон: доставка — одна большая карточка, столы этажа — по два в ряд ===== */
+@media(max-width:550px){
+  .qr-grid.floor-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .floor-grid .qr-card{padding:10px;gap:8px;border-radius:12px}
+  .floor-grid .qr-top{flex-direction:column;align-items:flex-start;gap:5px}
+  .floor-grid .qr-top h2{font-size:13px;line-height:1.3}
+  .floor-grid .qr-card .tag{font-size:9px;padding:3px 7px}
+  .floor-grid .qr-image{padding:4px;border-radius:9px}
+  .floor-grid .qr-card .qr-image svg{max-width:120px}
+  .floor-grid .qr-link{display:none}
+  .floor-grid .qr-actions{gap:6px}
+  .floor-grid .qr-card .qr-actions button{flex-direction:column;gap:3px;min-height:50px;padding:6px 2px;font-size:10px;line-height:1.2;white-space:normal}
+  .floor-grid .qr-card .qr-actions .ui-icon{width:17px;height:17px}
+}

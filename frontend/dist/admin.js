@@ -234,16 +234,27 @@
     cache.tables=list(await API.request(waiter?'/staff/tables/':'/admin/tables/'));
     const halls=cache.tables.filter(t=>(t.kind||'hall')==='hall'),busy=halls.filter(t=>t.occupied_since).length;
     const subtitle=`${halls.length} ${plural(halls.length,'стол','стола','столов')} · занято ${busy}`;
-    if(waiter)return heading('Столы',subtitle)+`<div class="table-tiles">${halls.map(tableTile).join('')||'<div class="empty">Столов пока нет</div>'}</div>`;
+    const onFloor=f=>halls.filter(t=>(t.floor||1)===f);                                    // столы одного этажа
+    if(waiter)return heading('Столы',subtitle)+FLOORS.map(f=>`<section class="floor-block"><h2 class="floor-title">${f} этаж <span class="fine">${onFloor(f).filter(t=>t.occupied_since).length} из ${onFloor(f).length} занято</span></h2><div class="table-tiles">${onFloor(f).map(tableTile).join('')||'<div class="empty">На этом этаже столов нет</div>'}</div></section>`).join('');
     const delivery=cache.tables.find(t=>t.kind==='delivery');
-    return heading('Столы и QR-коды',subtitle,'<button class="secondary" data-download-all-qr>Скачать все QR (PDF)</button><button class="primary" data-add-table>Добавить стол</button>')+`<div class="qr-grid">${delivery?deliveryCard(delivery):''}${halls.map(tableCard).join('')}</div>${halls.length?'':'<p class="empty">Столов пока нет. Нажмите «Добавить стол» — появится «Стол 1».</p>'}`;
+    // Три вкладки: «Доставка», «1 этаж», «2 этаж»
+    const tab=(id,label,count)=>`<button role="tab" data-floor-tab="${id}" aria-selected="${String(tablesFloor)===String(id)}">${label}${count===null?'':` <span>${count}</span>`}</button>`;
+    const tabs=`<div class="floor-tabs" role="tablist" aria-label="Что показать">${tab('delivery','Доставка',null)}${FLOORS.map(f=>tab(f,`${f} этаж`,onFloor(f).length)).join('')}</div>`;
+    const onDelivery=tablesFloor==='delivery';
+    const floorTables=onDelivery?[]:onFloor(tablesFloor);                                   // столы открытого этажа
+    const body=onDelivery
+      ?`<div class="qr-grid single">${delivery?deliveryCard(delivery):''}</div>`
+      :`<div class="qr-grid floor-grid">${floorTables.map(tableCard).join('')}</div>${floorTables.length?'':`<p class="empty">На ${tablesFloor} этаже столов пока нет. Нажмите «Добавить стол» — появится «Стол 1 · ${tablesFloor} этаж».</p>`}`;
+    return heading('Столы и QR-коды',subtitle,`<button class="secondary" data-download-all-qr>Скачать все QR (PDF)</button>${onDelivery?'':`<button class="primary" data-add-table>Добавить стол на ${tablesFloor} этаж</button>`}`)+tabs+body;
   }
+  const FLOORS=[1,2];                                                                       // в кафе два этажа
+  let tablesFloor=1;                                                                        // какой этаж открыт в «Столах и QR»
   function plural(n,one,few,many){const m=n%10,h=n%100;return m===1&&h!==11?one:m>=2&&m<=4&&(h<12||h>14)?few:many;}
   function tableStatus(t){return t.occupied_since?`Занят с ${clock(t.occupied_since)}`:t.active_orders?`Новый заказ`:'Свободен';}
   function freeButton(t){return t.occupied_since?`<button class="secondary" data-close-table="${t.id}">Освободить стол</button>`:'';}
   function tableTile(t){return `<article class="table-tile ${t.occupied_since?'busy':''}"><strong>${esc(t.name)}</strong><span class="tag">${tableStatus(t)}</span>${t.active_orders?`<small>Заказов в работе: ${t.active_orders}</small>`:''}${freeButton(t)}</article>`;}
-  // Карточка «Доставка»: QR главной страницы. Его нельзя удалить или перевыпустить — адрес сайта не меняется
-  function deliveryCard(t){const url=tableUrl(t);return `<article class="qr-card kind-delivery"><header class="qr-top"><h2>Доставка</h2><span class="tag kind-tag">${icon('truck')}Всегда одна</span></header><div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><p class="fine qr-note">Главная страница сайта: доставка и самовывоз.${t.active_orders?` В работе: ${t.active_orders}.`:''}</p><div class="actions qr-actions"><button class="primary" data-download-qr="${t.id}">Скачать QR</button><a class="secondary" href="${esc(url)}" target="_blank" rel="noopener">${icon('external')}Открыть</a></div></article>`;}
+  // Карточка «Доставка»: свой секретный QR (как у стола). Удалить нельзя, перевыпустить — можно
+  function deliveryCard(t){const url=tableUrl(t);return `<article class="qr-card kind-delivery"><header class="qr-top"><h2>Доставка</h2><span class="tag kind-tag">${icon('truck')}Всегда одна</span></header><div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><p class="fine qr-note">QR для доставки и самовывоза. Без QR сайт показывает только меню.${t.active_orders?` В работе: ${t.active_orders}.`:''}</p><div class="actions qr-actions"><button class="primary" data-download-qr="${t.id}">Скачать QR</button><button class="secondary" data-regenerate-qr="${t.id}">Обновить QR</button></div></article>`;}
   // Карточка стола: под QR всегда 4 одинаковые кнопки (2×2). Недоступная — серая, но остаётся на месте
   function tableCard(t){const url=tableUrl(t),busy=Boolean(t.occupied_since),locked=busy||t.active_orders>0;
     return `<article class="qr-card ${busy?'busy':''}"><header class="qr-top"><h2>${esc(t.name)}</h2><span class="tag ${busy||t.active_orders?'delivery':''}">${tableStatus(t)}</span></header><div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><div class="actions qr-actions">
@@ -261,8 +272,8 @@
       return `<article class="qr-card"><header class="qr-top"><h2>${esc(t.name||(t.number?`Стол ${t.number}`:'Доставка'))}</h2><span class="tag ${busy||occupied?'delivery':''}">${tag}</span></header>${qrSvg(url)}<a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><div class="actions"><button class="primary" data-download-qr="${id}">Скачать QR</button><button class="secondary" data-edit-table="${id}">Изменить</button>${busy?`<button class="secondary" data-close-table="${t.id}">Гости ушли</button>`:''}</div></article>`;
     }).join('')}</div>`;
   }
-  // QR-адрес: стол — меню с токеном стола; доставка — просто главная страница
-  function tableUrl(t){if(live){const url=new URL('./',location.href);if(t.kind!=='delivery')url.searchParams.set('token',t.token);return url.href;}const url=new URL(state.settings.menuUrl);url.searchParams.set('table',t.number);return url.href;}
+  // QR-адрес: и у стола, и у доставки — меню с секретным токеном
+  function tableUrl(t){if(live){const url=new URL('./',location.href);url.searchParams.set('token',t.token);return url.href;}const url=new URL(state.settings.menuUrl);url.searchParams.set('table',t.number);return url.href;}
   function qrSvg(url){const qr=qrcode(0,'M');qr.addData(url);qr.make();return qr.createSvgTag({cellSize:4,margin:16,scalable:true}).replace('<svg ','<svg role="img" aria-label="QR-код меню" ');}
   function editTable(id){const t=id==='new'?null:cache.tables.find(t=>String(live?t.id:t.number)===String(id));editingId=live?t?.id:t?.number;
     $('#editor-title').textContent=t?'Настройки стола':'Новый стол';$('#editor-content').innerHTML=`<form id="table-form">${field('Название','name',t?.name||'','text','maxlength="50" required')}${field('Номер','number',t?.number||'','number','min="1" max="999" required')}<p class="fine">Для QR используется адрес гостевого меню из настроек.</p><p id="editor-error" class="error"></p><footer class="form-footer"><button class="primary">Сохранить</button>${t?`<button type="button" class="danger" data-delete-table="${t.number}">Удалить</button>`:''}</footer></form>`;paintControls(editor);editor.showModal();}
@@ -436,7 +447,9 @@
       archive.length?archive.map(a=>`<div class="split-line list-line"><span><strong>${esc(shortDate(a.start_date))} — ${esc(shortDate(a.end_date))}</strong><br><small class="fine">${money(a.revenue)} · ${a.orders_count} заказов</small></span>${a.has_pdf?`<button class="secondary" data-archive-pdf="${a.id}">PDF</button>`:''}</div>`).join('')
       :'<p class="fine">Пока пусто: первый период ещё не закончился.</p>'}</section>`;
 
-    return `<div class="report">${banner}${stats}<div class="report-grid">${chart}${split('Откуда выручка',r.by_kind)}${split('Оплата',r.by_payment)}${topBlock}${reasons}${archiveBlock}</div></div>`;
+    // Раскладка рядами, без пустот: плитки → график во всю ширину → карточки одинаковой высоты → топ блюд → архив
+    const cards=[split('Откуда выручка',r.by_kind),split('Оплата',r.by_payment),reasons].filter(Boolean);
+    return `<div class="report">${banner}${stats}${chart}<div class="report-cards cards-${cards.length}">${cards.join('')}</div>${topBlock}${archiveBlock}</div>`;
   }
   async function settingsView(){
     const s=live?await API.request('/admin/cafe/'):state.settings;cache.settings=s;
@@ -463,6 +476,7 @@
     if(button.id==='telegram-check'){await telegramCheck();return;}     // проверить привязку
     if(button.id==='notify-toggle'){const on=!MuslimNotify.enabled();MuslimNotify.setEnabled(on);if(on){MuslimNotify.unlock();await MuslimNotify.askPermission();MuslimNotify.beep();}paintBell();toast(on?'Уведомления включены':'Уведомления выключены');return;}
     if(button.hasAttribute('data-reload')){await render();return;}
+    if(button.dataset.floorTab){tablesFloor=button.dataset.floorTab==='delivery'?'delivery':Number(button.dataset.floorTab);await render(true);return;}   // вкладка: доставка или этаж
     if(button.hasAttribute('data-add-category')){const form=$('#new-category');if(!form)return;form.hidden=false;form.querySelector('.error').textContent='';$('#new-cat-name').focus();return;}   // «+ Категория»: поле названия сверху списка
     if(button.hasAttribute('data-cancel-category')){const form=$('#new-category');form.reset();form.hidden=true;return;}
     if(button.dataset.bar){const out=$('#chart-readout');if(out)out.textContent=button.dataset.bar;document.querySelectorAll('.bar-group.picked').forEach(b=>b.classList.remove('picked'));button.classList.add('picked');return;}   // столбик графика
@@ -488,8 +502,8 @@
       if(button.dataset.reason==='true'){reasonDialog(`Отменить заказ №${number}?`,reason=>perform(reason));}else await perform('');return;
     }
     if(button.dataset.callDone){await API.request(`/staff/table-calls/${button.dataset.callDone}/done/`,{method:'POST',body:{}});await render();return;}
-    if(button.hasAttribute('data-add-table')){if(!live){editTable('new');return;}const t=await API.request('/admin/tables/',{method:'POST',body:{}});toast(`${t.name} добавлен`);await render(true);return;}   // сразу «Стол N», без формы
-    if(button.dataset.regenerateQr){const id=button.dataset.regenerateQr,t=cache.tables.find(t=>String(t.id)===id);confirm(`Обновить QR: ${t?.name||'стол'}?`,'Старый QR этого стола перестанет работать — распечатайте и поставьте новый.',async()=>{await API.request(`/admin/tables/${id}/regenerate-qr/`,{method:'POST',body:{}});toast('QR обновлён. Скачайте новый.');await render(true);});return;}
+    if(button.hasAttribute('data-add-table')){if(!live){editTable('new');return;}const t=await API.request('/admin/tables/',{method:'POST',body:{floor:tablesFloor}});toast(`${t.name} добавлен`);await render(true);return;}   // сразу «Стол N», без формы
+    if(button.dataset.regenerateQr){const id=button.dataset.regenerateQr,t=cache.tables.find(t=>String(t.id)===id);confirm(`Обновить QR: ${t?.name||'стол'}?`,t?.kind==='delivery'?'Старый QR доставки перестанет работать — замените его везде, где он напечатан или опубликован.':'Старый QR этого стола перестанет работать — распечатайте и поставьте новый.',async()=>{await API.request(`/admin/tables/${id}/regenerate-qr/`,{method:'POST',body:{}});toast('QR обновлён. Скачайте новый.');await render(true);});return;}
     // «Гости ушли»: стол свободен, телефоны гостей больше не доверенные
     // «Освободить стол»: гости ушли — стол свободен, телефоны гостей больше не доверенные
     if(button.dataset.closeTable){const id=button.dataset.closeTable,t=(cache.tables||[]).find(t=>String(t.id)===id),name=t?.name||'Стол',left=t?.active_orders||0;confirm(`Освободить ${name}?`,`Нажимайте, когда гости ушли. Следующий заказ с этого стола снова подтвердит официант.${left?` Внимание: у стола ещё ${left} незавершённых заказ(а).`:''}`,async()=>{await API.request(`/staff/tables/${id}/close-visit/`,{method:'POST',body:{}});toast(`${name} свободен`);await render(true);});return;}
@@ -623,4 +637,4 @@
   paintControls(document);
   // Вход сохранён — не показываем форму входа, пока сервер проверяет сессию (иначе она мелькает)
   if(API.enabled&&API.hasSession()){$('#login-screen').hidden=true;API.request('/auth/me/').then(user=>enter(true,user)).catch(error=>showLogin(error.message));}
-})();
+})();

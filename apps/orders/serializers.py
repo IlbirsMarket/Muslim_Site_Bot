@@ -34,7 +34,7 @@ class OrderItemInputSerializer(serializers.Serializer):
 class OrderCreateSerializer(serializers.Serializer):
     """Проверяет новый заказ и передаёт его в services.create_order."""
 
-    table_token = serializers.CharField(required=False, allow_blank=True)   # токен из QR стола; пусто — заказ с главной страницы (доставка)                                 # токен из QR (обязателен)
+    table_token = serializers.CharField(required=False, allow_blank=True)   # токен из QR стола или QR доставки (без него заказать нельзя)
     device_key = serializers.CharField(max_length=64, required=False, allow_blank=True)  # случайный ключ телефона (фронт хранит его в браузере)
     order_type = serializers.ChoiceField(                                   # со стола: takeaway; с главной: delivery или pickup
         choices=[Order.Kind.TAKEAWAY, Order.Kind.DELIVERY, Order.Kind.PICKUP], required=False
@@ -59,14 +59,13 @@ class OrderCreateSerializer(serializers.Serializer):
         if not cafe.can_accept_orders():
             raise serializers.ValidationError("Кафе сейчас не принимает заказы.")
 
-        # 2. Откуда заказ: QR стола (есть токен) или главная страница сайта (токена нет → доставка)
+        # 2. Откуда заказ: QR стола или QR доставки. Без токена (просто сайт) заказать нельзя — там только меню
         token = (attrs.get("table_token") or "").strip()
-        if token:
-            table = Table.objects.filter(token=token, is_active=True).first()
-            if not table:
-                raise serializers.ValidationError({"table_token": "QR-код недействителен."})
-        else:
-            table = Table.delivery_point()                               # единственная «Доставка»
+        if not token:
+            raise serializers.ValidationError({"table_token": "Заказать можно только по QR-коду: на столе или QR доставки."})
+        table = Table.objects.filter(token=token, is_active=True).first()
+        if not table:
+            raise serializers.ValidationError({"table_token": "QR-код недействителен."})
         attrs["table"] = table
 
         # 3. Тип заказа: со стола — «в кафе» или «с собой»; с главной страницы — «доставка» или «самовывоз»
@@ -215,4 +214,4 @@ class TableCallCreateSerializer(serializers.ModelSerializer):
         with transaction.atomic():                          # вызов и событие для бота сохраняются вместе
             call = TableCall.objects.create(table=table, kind=kind)
             add_event(BotKind.CALL_CREATED, call=call)      # бот напишет в «Зал»: «Стол 5: Позвать официанта»
-        return call
+        return call

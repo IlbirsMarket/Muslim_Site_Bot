@@ -21,7 +21,7 @@ class CourierTests(BaseAPITest):
     def delivery_order(self):
         """Гость заказал доставку с главной страницы."""
         self.as_user(None)
-        body = {"items": [{"dish_id": self.burger.id, "quantity": 3}], "order_type": "delivery",
+        body = {"table_token": self.delivery.token, "items": [{"dish_id": self.burger.id, "quantity": 3}], "order_type": "delivery",
                 "customer_name": "Бекзат", "phone": "+996700000000", "address": "Чуй 1"}
         return self.client.post("/api/orders/", body, format="json").data["number"]
 
@@ -78,7 +78,7 @@ class RejectReasonTests(BaseAPITest):
 
     def test_reason_depends_on_place(self):
         self.as_user(None)
-        body = {"items": [{"dish_id": self.burger.id, "quantity": 1}], "order_type": "pickup",
+        body = {"table_token": self.delivery.token, "items": [{"dish_id": self.burger.id, "quantity": 1}], "order_type": "pickup",
                 "customer_name": "Айгуль", "phone": "+996555000000"}
         number = self.client.post("/api/orders/", body, format="json").data["number"]
         self.assertEqual(self.act(self.admin, number, "reject").data["cancel_reason"], "Кафе не смогло принять заказ")
@@ -101,4 +101,4 @@ class FreeTableTests(BaseAPITest):
         self.as_user(self.admin)
         response = self.client.get(f"/api/admin/tables/{self.table.id}/qr/")
         width, height = Image.open(BytesIO(response.content)).size
-        self.assertGreaterEqual(width, 900)                                # ~1000 px — чётко печатается
+        self.assertGreaterEqual(width, 900)                                # ~1000 px — чётко печатается

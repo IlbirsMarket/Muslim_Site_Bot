@@ -6,7 +6,7 @@
   const API=window.MuslimAPI,live=API.enabled;
   let cafe=null,tableInfo=null;
   const tableToken=new URLSearchParams(location.search).get('token');
-  let viewOnly=live&&new URLSearchParams(location.search).get('view')==='menu';   // стол освободили — меню только для просмотра
+  let viewOnly=live&&(!tableToken||new URLSearchParams(location.search).get('view')==='menu');   // без QR или после «Освободить стол» — только меню
   let freedAt0=null;                                                              // когда стол освобождали до того, как гость открыл QR
   const cartKey=live?'muslim-api-cart-v1':'muslim-cart-v1';
   const maxQty=live?50:99;
@@ -20,7 +20,7 @@
   const table = new URLSearchParams(location.search).get('table');
   const tableNumber = table && /^\d{1,3}$/.test(table) && Number(table) > 0 ? Number(table) : null;
   if (tableNumber) $('#table-label').textContent = `Стол №${tableNumber}`;
-  if (live && !tableToken && !viewOnly) $('#table-label').textContent = 'Доставка';   // главная страница без QR стола — это доставка
+  if (live && viewOnly) $('#table-label').textContent = 'Меню';                     // без QR — просто меню
 
   function art(type) {
     const path = type === 'drinks' ? '<path d="M7 8h10l-1 13H8L7 8ZM13 8l2-6h4M6 8h12"/>' : '<path d="M12 3 3 20h18L12 3Z"/><path d="M5 17h14"/><circle cx="12" cy="9" r="1"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/>';
@@ -192,9 +192,8 @@
       $('#menu-note').textContent='Цены актуальные. Итог заказа кафе подтвердит после отправки.';
       $('.draft-note').textContent='Заказ сразу увидят в кафе.';
       // Есть токен — это QR стола. Нет токена — главная страница = QR доставки
-      if(viewOnly){enterViewOnly(false);}
+      if(viewOnly){enterViewOnly(false,new URLSearchParams(location.search).get('view')==='menu'?'freed':'plain');}   // только меню
       else if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});freedAt0=tableInfo.freed_at||null;$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
-      else{tableInfo={kind:'delivery',name:'Доставка'};$('#table-label').textContent='Доставка';}
       applyModes();
       if(tableInfo?.kind==='hall'&&!$('#guest-services')){
         const services=document.createElement('div');services.id='guest-services';services.className='guest-services';services.innerHTML='<button type="button" class="secondary" data-service="waiter">Позвать официанта</button><button type="button" class="secondary" data-service="bill">Попросить счёт</button>';$('.welcome').after(services);
@@ -293,14 +292,15 @@
   const cache={myOrders:[]};
   document.addEventListener('click',event=>{const b=event.target.closest('[data-my-order]');if(b){const order=cache.myOrders[Number(b.dataset.myOrder)];if(order)showOrder(order);}});
   // ===== Стол освободили: гость остаётся в меню, но заказать как «Стол N» уже не может =====
-  function enterViewOnly(announce=true){
+  // Меню без заказа. reason='freed' — стол освободили (надпись «Стол освобождён»); 'plain' — сайт открыли без QR
+  function enterViewOnly(announce=true,reason='freed'){
     viewOnly=true;tableInfo=null;cart=[];saveCart();
-    try{history.replaceState(null,'','./?view=menu');}catch{/* Адрес не поменялся — не страшно. */}   // перезагрузка не вернёт стол
+    if(reason==='freed'){try{history.replaceState(null,'','./?view=menu');}catch{/* Адрес не поменялся — не страшно. */}}   // перезагрузка не вернёт стол
     document.body.classList.add('view-only');
     $('#table-label').textContent='Меню';
     $('#cart h2').textContent='Мои заказы';
     let note=$('#view-only-note');
-    if(!note){note=document.createElement('div');note.id='view-only-note';note.className='view-only-note';note.innerHTML='<strong>Стол освобождён</strong>Меню можно смотреть. Чтобы заказать снова, отсканируйте QR-код на столе.';$('.welcome').after(note);}
+    if(!note){note=document.createElement('div');note.id='view-only-note';note.className='view-only-note';note.innerHTML=reason==='freed'?'<strong>Стол освобождён</strong>Меню можно смотреть. Чтобы заказать снова, отсканируйте QR-код на столе.':'<strong>Меню кафе «Муслим»</strong>Чтобы заказать, отсканируйте QR-код на столе или QR доставки.';$('.welcome').after(note);}
     document.querySelectorAll('dialog[open]').forEach(d=>{if(d.id!=='order-status-dialog')d.close();});
     if(menu)renderCart();
     $('#open-cart').hidden=!myOrders().length;                            // на телефоне кнопка внизу — «Мои заказы»
@@ -317,4 +317,4 @@
   document.addEventListener('error',event=>{if(event.target.tagName==='IMG'){event.target.hidden=true;}},true);
   function menuLoadError(error){$('#products').innerHTML='';$('#categories').innerHTML='';$('#empty').hidden=false;$('#empty').textContent=error.message;const retry=document.createElement('button');retry.className='secondary';retry.textContent='Повторить загрузку';retry.onclick=()=>{retry.disabled=true;start().then(()=>$('#empty').hidden=menu.dishes.length>0).catch(menuLoadError);};$('#empty').append(document.createElement('br'),retry);}
   start().catch(menuLoadError);
-})();
+})();

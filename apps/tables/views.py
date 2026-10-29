@@ -66,9 +66,7 @@ class TableAdminViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="regenerate-qr")
     def regenerate_qr(self, request, pk=None):
         """POST /api/admin/tables/{id}/regenerate-qr/ — перевыпустить QR (старый перестанет работать)."""
-        table = self.get_object()                 # находим стол
-        if table.kind == Table.Kind.DELIVERY:     # QR доставки — это главная страница сайта, менять нечего
-            raise ValidationError("QR доставки ведёт на главную страницу сайта — обновлять его не нужно.")
+        table = self.get_object()                 # находим стол (или доставку — у неё тоже секретный QR)
         table.regenerate_token()                  # новый токен
         return Response(self.get_serializer(table).data)  # возвращаем стол с новым токеном и адресом
 
@@ -78,7 +76,7 @@ class TableAdminViewSet(viewsets.ModelViewSet):
         """GET /api/admin/tables/{id}/qr/ — скачать картинку QR-кода (PNG)."""
         table = self.get_object()                 # находим стол
         png = build_qr_png(table.qr_url)          # рисуем QR с адресом стола
-        filename = "qr-delivery.png" if table.kind == Table.Kind.DELIVERY else f"qr-table-{table.number}.png"
+        filename = "qr-delivery.png" if table.kind == Table.Kind.DELIVERY else f"qr-floor{table.floor}-table{table.number}.png"
         response = HttpResponse(png, content_type="image/png")            # отдаём как картинку
         response["Content-Disposition"] = f'attachment; filename="{filename}"'  # браузер скачает файл
         return response
@@ -101,4 +99,4 @@ class StaffTableListView(generics.ListAPIView):
     pagination_class = None                                   # столов немного — отдаём все сразу
 
     def get_queryset(self):
-        return with_active_orders(Table.objects.filter(kind=Table.Kind.HALL, is_active=True))
+        return with_active_orders(Table.objects.filter(kind=Table.Kind.HALL, is_active=True))
