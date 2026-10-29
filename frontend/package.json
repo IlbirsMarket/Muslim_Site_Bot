@@ -1,0 +1,14 @@
+{
+  "name": "muslim-menu",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.cjs",
+    "check": "node scripts/check.cjs",
+    "test": "node --test scripts/*.test.cjs",
+    "start:demo": "node scripts/start-demo.cjs"
+  },
+  "dependencies": {
+    "qrcode-generator": "2.0.4"
+  }
+}
