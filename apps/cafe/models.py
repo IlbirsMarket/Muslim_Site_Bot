@@ -1,6 +1,6 @@
 """
-Настройки кафе: часы работы, доставка, контакты.
-В таблице всегда ровно одна строка (id = 1).
+Филиалы кафе и их настройки: часы работы, доставка, контакты.
+У каждого филиала — свои меню, столы, сотрудники, заказы, отчёты и одна строка настроек.
 """
 
 from datetime import time            # время без даты (10:00)
@@ -9,8 +9,40 @@ from django.db import models         # поля для таблиц
 from django.utils import timezone    # текущее время с учётом часового пояса
 
 
+class Branch(models.Model):
+    """Филиал кафе: «Филиал 1», «Филиал 2». Название меняет шеф в настройках."""
+
+    name = models.CharField("Название", max_length=60)                     # «Филиал 1» или, например, «Джал»
+    position = models.PositiveIntegerField("Порядок", default=0)           # порядок в переключателе
+    is_active = models.BooleanField("Работает", default=True)              # выключенный филиал не видят гости
+
+    class Meta:
+        ordering = ["position", "id"]
+        verbose_name = "Филиал"
+        verbose_name_plural = "Филиалы"
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def default(cls) -> "Branch":
+        """Первый филиал — к нему относится всё, что было до появления филиалов. Если филиалов нет — создаём."""
+        branch = cls.objects.order_by("position", "id").first()
+        return branch or cls.objects.create(name="Филиал 1", position=10)
+
+
+def default_branch_id() -> int:
+    """id первого филиала — значение по умолчанию для поля «Филиал» у меню, столов и заказов."""
+    return Branch.default().pk
+
+
 class CafeSettings(models.Model):
-    """Единственная запись с настройками кафе."""
+    """Настройки одного филиала (у каждого филиала — ровно одна строка)."""
+
+    branch = models.OneToOneField(                                   # чьи это настройки
+        Branch, on_delete=models.CASCADE, related_name="settings", verbose_name="Филиал",
+        default=default_branch_id,
+    )
 
     is_accepting_orders = models.BooleanField("Принимать заказы", default=True)       # общий выключатель приёма
     is_delivery_enabled = models.BooleanField("Принимать доставку", default=True)     # выключатель доставки
@@ -29,17 +61,13 @@ class CafeSettings(models.Model):
         verbose_name_plural = "Настройки кафе"
 
     def __str__(self):
-        return "Настройки кафе"
-
-    def save(self, *args, **kwargs):
-        """Всегда сохраняем в строку с id = 1, чтобы вторая запись не появилась."""
-        self.pk = 1
-        super().save(*args, **kwargs)
+        return f"Настройки: {self.branch}"
 
     @classmethod
-    def load(cls) -> "CafeSettings":
-        """Получить настройки. Если их ещё нет — создать со значениями по умолчанию."""
-        settings_obj, _ = cls.objects.get_or_create(pk=1)   # берём строку id=1 или создаём её
+    def load(cls, branch=None) -> "CafeSettings":
+        """Настройки филиала (без филиала — первого). Если их ещё нет — создать со значениями по умолчанию."""
+        branch = branch or Branch.default()
+        settings_obj, _ = cls.objects.get_or_create(branch=branch)   # строка этого филиала или новая
         return settings_obj
 
     def is_open_now(self) -> bool:
@@ -51,4 +79,4 @@ class CafeSettings(models.Model):
 
     def can_accept_orders(self) -> bool:
         """Можно ли сейчас оформить заказ: приём включён и кафе открыто."""
-        return self.is_accepting_orders and self.is_open_now()
+        return self.is_accepting_orders and self.is_open_now()

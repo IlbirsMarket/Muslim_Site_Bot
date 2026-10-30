@@ -6,6 +6,7 @@ Admin — для админ-панели (создание и редактиро
 
 from rest_framework import serializers                 # инструменты DRF
 
+from core.branches import check_same_branch            # ссылки — только на своё меню филиала
 from .models import Category, Dish, DishSize, Extra   # модели меню
 
 MAX_PHOTO_BYTES = 5 * 1024 * 1024                      # фото блюда — не больше 5 МБ
@@ -68,7 +69,8 @@ class CategoryAdminSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Новая категория встаёт в конец списка, если порядок не указали."""
         if "position" not in validated_data:
-            last = Category.objects.order_by("-position").values_list("position", flat=True).first() or 0
+            branch = validated_data.get("branch") or self.context.get("branch")
+            last = Category.objects.filter(branch=branch).order_by("-position").values_list("position", flat=True).first() or 0
             validated_data["position"] = last + 10
         return super().create(validated_data)
 
@@ -77,7 +79,8 @@ class CategoryAdminSerializer(serializers.ModelSerializer):
         value = value.strip()
         if not value:
             raise serializers.ValidationError("Укажите название категории.")
-        others = Category.objects.all()
+        branch = self.instance.branch if self.instance else self.context.get("branch")
+        others = Category.objects.filter(branch=branch)                  # повторы ищем только в своём филиале
         if self.instance:
             others = others.exclude(pk=self.instance.pk)                 # себя не считаем
         # Сравниваем в Python: SQLite не умеет без учёта регистра сравнивать русские буквы
@@ -110,6 +113,11 @@ class DishSizeAdminSerializer(serializers.ModelSerializer):
         model = DishSize
         fields = ["id", "dish", "name", "price", "position"]
 
+    def validate_dish(self, dish):
+        """Размер можно добавить только блюду своего филиала."""
+        check_same_branch(dish.category, self.context.get("branch"), "Это блюдо из другого филиала.")
+        return dish
+
 
 class DishAdminSerializer(serializers.ModelSerializer):
     """Блюдо для админ-панели."""
@@ -127,6 +135,17 @@ class DishAdminSerializer(serializers.ModelSerializer):
             "price", "extras", "sizes", "is_available", "is_active", "position", "updated_at",
         ]
         read_only_fields = ["updated_at"]  # дату изменения ставит сервер
+
+    def validate_category(self, category):
+        """Категория — только из своего филиала."""
+        check_same_branch(category, self.context.get("branch"), "Эта категория из другого филиала.")
+        return category
+
+    def validate_extras(self, extras):
+        """Добавки — только из своего филиала."""
+        for extra in extras:
+            check_same_branch(extra, self.context.get("branch"), "Добавка из другого филиала.")
+        return extras
 
     @staticmethod
     def _last_position(category):

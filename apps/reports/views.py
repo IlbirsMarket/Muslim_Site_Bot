@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError             # ошибка
 from rest_framework.response import Response                      # ответ в JSON
 from rest_framework.views import APIView                          # простой view
 
+from core.branches import staff_branch                             # текущий филиал запроса
 from core.permissions import IsCafeAdmin, IsChef
 from .builder import build_day_report, build_period_report
 from .models import ReportPeriod
@@ -17,6 +18,17 @@ from .pdf import render_day_pdf, render_period_pdf
 from .periods import get_current_period
 
 DATE_PARAM = OpenApiParameter("date", OpenApiTypes.DATE, description="Дата в формате 2026-10-26. Без неё — сегодня.")
+# Филиал — заголовком X-Branch (как во всей панели). Шеф может прислать X-Branch: all — «Оба филиала»
+
+
+def _branch(request):
+    """Филиал отчёта. Шеф и программист могут выбрать «all» — оба филиала вместе (вернётся None)."""
+    return staff_branch(request, allow_all=True)
+
+
+def _scope(branch) -> str:
+    """Часть имени PDF-файла: branch2 или all."""
+    return f"branch{branch.id}" if branch is not None else "all"
 PDF_RESPONSE = {(200, "application/pdf"): OpenApiTypes.BINARY}
 
 
@@ -43,7 +55,7 @@ class DayReportView(APIView):
 
     @extend_schema(parameters=[DATE_PARAM], responses={200: OpenApiTypes.OBJECT})
     def get(self, request):
-        return Response(build_day_report(_parse_date(request.query_params.get("date"))))
+        return Response(build_day_report(_parse_date(request.query_params.get("date")), _branch(request)))
 
 
 class DayReportPdfView(APIView):
@@ -53,7 +65,8 @@ class DayReportPdfView(APIView):
     @extend_schema(parameters=[DATE_PARAM], responses=PDF_RESPONSE)
     def get(self, request):
         day = _parse_date(request.query_params.get("date"))
-        return _pdf_response(render_day_pdf(build_day_report(day)), f"report-{day:%Y%m%d}.pdf")
+        branch = _branch(request)
+        return _pdf_response(render_day_pdf(build_day_report(day, branch)), f"report-{_scope(branch)}-{day:%Y%m%d}.pdf")
 
 
 class PeriodReportView(APIView):
@@ -62,7 +75,7 @@ class PeriodReportView(APIView):
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def get(self, request):
-        return Response(build_period_report(get_current_period()))
+        return Response(build_period_report(get_current_period(_branch(request))))
 
 
 class PeriodReportPdfView(APIView):
@@ -71,8 +84,9 @@ class PeriodReportPdfView(APIView):
 
     @extend_schema(responses=PDF_RESPONSE)
     def get(self, request):
-        period = get_current_period()
-        return _pdf_response(render_period_pdf(build_period_report(period)), f"period-{period.start_date:%Y%m%d}.pdf")
+        period = get_current_period(_branch(request))
+        name = f"period-{_scope(period.branch)}-{period.start_date:%Y%m%d}.pdf"
+        return _pdf_response(render_period_pdf(build_period_report(period)), name)
 
 
 class PeriodArchiveView(APIView):
@@ -81,8 +95,9 @@ class PeriodArchiveView(APIView):
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def get(self, request):
-        get_current_period()                                   # заодно закрываем период, если 45 дней уже прошли
-        periods = ReportPeriod.objects.filter(is_closed=True)
+        branch = _branch(request)
+        get_current_period(branch)                             # заодно закрываем период, если 45 дней уже прошли
+        periods = ReportPeriod.objects.filter(is_closed=True, branch=branch)   # архив этого филиала (или «Оба»)
         return Response([
             {
                 "id": p.id,
@@ -102,7 +117,7 @@ class PeriodArchivePdfView(APIView):
 
     @extend_schema(responses=PDF_RESPONSE)
     def get(self, request, pk):
-        period = get_object_or_404(ReportPeriod, pk=pk, is_closed=True)
+        period = get_object_or_404(ReportPeriod, pk=pk, is_closed=True, branch=_branch(request))
         if not period.pdf:
             raise ValidationError("Для этого периода нет PDF.")
-        return FileResponse(period.pdf.open("rb"), as_attachment=True, filename=f"period-{period.start_date:%Y%m%d}.pdf")
+        return FileResponse(period.pdf.open("rb"), as_attachment=True, filename=f"period-{_scope(period.branch)}-{period.start_date:%Y%m%d}.pdf")

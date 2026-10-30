@@ -31,6 +31,12 @@ class User(AbstractUser):
     # Номер телефона сотрудника
     phone = models.CharField("Телефон", max_length=20, blank=True)
 
+    # Филиал сотрудника. У шефа и программиста пусто — они видят все филиалы
+    branch = models.ForeignKey(
+        "cafe.Branch", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="staff", verbose_name="Филиал",
+    )
+
     class Meta:
         verbose_name = "Сотрудник"          # название в единственном числе (для админки)
         verbose_name_plural = "Сотрудники"  # во множественном
@@ -50,6 +56,11 @@ class User(AbstractUser):
         if self.is_superuser:                 # если это суперпользователь (создан через createsuperuser)
             self.role = self.Role.PROGRAMMER  # делаем его программистом
         self.email = (self.email or "").strip().lower()  # email храним без пробелов и маленькими буквами
+        if self.role in (self.Role.CHEF, self.Role.PROGRAMMER):
+            self.branch = None                # шеф и программист — без филиала: видят все
+        elif self.role and self.branch_id is None:
+            from apps.cafe.models import Branch   # импорт здесь, чтобы модели не ссылались друг на друга по кругу
+            self.branch = Branch.default()    # сотрудник без филиала — в первый филиал
         super().save(*args, **kwargs)         # сохраняем как обычно
 
     # ----- Проверки ролей. Будем использовать в правах доступа -----
@@ -98,8 +109,17 @@ class User(AbstractUser):
         return []                                        # повар, официант и курьер никому роли не назначают                           # повар и официант никому роли не назначают
 
     def can_manage(self, target: "User") -> bool:
-        """Может ли редактировать / блокировать сотрудника target: себя нельзя, и только тех, чью роль сам назначает."""
-        return target.pk != self.pk and target.role in self.assignable_roles()
+        """
+        Может ли редактировать / блокировать сотрудника target: себя нельзя, только тех, чью роль сам назначает,
+        и (если сам не шеф) только из своего филиала.
+        """
+        if target.pk == self.pk or target.role not in self.assignable_roles():
+            return False
+        return self.is_chef or target.branch_id == self.branch_id     # админ — только своих
+
+    def sees_all_branches(self) -> bool:
+        """Шеф и программист видят все филиалы, остальные — только свой."""
+        return self.is_chef
 
     def can_change_role(self, target: "User", new_role: str) -> bool:
         """Может ли поставить сотруднику target роль new_role."""
@@ -128,4 +148,4 @@ class RoleChangeLog(models.Model):
         verbose_name_plural = "Журнал смен ролей"
 
     def __str__(self):
-        return f"{self.user}: {self.old_role or '—'} → {self.new_role}"
+        return f"{self.user}: {self.old_role or '—'} → {self.new_role}"

@@ -8,6 +8,7 @@ from html import escape                          # имена и названи�
 from django.contrib.auth import get_user_model   # модель сотрудника
 from django.db.models import Prefetch            # блюда категории одним запросом
 
+from apps.cafe.models import Branch               # филиалы
 from apps.menu.models import Category, Dish       # меню — то же, что на сайте
 
 MESSAGE_LIMIT = 4000                             # Telegram принимает до 4096 символов — оставляем запас
@@ -20,7 +21,10 @@ def money(value) -> str:
 
 def staff_by_telegram(telegram_id: int):
     """Сотрудник с этим Telegram (активный и с ролью) или None — значит, ещё не вошёл."""
-    return get_user_model().objects.filter(telegram_id=telegram_id, is_active=True).exclude(role="").first()
+    return (
+        get_user_model().objects.select_related("branch")                            # сразу с филиалом
+        .filter(telegram_id=telegram_id, is_active=True).exclude(role="").first()
+    )
 
 
 def person(user) -> str:
@@ -44,6 +48,7 @@ def profile_text(user) -> str:
     lines = [
         f"<b>{person(user)}</b>",
         f"Роль: {user.get_role_display()}",
+        f"Филиал: {escape(user.branch.name) if user.branch_id else 'все филиалы'}",
         f"Логин: {escape(user.username)}",
     ]
     if user.phone:
@@ -52,10 +57,11 @@ def profile_text(user) -> str:
     return "\n".join(lines)
 
 
-def menu_parts() -> list:
-    """Меню кафе текстом (как у гостей на сайте). Длинное меню делим на несколько сообщений."""
+def menu_parts(branch=None) -> list:
+    """Меню филиала текстом (как у гостей на сайте; без филиала — первый). Длинное меню делим на несколько сообщений."""
+    branch = branch or Branch.default()
     dishes = Dish.objects.filter(is_active=True).prefetch_related("sizes")             # видимые блюда с размерами
-    categories = Category.objects.filter(is_active=True).prefetch_related(
+    categories = Category.objects.filter(is_active=True, branch=branch).prefetch_related(
         Prefetch("dishes", queryset=dishes, to_attr="visible_dishes"),
     )
     blocks = []
@@ -70,7 +76,7 @@ def menu_parts() -> list:
         blocks.append("\n".join(rows))
     if not blocks:
         return ["Меню пока пустое."]
-    parts, current = [], "📋 <b>Меню кафе «Муслим»</b>"
+    parts, current = [], f"📋 <b>Меню кафе «Муслим» · {escape(branch.name)}</b>"
     for block in blocks:                                                                # собираем сообщения не длиннее лимита
         if len(current) + len(block) + 2 > MESSAGE_LIMIT:
             parts.append(current)
@@ -78,4 +84,4 @@ def menu_parts() -> list:
         else:
             current += "\n\n" + block
     parts.append(current)
-    return parts
+    return parts

@@ -7,6 +7,9 @@ from rest_framework.decorators import action                    # свои ад�
 from rest_framework.exceptions import PermissionDenied          # ошибка 403
 from rest_framework.response import Response                    # ответ в JSON
 
+from django.db.models import Q                                  # «свой филиал ИЛИ без филиала»
+
+from core.branches import staff_branch                          # текущий филиал запроса
 from core.permissions import IsCafeAdmin                        # только админ, шеф, программист
 from .models import RoleChangeLog, User
 from .serializers import (
@@ -33,10 +36,15 @@ class StaffViewSet(
     """
 
     permission_classes = [IsCafeAdmin]
-    queryset = User.objects.exclude(role="").order_by("username")   # только сотрудники с ролью
+    queryset = User.objects.exclude(role="").select_related("branch").order_by("username")   # только сотрудники с ролью
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["role", "is_active"]
     search_fields = ["username", "first_name", "last_name", "phone"]
+
+    def get_queryset(self):
+        """Сотрудники текущего филиала + шеф и программист (у них филиала нет — они общие)."""
+        branch = staff_branch(self.request)
+        return super().get_queryset().filter(Q(branch=branch) | Q(branch__isnull=True))
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -53,13 +61,20 @@ class StaffViewSet(
         """POST /api/admin/staff/ — добавить сотрудника."""
         serializer = StaffCreateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        role = serializer.validated_data["role"]
+        branch = None if role in (User.Role.CHEF, User.Role.PROGRAMMER) else staff_branch(request)   # шеф — без филиала
+        user = serializer.save(branch=branch)                       # новый сотрудник — в текущий филиал
         data = StaffSerializer(user, context=self.get_serializer_context()).data   # отвечаем без пароля
         return Response(data, status=status.HTTP_201_CREATED)
 
+    def update(self, request, *args, **kwargs):
+        """«Изменить сотрудника»: права проверяем ДО проверки полей — чужому даже ошибки полей не показываем."""
+        self._check_can_manage(self.get_object())               # нет прав — 403 сразу
+        return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
-        """PATCH: имя, телефон, Telegram ID, блокировка (is_active)."""
-        self._check_can_manage(serializer.instance)
+        """PATCH: имя, фамилия, логин, email, телефон, Telegram ID, блокировка (is_active)."""
+        self._check_can_manage(serializer.instance)              # ещё раз — на всякий случай
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -78,7 +93,7 @@ class StaffViewSet(
         """POST /api/admin/staff/{id}/set-role/ — сменить роль: {"role": "cook"}."""
         body = RoleChangeSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        user = change_role(request.user, self.get_object(), body.validated_data["role"])
+        user = change_role(request.user, self.get_object(), body.validated_data["role"], staff_branch(request))
         return Response(StaffSerializer(user, context=self.get_serializer_context()).data)
 
     @extend_schema(request=PasswordSetSerializer, responses={204: None})
@@ -106,5 +121,8 @@ class StaffViewSet(
     @action(detail=False, methods=["get"], url_path="role-log")
     def role_log(self, request):
         """GET /api/admin/staff/role-log/ — последние 100 смен ролей."""
-        logs = RoleChangeLog.objects.select_related("user", "changed_by")[:100]
-        return Response(RoleChangeLogSerializer(logs, many=True).data)
+        branch = staff_branch(request)                              # журнал сотрудников этого филиала (и шефов)
+        logs = RoleChangeLog.objects.select_related("user", "changed_by").filter(
+            Q(user__branch=branch) | Q(user__branch__isnull=True),
+        )[:100]
+        return Response(RoleChangeLogSerializer(logs, many=True).data)

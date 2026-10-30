@@ -22,6 +22,7 @@ return http.createServer(async (req, res) => {
     const headers={Accept:req.headers.accept||'application/json'};
     if (req.headers.authorization) headers.Authorization=req.headers.authorization;
     if (req.headers['content-type']) headers['Content-Type']=req.headers['content-type'];
+    if (/^(\d{1,9}|all)$/.test(req.headers['x-branch']||'')) headers['X-Branch']=req.headers['x-branch'];   // филиал, выбранный в панели (шеф)
     try {
       const chunks=[];let length=0;
       for await (const chunk of req) { length+=chunk.length; if(length>5*1024*1024){res.writeHead(413).end();return;} chunks.push(chunk); }
@@ -48,4 +49,4 @@ if(require.main===module){
   if(!Number.isInteger(port)||port<0||port>65535)throw new Error('PORT должен быть числом от 0 до 65535.');
   const server=createServer();
   server.listen(port,'127.0.0.1',()=>console.log(`Local: http://localhost:${server.address().port}\nAdmin: http://localhost:${server.address().port}/admin\nAPI: ${process.env.MUSLIM_ENABLE_API==='0'?'off':process.env.MUSLIM_API_ORIGIN||'http://172.20.10.4:8000'}`));
-}
+}

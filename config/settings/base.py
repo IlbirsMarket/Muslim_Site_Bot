@@ -211,6 +211,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Каким адресам фронтенда разрешено обращаться к API (через запятую в .env)
+# Заголовок X-Branch — какой филиал выбран в панели (шеф и программист переключают филиалы)
+from corsheaders.defaults import default_headers  # noqa: E402 — стандартный список разрешённых заголовков
+CORS_ALLOW_HEADERS = (*default_headers, "x-branch")
+
 CORS_ALLOWED_ORIGINS = [
     origin for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if origin
 ]
@@ -223,4 +227,4 @@ TELEGRAM_GROUP_ID = int(os.getenv("TELEGRAM_GROUP_ID") or 0)                   #
 TELEGRAM_TOPICS = {                                                            # ID тем группы; 0 — тема не настроена
     place: int(os.getenv(f"TELEGRAM_TOPIC_{place.upper()}") or 0)
     for place in ("admins", "kitchen", "hall", "delivery", "reports")
-}
+}

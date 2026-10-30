@@ -104,7 +104,9 @@ async def profile(message: Message):
 @router.message(Command("menu"))
 @router.message(F.text == kb.MENU)
 async def menu(message: Message):
-    for part in await sync_to_async(texts.menu_parts)():     # меню может прийти несколькими сообщениями
+    user = await sync_to_async(texts.staff_by_telegram)(message.from_user.id)   # вошедший сотрудник — меню его филиала
+    branch = user.branch if user and user.branch_id else None                   # шеф / не вошёл — первый филиал
+    for part in await sync_to_async(texts.menu_parts)(branch):   # меню может прийти несколькими сообщениями
         await message.answer(part)
 
 
@@ -133,4 +135,4 @@ async def ids(message: Message):
         f"ID группы: <code>{message.chat.id}</code>\n"
         f"ID этой темы: <code>{thread or 'это общая тема'}</code>\n\n"
         "Напишите /ids в каждой теме (Админы, Кухня, Зал, Доставка, Отчёты) и впишите номера в .env."
-    )
+    )

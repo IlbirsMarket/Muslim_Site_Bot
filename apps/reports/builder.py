@@ -1,6 +1,7 @@
 """
 Подсчёт цифр для отчётов.
 Все функции возвращают обычные словари — их отдаём в JSON и рисуем из них PDF.
+branch — филиал; None — оба филиала вместе (общий отчёт шефа).
 """
 
 from datetime import datetime, time, timedelta            # даты и время
@@ -9,7 +10,7 @@ from django.db.models import Count, F, Sum                # подсчёты в 
 from django.db.models.functions import ExtractHour, TruncDate  # час из даты, дата без времени
 from django.utils import timezone                         # часовой пояс
 
-from apps.cafe.models import CafeSettings
+from apps.cafe.models import Branch, CafeSettings
 from apps.orders.models import Order, OrderItem
 
 S = Order.Status   # короткое имя
@@ -23,10 +24,16 @@ def _range(start_date, end_date):
     return start, end
 
 
-def _orders(start_date, end_date):
-    """Все заказы за период (по дате создания)."""
+def _orders(start_date, end_date, branch=None):
+    """Все заказы за период (по дате создания) — филиала или всех филиалов."""
     start, end = _range(start_date, end_date)
-    return Order.objects.filter(created_at__gte=start, created_at__lt=end)
+    orders = Order.objects.filter(created_at__gte=start, created_at__lt=end)
+    return orders.filter(branch=branch) if branch is not None else orders
+
+
+def branch_label(branch) -> str:
+    """Подпись для отчёта и PDF: «Филиал 1» или «Оба филиала»."""
+    return branch.name if branch is not None else "Оба филиала"
 
 
 def _percent(current, previous):
@@ -36,14 +43,14 @@ def _percent(current, previous):
     return round((current - previous) / previous * 100, 1)
 
 
-def revenue_for(start_date, end_date) -> int:
+def revenue_for(start_date, end_date, branch=None) -> int:
     """Выручка (только завершённые заказы) за период."""
-    return _orders(start_date, end_date).filter(status=S.COMPLETED).aggregate(s=Sum("total"))["s"] or 0
+    return _orders(start_date, end_date, branch).filter(status=S.COMPLETED).aggregate(s=Sum("total"))["s"] or 0
 
 
-def build_summary(start_date, end_date) -> dict:
+def build_summary(start_date, end_date, branch=None) -> dict:
     """Общие цифры за период: выручка, заказы, средний чек, разбивки, топ блюд."""
-    orders = _orders(start_date, end_date)                    # все заказы периода
+    orders = _orders(start_date, end_date, branch)            # все заказы периода
     done = orders.filter(status=S.COMPLETED)                  # завершённые — из них выручка
 
     totals = done.aggregate(revenue=Sum("total"), count=Count("id"))   # сумма и количество одним запросом
@@ -89,20 +96,26 @@ def build_summary(start_date, end_date) -> dict:
     }
 
 
-def _hours_series(day) -> list:
+def _work_hours(cafe) -> set:
+    """Часы работы филиала: 10:00–23:00 → {10, …, 22}; работа через полночь — все 24 часа."""
+    if cafe.opens_at <= cafe.closes_at:
+        return set(range(cafe.opens_at.hour, max(cafe.closes_at.hour, cafe.opens_at.hour + 1)))
+    return set(range(24))
+
+
+def _hours_series(day, branch=None) -> list:
     """Выручка по часам за один день (для графика)."""
     rows = (
-        _orders(day, day).filter(status=S.COMPLETED)
+        _orders(day, day, branch).filter(status=S.COMPLETED)
         .annotate(hour=ExtractHour("created_at"))                  # час по Бишкеку
         .values("hour").annotate(revenue=Sum("total"), count=Count("id"))
     )
     data = {row["hour"]: row for row in rows}                      # {13: {...}, 19: {...}}
 
-    cafe = CafeSettings.load()
-    if cafe.opens_at <= cafe.closes_at:                            # обычный режим — часы работы
-        hours = set(range(cafe.opens_at.hour, max(cafe.closes_at.hour, cafe.opens_at.hour + 1)))
-    else:                                                          # работа через полночь — все 24 часа
-        hours = set(range(24))
+    branches = [branch] if branch is not None else list(Branch.objects.filter(is_active=True))
+    hours = set()
+    for item in branches:                                          # часы работы филиала (или всех филиалов вместе)
+        hours |= _work_hours(CafeSettings.load(item))
     hours |= set(data)                                             # плюс часы, где реально были заказы
 
     return [
@@ -116,10 +129,10 @@ def _hours_series(day) -> list:
     ]
 
 
-def _days_series(start_date, end_date) -> list:
+def _days_series(start_date, end_date, branch=None) -> list:
     """Выручка по дням за период (для графика за 45 дней)."""
     rows = (
-        _orders(start_date, end_date).filter(status=S.COMPLETED)
+        _orders(start_date, end_date, branch).filter(status=S.COMPLETED)
         .annotate(day=TruncDate("created_at"))                     # дата по Бишкеку
         .values("day").annotate(revenue=Sum("total"), count=Count("id"))
     )
@@ -133,15 +146,17 @@ def _days_series(start_date, end_date) -> list:
     return result
 
 
-def build_day_report(day) -> dict:
+def build_day_report(day, branch=None) -> dict:
     """Отчёт за один день + сравнение с тем же днём неделю назад."""
-    summary = build_summary(day, day)
+    summary = build_summary(day, day, branch)
     week_ago = day - timedelta(days=7)                             # тот же день недели прошлой недели
-    previous = revenue_for(week_ago, week_ago)
+    previous = revenue_for(week_ago, week_ago, branch)
     return {
         "date": day,
+        "branch": branch.id if branch is not None else None,      # какой филиал (None — оба)
+        "branch_name": branch_label(branch),
         **summary,
-        "by_hour": _hours_series(day),
+        "by_hour": _hours_series(day, branch),
         "compare": {"date": week_ago, "revenue": previous, "change_percent": _percent(summary["revenue"], previous)},
     }
 
@@ -150,10 +165,12 @@ def build_period_report(period) -> dict:
     """Отчёт за период 45 дней (по сегодняшний день или по конец периода)."""
     from .models import ReportPeriod                               # импорт здесь, чтобы не было круговых импортов
 
+    branch = period.branch                                         # филиал периода (None — оба филиала)
     until = min(timezone.localdate(), period.end_date)             # считаем до сегодня или до конца периода
-    summary = build_summary(period.start_date, until)
-    previous = (                                                   # прошлый закрытый период для сравнения
-        ReportPeriod.objects.filter(is_closed=True, end_date__lt=period.start_date).order_by("-end_date").first()
+    summary = build_summary(period.start_date, until, branch)
+    previous = (                                                   # прошлый закрытый период того же филиала для сравнения
+        ReportPeriod.objects.filter(branch=branch, is_closed=True, end_date__lt=period.start_date)
+        .order_by("-end_date").first()
     )
     previous_revenue = previous.revenue if previous else None
     return {
@@ -166,7 +183,9 @@ def build_period_report(period) -> dict:
             "is_closed": period.is_closed,
             "next_start": period.end_date + timedelta(days=1),     # когда начнётся новый период
         },
+        "branch": branch.id if branch is not None else None,
+        "branch_name": branch_label(branch),
         **summary,
-        "by_day": _days_series(period.start_date, until),
+        "by_day": _days_series(period.start_date, until, branch),
         "compare": {"previous_revenue": previous_revenue, "change_percent": _percent(summary["revenue"], previous_revenue)},
-    }
+    }

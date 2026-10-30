@@ -1,5 +1,5 @@
 """
-Столы и доставка: два этажа, номера ставятся сами на каждом этаже, доставка одна и всегда есть,
+Столы и доставка: этажи у филиала свои, номера ставятся сами на каждом этаже, доставка одна и всегда есть,
 статус «Занят / Свободен», заказы «в кафе», «с собой», доставка и самовывоз.
 Запуск: python manage.py test tests -v 2
 """
@@ -30,10 +30,12 @@ class TableNumberTests(BaseAPITest):
         self.assertEqual(self.add().data["name"], "Стол 2 · 1 этаж")      # номер 2 снова занят новым столом
 
     def test_floors_have_own_numbers(self):
+        self.assertEqual(self.add(floor=2).status_code, 400)                  # 2 этажа ещё нет
+        self.client.post("/api/admin/floors/", {}, format="json")             # «+ Этаж» → 2 этаж
         self.assertEqual(self.add(floor=2).data["name"], "Стол 1 · 2 этаж")   # на 2 этаже своя нумерация
         self.assertEqual(self.add(floor=2).data["name"], "Стол 2 · 2 этаж")
         self.assertEqual(self.add(floor=1).data["name"], "Стол 1 · 1 этаж")   # на 1 этаже тоже есть «Стол 1»
-        self.assertEqual(self.add(floor=3).status_code, 400)                  # третьего этажа нет
+        self.assertEqual(self.add(floor=3).status_code, 400)                  # третьего этажа нет (пока не добавили)
         self.as_user(self.admin)
         response = self.client.post(TABLES, {"floor": 1, "number": 7}, format="json")
         self.assertEqual(response.status_code, 400)                           # «Стол 7» на 1 этаже уже есть
@@ -168,4 +170,4 @@ class OrderPlaceTests(BaseAPITest):
 
     def test_labels(self):
         self.assertEqual(Order.Kind.TAKEAWAY.label, "С собой")
-        self.assertEqual(Order.Kind.PICKUP.label, "Самовывоз")
+        self.assertEqual(Order.Kind.PICKUP.label, "Самовывоз")

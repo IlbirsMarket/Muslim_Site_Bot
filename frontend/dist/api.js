@@ -10,6 +10,10 @@
   function savedSession(){ for (const long of [true,false]) { try { const saved=JSON.parse(storage(long)?.getItem(sessionKey));if(typeof saved?.access==='string'&&typeof saved?.refresh==='string')return {tokens:saved,long}; } catch { /* Нет сохранённой сессии. */ } } return null; }
   { const saved=savedSession(); if(saved){tokens=saved.tokens;remembered=saved.long;} }
   const results=[];
+  // Филиал, выбранный в панели (шеф и программист переключают). Сервер сам решает, можно ли: остальным — только свой.
+  const branchKey='muslim-admin-branch';
+  let branch=null; try { branch=localStorage.getItem(branchKey); } catch { /* Хранилище недоступно — выбор живёт до перезагрузки. */ }
+  function setBranch(id){ branch=id==null?null:String(id); try { if(branch)localStorage.setItem(branchKey,branch); else localStorage.removeItem(branchKey); } catch { /* Выбор живёт до перезагрузки. */ } }
   // Сохраняем токены. remember=true/false меняет место хранения; без него (продление входа) — место прежнее.
   function session(value,remember) {
     if(remember!==undefined)remembered=Boolean(remember);
@@ -41,11 +45,12 @@
     if (body && typeof body==='object') return Object.entries(body).map(([key,value])=>`${hidden.includes(key)?'':(labels[key]||key)+': '}${flat(value)}`).join('; ').slice(0,1000);
     return `Ошибка API (${status})`;
   }
-  async function request(path,{method='GET',body,auth=true,binary=false,retry=true}={}) {
+  async function request(path,{method='GET',body,auth=true,binary=false,retry=true,branch:forBranch}={}) {
     if (!base) throw new Error('Локальный API доступен после запуска сайта на компьютере.');
     if (!path.startsWith('/')||path.startsWith('//')) throw new Error('Некорректный путь API.');
     const started=performance.now(),headers={Accept:binary?'*/*':'application/json'};
     if (auth&&tokens?.access) headers.Authorization=`Bearer ${tokens.access}`;
+    const chosen=forBranch??branch; if (auth&&chosen) headers['X-Branch']=String(chosen);   // филиал панели; forBranch='all' — «Оба филиала» в отчётах
     const multipart=typeof FormData!=='undefined'&&body instanceof FormData;
     if (body!==undefined&&!multipart) headers['Content-Type']='application/json';
     let response;
@@ -55,7 +60,7 @@
     if (response.status===401&&auth&&tokens?.refresh&&retry) {
       if (!refreshPromise) refreshPromise=refreshTokens().finally(()=>{refreshPromise=null;});
       await refreshPromise;
-      return request(path,{method,body,auth,binary,retry:false});
+      return request(path,{method,body,auth,binary,retry:false,branch:forBranch});
     }
     if (response.status===204) return null;
     if(response.status===401&&auth&&tokens)expireSession();
@@ -104,5 +109,5 @@
     if(!['accept','reject','cook','ready','send','complete','cancel'].includes(action))throw new Error('Недопустимое действие с заказом.');
     return request(`/staff/orders/${id}/status/`,{method:'POST',body:{action,reason}});
   }
-  window.MuslimAPI={enabled:Boolean(base),request,login,logout,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
-})();
+  window.MuslimAPI={enabled:Boolean(base),request,login,logout,branch:()=>branch,setBranch,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
+})();

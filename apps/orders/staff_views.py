@@ -15,6 +15,7 @@ from rest_framework.exceptions import ValidationError          # ответ 400
 from django.db import transaction                            # «всё или ничего»
 from apps.bot.events import Kind as BotKind, add_event       # «почтовый ящик» для Telegram-бота
 from apps.tables.models import Table
+from core.branches import staff_branch                       # текущий филиал запроса
 from core.permissions import IsStaffMember, IsWaiterOrAdmin
 from .models import Order, TableCall
 from .staff_serializers import OrderStaffSerializer, StatusChangeSerializer, TableCallStaffSerializer
@@ -46,7 +47,9 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if getattr(self, "swagger_fake_view", False):     # Swagger строит документацию без пользователя
             return Order.objects.none()
         user = self.request.user
-        queryset = Order.objects.select_related("table", "claimed_by", "accepted_by").prefetch_related(
+        queryset = Order.objects.filter(branch=staff_branch(self.request)).select_related(   # только свой филиал
+            "table", "claimed_by", "accepted_by",
+        ).prefetch_related(
             "items", "status_logs__changed_by",          # всё нужное одним махом
         )
         if user.is_cafe_admin:                            # админ и выше — все заказы
@@ -100,7 +103,9 @@ class StaffTableCallViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         since = timezone.now() - timedelta(hours=3)                  # старые вызовы не показываем
-        return TableCall.objects.select_related("table").filter(is_done=False, created_at__gte=since)
+        return TableCall.objects.select_related("table").filter(
+            is_done=False, created_at__gte=since, table__branch=staff_branch(self.request),   # вызовы своего филиала
+        )
 
     @extend_schema(request=None, responses=TableCallStaffSerializer)
     @action(detail=True, methods=["post"])
@@ -124,6 +129,6 @@ class CloseTableVisitView(APIView):
 
     @extend_schema(request=None, responses={200: dict})
     def post(self, request, table_id):
-        table = get_object_or_404(Table, pk=table_id)               # находим стол
+        table = get_object_or_404(Table, pk=table_id, branch=staff_branch(request))   # стол своего филиала
         closed = close_visits(table, request.user)                   # закрываем визиты
-        return Response({"table": table.name, "closed_visits": closed})
+        return Response({"table": table.name, "closed_visits": closed})

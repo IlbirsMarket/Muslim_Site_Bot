@@ -8,10 +8,16 @@ DishSize — размер блюда со своей ценой (25 см — 550
 
 from django.db import models  # поля для таблиц
 
+from apps.cafe.models import default_branch_id   # первый филиал — по умолчанию
+
 
 class Category(models.Model):
-    """Категория меню."""
+    """Категория меню (у каждого филиала свои)."""
 
+    branch = models.ForeignKey(                                             # филиал: у каждого своё меню
+        "cafe.Branch", on_delete=models.PROTECT, related_name="categories", verbose_name="Филиал",
+        default=default_branch_id,
+    )
     name = models.CharField("Название", max_length=100)                    # например "Пиццы"
     position = models.PositiveIntegerField("Порядок", default=0)           # чем меньше, тем выше в меню
     is_active = models.BooleanField("Показывать в меню", default=True)     # скрыть категорию, не удаляя
@@ -26,8 +32,12 @@ class Category(models.Model):
 
 
 class Extra(models.Model):
-    """Добавка к блюду (Сыр, Халапеньо). Одна добавка может подходить к разным блюдам."""
+    """Добавка к блюду (Сыр, Халапеньо). Одна добавка может подходить к разным блюдам своего филиала."""
 
+    branch = models.ForeignKey(                                             # филиал: у каждого своё меню
+        "cafe.Branch", on_delete=models.PROTECT, related_name="extras", verbose_name="Филиал",
+        default=default_branch_id,
+    )
     name = models.CharField("Название", max_length=100)                 # "Сыр моцарелла"
     price = models.PositiveIntegerField("Цена, сом")                     # доплата за добавку
     is_available = models.BooleanField("В наличии", default=True)      # закончилась — выключаем
@@ -95,4 +105,4 @@ class DishSize(models.Model):
         verbose_name_plural = "Размеры"
 
     def __str__(self):
-        return f"{self.dish.name} — {self.name}"
+        return f"{self.dish.name} — {self.name}"

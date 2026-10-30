@@ -35,9 +35,9 @@ def create_order(data: dict) -> Order:
     Создаёт заказ из уже проверенных данных (их готовит OrderCreateSerializer).
     data["resolved_items"] — список (блюдо, размер, [добавки], количество).
     """
-    cafe = CafeSettings.load()                     # настройки кафе
     kind = data["kind"]                            # hall / takeaway / delivery / pickup
     table = data["table"]                          # стол или точка "Доставка"
+    cafe = CafeSettings.load(table.branch)         # настройки филиала этого стола
     device_key = data.get("device_key", "")        # ключ телефона гостя
 
     # 1. Считаем каждую позицию и сумму блюд
@@ -62,6 +62,7 @@ def create_order(data: dict) -> Order:
     # 4. Создаём сам заказ
     order = Order.objects.create(
         source=data.get("source", Order.Source.SITE),
+        branch_id=table.branch_id,                 # филиал заказа — филиал стола / доставки
         kind=kind,
         status=status,
         table=table,
@@ -93,4 +94,4 @@ def create_order(data: dict) -> Order:
     # 7. Событие для Telegram-бота: он отправит заказ в нужные темы группы
     add_event(BotKind.ORDER_CREATED, order=order, trusted=trusted)
 
-    return order
+    return order

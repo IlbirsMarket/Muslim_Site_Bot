@@ -10,11 +10,33 @@
   let freedAt0=null;                                                              // когда стол освобождали до того, как гость открыл QR
   const cartKey=live?'muslim-api-cart-v1':'muslim-cart-v1';
   const maxQty=live?50:99;
-  const MenuRepository = { async load() { return live?API.normalizeMenu(await API.request('/menu/',{auth:false})):window.MuslimStore.load().menu; } };
   const storage = {
     read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
     write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
   };
+  // ===== Филиал: по QR — филиал этого QR (выбора нет). Без QR — последний филиал гостя, сверху переключатель (только посмотреть меню) =====
+  const branchKey='muslim-guest-branch';
+  let guestBranch=storage.read(branchKey,null),branches=[];
+  { const asked=Number(new URLSearchParams(location.search).get('branch'));   // ссылка «Меню гостей» из панели: ./?branch=2
+    if(!tableToken&&Number.isInteger(asked)&&asked>0){guestBranch=asked;storage.write(branchKey,asked);} }
+  function branchQuery(){                                                        // какое меню и какие настройки просить у сервера
+    if(tableToken&&!viewOnly)return `?token=${encodeURIComponent(tableToken)}`;
+    return guestBranch?`?branch=${encodeURIComponent(guestBranch)}`:'';
+  }
+  function rememberBranch(id){if(id){guestBranch=id;storage.write(branchKey,id);}}   // запомнили, откуда гость пришёл
+  async function loadBranches(){                                                 // список филиалов для переключателя
+    try{branches=await API.request('/branches/',{auth:false});}catch{branches=[];}
+    if(!Array.isArray(branches))branches=[];
+    if(guestBranch&&!branches.some(b=>b.id===guestBranch))guestBranch=null;      // филиал выключили — показываем первый
+  }
+  function paintBranches(){                                                      // «Филиал 1 / Филиал 2» над меню
+    let box=$('#branch-switch');
+    if(!live||!viewOnly||branches.length<2){box?.remove();return;}
+    if(!box){box=document.createElement('div');box.id='branch-switch';box.className='branch-pill';box.setAttribute('role','group');box.setAttribute('aria-label','Филиал');$('.header-actions').before(box);}   // в зелёной шапке — один выбор на весь сайт
+    const current=guestBranch||branches[0].id;
+    box.innerHTML=branches.map(b=>`<button type="button" data-guest-branch="${b.id}" aria-pressed="${b.id===current}" ${b.address?`title="${escape(b.address)}"`:''}>${escape(b.name)}</button>`).join('');
+  }
+  const MenuRepository = { async load() { return live?API.normalizeMenu(await API.request('/menu/'+branchQuery(),{auth:false})):window.MuslimStore.load().menu; } };
   let menu, category = 'pizza', mode = 'cafe', cart = [], selection, lastOrder = '';
   let toastTimer;
   const table = new URLSearchParams(location.search).get('table');
@@ -108,6 +130,14 @@
     $('#checkout-dialog').showModal();
   }
   document.addEventListener('click', async event => {
+    const branchButton=event.target.closest('[data-guest-branch]');
+    if(branchButton){                                                   // гость смотрит меню другого филиала
+      const id=Number(branchButton.dataset.guestBranch);if(id===(guestBranch||branches[0]?.id))return;
+      rememberBranch(id);paintBranches();
+      try{[menu,cafe]=await Promise.all([MenuRepository.load(),API.request('/cafe/'+branchQuery(),{auth:false})]);}catch(error){toast(error.message);return;}
+      category=menu.categories[0]?.id||'';renderMenu();renderCart();window.scrollTo({top:0,behavior:'smooth'});
+      return;
+    }
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
     if (button.hasAttribute('data-close')) { button.closest('dialog').close(); return; }
@@ -185,15 +215,16 @@
     const link = document.createElement('a'); link.href = url; link.download = 'Муслим — список заказа.txt'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
   async function start() {
+    if(live&&viewOnly)await loadBranches();                               // без QR — нужен список филиалов
     menu = await MenuRepository.load();
     if(!menu.categories.some(c=>c.id===category))category=menu.categories[0]?.id||'';
     if(live){
-      cafe=await API.request('/cafe/',{auth:false});
+      cafe=await API.request('/cafe/'+branchQuery(),{auth:false});
       $('#menu-note').textContent='Цены актуальные. Итог заказа кафе подтвердит после отправки.';
       $('.draft-note').textContent='Заказ сразу увидят в кафе.';
       // Есть токен — это QR стола. Нет токена — главная страница = QR доставки
       if(viewOnly){enterViewOnly(false,new URLSearchParams(location.search).get('view')==='menu'?'freed':'plain');}   // только меню
-      else if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});freedAt0=tableInfo.freed_at||null;$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
+      else if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});freedAt0=tableInfo.freed_at||null;rememberBranch(tableInfo.branch);$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
       applyModes();
       if(tableInfo?.kind==='hall'&&!$('#guest-services')){
         const services=document.createElement('div');services.id='guest-services';services.className='guest-services';services.innerHTML='<button type="button" class="secondary" data-service="waiter">Позвать официанта</button><button type="button" class="secondary" data-service="bill">Попросить счёт</button>';$('.welcome').after(services);
@@ -219,7 +250,7 @@
   async function refreshMenu() {
     if (!live || !menu || document.hidden) return;                     // вкладка свёрнута — не тратим интернет гостя
     let next;
-    try { [next, cafe] = await Promise.all([MenuRepository.load(), API.request('/cafe/', { auth:false })]); } catch { return; }   // нет связи — попробуем позже
+    try { [next, cafe] = await Promise.all([MenuRepository.load(), API.request('/cafe/'+branchQuery(), { auth:false })]); } catch { return; }   // нет связи — попробуем позже
     if (JSON.stringify(next) === JSON.stringify(menu)) return;          // ничего не поменялось
     menu = next;
     if (!menu.categories.some(c => c.id === category)) category = menu.categories[0]?.id || '';
@@ -302,6 +333,7 @@
     let note=$('#view-only-note');
     if(!note){note=document.createElement('div');note.id='view-only-note';note.className='view-only-note';note.innerHTML=reason==='freed'?'<strong>Стол освобождён</strong>Меню можно смотреть. Чтобы заказать снова, отсканируйте QR-код на столе.':'<strong>Меню кафе «Муслим»</strong>Чтобы заказать, отсканируйте QR-код на столе или QR доставки.';$('.welcome').after(note);}
     document.querySelectorAll('dialog[open]').forEach(d=>{if(d.id!=='order-status-dialog')d.close();});
+    if(branches.length)paintBranches();else if(live)loadBranches().then(paintBranches);   // переключатель филиалов (только посмотреть)
     if(menu)renderCart();
     $('#open-cart').hidden=!myOrders().length;                            // на телефоне кнопка внизу — «Мои заказы»
     if(announce)toast('Стол освобождён. Чтобы заказать снова, отсканируйте QR-код на столе.');
@@ -317,4 +349,4 @@
   document.addEventListener('error',event=>{if(event.target.tagName==='IMG'){event.target.hidden=true;}},true);
   function menuLoadError(error){$('#products').innerHTML='';$('#categories').innerHTML='';$('#empty').hidden=false;$('#empty').textContent=error.message;const retry=document.createElement('button');retry.className='secondary';retry.textContent='Повторить загрузку';retry.onclick=()=>{retry.disabled=true;start().then(()=>$('#empty').hidden=menu.dishes.length>0).catch(menuLoadError);};$('#empty').append(document.createElement('br'),retry);}
   start().catch(menuLoadError);
-})();
+})();

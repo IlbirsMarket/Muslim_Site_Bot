@@ -1,5 +1,6 @@
 """Создание PDF-отчётов (библиотека reportlab)."""
 
+from xml.sax.saxutils import escape     # название филиала безопасно вставляем в PDF (там разметка)
 from io import BytesIO                                     # "файл в памяти"
 
 from django.conf import settings                           # путь к проекту
@@ -115,7 +116,7 @@ def render_day_pdf(data) -> bytes:
     s = _styles()
     story = [
         Paragraph("Муслим — отчёт за день", s["title"]),
-        Paragraph(f"{data['date']:%d.%m.%Y}", s["text"]),
+        Paragraph(f"{escape(data.get('branch_name') or '')} · {data['date']:%d.%m.%Y}", s["text"]),   # филиал и дата
         Spacer(1, 8 * mm),
         *_summary_blocks(data, s),
         Paragraph("Выручка по часам", s["h"]),
@@ -132,11 +133,11 @@ def render_period_pdf(data) -> bytes:
     p = data["period"]
     story = [
         Paragraph("Муслим — отчёт за 45 дней", s["title"]),
-        Paragraph(f"{p['start_date']:%d.%m.%Y} — {p['end_date']:%d.%m.%Y} · день {p['day_number']} из {p['days_total']}", s["text"]),
+        Paragraph(f"{escape(data.get('branch_name') or '')} · {p['start_date']:%d.%m.%Y} — {p['end_date']:%d.%m.%Y} · день {p['day_number']} из {p['days_total']}", s["text"]),
         Spacer(1, 8 * mm),
         *_summary_blocks(data, s),
         Paragraph("Выручка по дням", s["h"]),
         _table([["Дата", "Заказов", "Выручка"]] + [[f"{d['date']:%d.%m.%Y}", d["count"], _money(d["revenue"])] for d in data["by_day"]],
                [50 * mm, 40 * mm, 70 * mm]),
     ]
-    return _build(story)
+    return _build(story)

@@ -37,3 +37,10 @@ body.view-only .mode-switch,body.view-only .dish-actions,body.view-only .choose,
 body.view-only #open-cart>*{display:none}
 body.view-only #open-cart::after{content:'Мои заказы';font-weight:800}
 body.view-only .cart-bottom{margin-top:0}body.view-only .my-orders{border-top:0;margin-top:0;padding-top:0}body.view-only .my-orders h3{display:none}
+/* ===== Филиалы: гость без QR выбирает филиал в зелёной шапке — меняет весь сайт ===== */
+.branch-pill{display:flex;gap:4px;padding:4px;border-radius:14px;background:#ffffff1f;flex:0 0 auto;margin-left:auto}
+.branch-pill button{border:0;background:transparent;color:#e8efe8;border-radius:10px;padding:8px 16px;min-width:110px;font:inherit;font-size:13px;font-weight:700;min-height:36px;white-space:nowrap;cursor:pointer}
+.branch-pill button:hover{background:#ffffff14}
+.branch-pill button[aria-pressed=true]{background:var(--gold);color:var(--green)}
+.branch-pill button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+@media(max-width:700px){.branch-pill{order:5;width:100%;margin:0}.branch-pill button{flex:1;min-width:0}}

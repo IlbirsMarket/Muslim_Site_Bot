@@ -11,6 +11,7 @@ from rest_framework.response import Response                   # ответ в J
 from django.db.models import ProtectedError                    # ошибка "нельзя удалить, есть связанные записи"
 from rest_framework.exceptions import ValidationError          # ответ 400 с текстом
 
+from core.branches import BranchScopedMixin, guest_branch      # текущий филиал запроса
 from core.permissions import CanManageStopList, IsCafeAdmin    # наши права
 from .models import Category, Dish, DishSize, Extra
 from .serializers import (
@@ -27,7 +28,10 @@ from .serializers import (
 # ===================== ДЛЯ ГОСТЕЙ =====================
 
 class PublicMenuView(generics.ListAPIView):
-    """GET /api/menu/ — всё меню: категории с блюдами, размерами и добавками."""
+    """
+    GET /api/menu/ — всё меню филиала: категории с блюдами, размерами и добавками.
+    Филиал: ?token=<QR> (стол или доставка), ?branch=<id> (переключатель на главной), иначе первый.
+    """
 
     serializer_class = MenuCategorySerializer  # как превращать в JSON
     permission_classes = [AllowAny]            # меню видят все, вход не нужен
@@ -36,16 +40,16 @@ class PublicMenuView(generics.ListAPIView):
     def get_queryset(self):
         # Блюда, которые показываем в меню, сразу с размерами и добавками
         dishes = Dish.objects.filter(is_active=True).prefetch_related("sizes", "extras")
-        # Активные категории, к каждой прикрепляем её блюда в поле active_dishes
-        return Category.objects.filter(is_active=True).prefetch_related(
+        # Активные категории филиала, к каждой прикрепляем её блюда в поле active_dishes
+        return Category.objects.filter(is_active=True, branch=guest_branch(self.request)).prefetch_related(
             Prefetch("dishes", queryset=dishes, to_attr="active_dishes")
         )
 
 
 # ===================== ДЛЯ АДМИН-ПАНЕЛИ =====================
 
-class CategoryAdminViewSet(viewsets.ModelViewSet):
-    """/api/admin/categories/ — список, создание, изменение, удаление категорий."""
+class CategoryAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
+    """/api/admin/categories/ — категории текущего филиала: список, создание, изменение, удаление."""
     # У каждой категории — число блюд. order_by обязателен: при подсчёте (Count) Django не применяет порядок из модели
     queryset = Category.objects.annotate(dishes_count=Count("dishes")).order_by("position", "id")
     serializer_class = CategoryAdminSerializer
@@ -59,7 +63,7 @@ class CategoryAdminViewSet(viewsets.ModelViewSet):
         body = CategoryOrderSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         ids = body.validated_data["ids"]
-        known = set(Category.objects.values_list("id", flat=True))
+        known = set(self.get_queryset().values_list("id", flat=True))   # категории этого филиала
         if set(ids) != known:                                            # прислали не все категории или чужие id
             raise ValidationError({"ids": "Нужно прислать все категории в новом порядке."})
         with transaction.atomic():                                       # всё или ничего
@@ -75,24 +79,25 @@ class CategoryAdminViewSet(viewsets.ModelViewSet):
             raise ValidationError("Сначала удалите или перенесите блюда из этой категории. Или просто скройте её.")
 
 
-class ExtraAdminViewSet(viewsets.ModelViewSet):
-    """/api/admin/extras/ — добавки."""
+class ExtraAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
+    """/api/admin/extras/ — добавки текущего филиала."""
     queryset = Extra.objects.all()
     serializer_class = ExtraAdminSerializer
     permission_classes = [IsCafeAdmin]
 
 
-class DishSizeAdminViewSet(viewsets.ModelViewSet):
-    """/api/admin/sizes/ — размеры блюд. Фильтр: ?dish=5."""
+class DishSizeAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
+    """/api/admin/sizes/ — размеры блюд текущего филиала. Фильтр: ?dish=5."""
+    branch_lookup = "dish__category__branch"                    # филиал — через блюдо и его категорию
     queryset = DishSize.objects.all()
     serializer_class = DishSizeAdminSerializer
     permission_classes = [IsCafeAdmin]
     filterset_fields = ["dish"]  # размеры конкретного блюда
 
 
-class DishAdminViewSet(viewsets.ModelViewSet):
+class DishAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
     """
-    /api/admin/dishes/ — блюда.
+    /api/admin/dishes/ — блюда текущего филиала.
     Фильтры: ?category=1&is_available=false. Поиск: ?search=пицца.
     """
     queryset = Dish.objects.select_related("category").prefetch_related("sizes", "extras")  # сразу с категорией, размерами и добавками
@@ -100,6 +105,7 @@ class DishAdminViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]  # фильтры и поиск
     filterset_fields = ["category", "is_available", "is_active"]   # по чему фильтровать
     search_fields = ["name"]                                       # где искать
+    branch_lookup = "category__branch"                             # филиал — через категорию
 
     def get_permissions(self):
         """Смотреть блюда и включать стоп-лист может кухня, остальное — только админ и выше."""
@@ -123,7 +129,7 @@ class DishAdminViewSet(viewsets.ModelViewSet):
         body = DishOrderSerializer(data=request.data)                      # проверяем, что прислали
         body.is_valid(raise_exception=True)
         category_id, ids = body.validated_data["category"], body.validated_data["ids"]
-        known = set(Dish.objects.filter(category_id=category_id).values_list("id", flat=True))   # все блюда этой категории
+        known = set(self.get_queryset().filter(category_id=category_id).values_list("id", flat=True))   # блюда этой категории (этого филиала)
         if len(ids) != len(set(ids)) or set(ids) != known:                 # повторы, не все блюда или блюда из другой категории
             raise ValidationError({"ids": "Нужно прислать все блюда этой категории в новом порядке."})
         with transaction.atomic():                                         # всё или ничего

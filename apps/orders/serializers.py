@@ -56,19 +56,20 @@ class OrderCreateSerializer(serializers.Serializer):
     def validate(self, attrs):
         """Все проверки заказа перед созданием."""
 
-        # 1. Кафе принимает заказы?
-        cafe = CafeSettings.load()
-        if not cafe.can_accept_orders():
-            raise serializers.ValidationError("Кафе сейчас не принимает заказы.")
-
-        # 2. Откуда заказ: QR стола или QR доставки. Без токена (просто сайт) заказать нельзя — там только меню
+        # 1. Откуда заказ: QR стола или QR доставки. Без токена (просто сайт) заказать нельзя — там только меню.
+        #    QR определяет и филиал: меню, цены и настройки — этого филиала
         token = (attrs.get("table_token") or "").strip()
         if not token:
             raise serializers.ValidationError({"table_token": "Заказать можно только по QR-коду: на столе или QR доставки."})
-        table = Table.objects.filter(token=token, is_active=True).first()
+        table = Table.objects.select_related("branch").filter(token=token, is_active=True).first()
         if not table:
             raise serializers.ValidationError({"table_token": "QR-код недействителен."})
         attrs["table"] = table
+
+        # 2. Филиал принимает заказы?
+        cafe = CafeSettings.load(table.branch)
+        if not cafe.can_accept_orders():
+            raise serializers.ValidationError("Кафе сейчас не принимает заказы.")
 
         # 3. Тип заказа: со стола — «в кафе» или «с собой»; с главной страницы — «доставка» или «самовывоз»
         order_type = attrs.get("order_type")
@@ -96,7 +97,7 @@ class OrderCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(errors)
 
         # 5. Позиции: блюда, размеры, добавки
-        attrs["resolved_items"] = self._resolve_items(attrs["items"])
+        attrs["resolved_items"] = self._resolve_items(attrs["items"], table.branch_id)
 
         # 6. Защита от спама: не больше 3 заказов ждут подтверждения, не больше 10 доставок в час с IP
         check_order_limits(
@@ -105,15 +106,17 @@ class OrderCreateSerializer(serializers.Serializer):
         )
         return attrs
 
-    def _resolve_items(self, items: list) -> list:
-        """Находит блюда, размеры и добавки в базе и проверяет, что их можно заказать."""
+    def _resolve_items(self, items: list, branch_id: int) -> list:
+        """Находит блюда, размеры и добавки в меню филиала и проверяет, что их можно заказать."""
         if not items:
             raise serializers.ValidationError({"items": "Корзина пуста."})
 
         dish_ids = {item["dish_id"] for item in items}                     # все id блюд из корзины
         dishes = {                                                          # загружаем блюда одним запросом
             dish.id: dish
-            for dish in Dish.objects.filter(id__in=dish_ids, is_active=True).prefetch_related("sizes", "extras")
+            for dish in Dish.objects.filter(
+                id__in=dish_ids, is_active=True, category__branch_id=branch_id,   # только меню этого филиала
+            ).prefetch_related("sizes", "extras")
         }
 
         resolved = []

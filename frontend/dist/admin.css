@@ -270,3 +270,36 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
   .floor-grid .qr-card .qr-actions button{flex-direction:column;gap:3px;min-height:50px;padding:6px 2px;font-size:10px;line-height:1.2;white-space:normal}
   .floor-grid .qr-card .qr-actions .ui-icon{width:17px;height:17px}
 }
+
+/* ===== Филиалы: переключатель «Филиал 1 / Филиал 2» в зелёном меню (шеф и программист) ===== */
+.branch-pill{display:flex;gap:4px;padding:4px;border-radius:14px;background:#ffffff1f}
+.branch-pill button{flex:1;min-width:0;border:0;background:transparent;color:#e8efe8;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:700;min-height:36px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.branch-pill button:hover{background:#ffffff14}
+.branch-pill button[aria-pressed=true]{background:var(--gold);color:var(--green)}
+.branch-pill button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.sidebar>.branch-pill{margin:-10px 0 0}
+.branch-fab{display:none}                                          /* плавающая кнопка — только на узких экранах */
+@media(max-width:1150px){.branch-pill button{padding:7px 6px;font-size:12px}}
+@media(max-width:800px){                                           /* левое меню — только значки: филиал меняется плавающей кнопкой */
+  .sidebar>.branch-pill{display:none}
+  .branch-fab:not([hidden]){display:flex;align-items:center;gap:8px;position:fixed;right:16px;bottom:24px;z-index:30;border:0;border-radius:999px;background:var(--green);color:white;padding:12px 18px;font-size:14px;font-weight:800;box-shadow:0 8px 24px #1f3d2b55}
+  .branch-fab .fab-branch{background:var(--gold);color:var(--green);border-radius:999px;padding:3px 10px;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+@media(max-width:550px){                                           /* телефон: кнопка поменьше и над нижним меню */
+  .branch-fab:not([hidden]){right:12px;bottom:80px;gap:6px;padding:8px 12px;font-size:12px;box-shadow:0 6px 18px #1f3d2b4d}
+  .branch-fab .fab-branch{padding:2px 8px;font-size:11px;max-width:110px}
+}
+
+/* ===== Этажи: вкладки «Доставка | 1 этаж | …» + кнопка «+ Этаж» ===== */
+.floor-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.floor-bar .floor-tabs{margin-bottom:0;max-width:100%;overflow-x:auto}
+.floor-bar .add-floor{min-height:44px;padding:9px 16px;font-size:13px;white-space:nowrap}
+.floor-empty{display:flex;flex-direction:column;align-items:center;gap:14px}
+.danger-text{color:var(--red);border-color:#ecd3ca}
+@media(max-width:550px){
+  .floor-bar{flex-wrap:nowrap;gap:8px}
+  .floor-bar .floor-tabs{display:flex;flex:1;min-width:0;width:auto;grid-template-columns:none;overflow-x:auto;scrollbar-width:none}
+  .floor-bar .floor-tabs::-webkit-scrollbar{display:none}
+  .floor-bar .floor-tabs button{flex:0 0 auto;padding:9px 12px}
+  .floor-bar .add-floor{flex:0 0 auto;padding:9px 12px;min-height:40px}
+}

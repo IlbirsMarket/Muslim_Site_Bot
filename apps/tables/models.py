@@ -1,6 +1,7 @@
 """
 Столы кафе и QR-коды.
-Столы: на двух этажах, номера свои на каждом этаже: «Стол 1 · 1 этаж», «Стол 1 · 2 этаж».
+Этажи у каждого филиала свои: новый филиал начинает с «1 этаж», кнопка «+ Этаж» добавляет следующий.
+Номера столов свои на каждом этаже: «Стол 1 · 1 этаж», «Стол 1 · 2 этаж».
 У каждого стола секретный токен в QR. Доставка — одна, создаётся сама, у неё тоже свой секретный QR.
 Без токена сайт показывает только меню — заказать нельзя.
 """
@@ -12,13 +13,46 @@ from django.conf import settings                # настройки проек�
 from django.db import models                    # поля для таблиц
 from django.db.models import Max                # самый большой номер
 
+from apps.cafe.models import Branch, default_branch_id   # филиал стола (по умолчанию — первый)
+
 AUTO_NAME = re.compile(r"^Стол( \d+)?( · \d этаж)?$")   # «Стол 7 · 2 этаж» — название, которое ставится само
-FLOORS = [(1, "1 этаж"), (2, "2 этаж")]                  # в кафе ровно два этажа
 
 
 def generate_token() -> str:
     """Создаёт случайный токен из 8–9 символов, например 'k8Fq2xLm'."""
     return secrets.token_urlsafe(6)
+
+
+class Floor(models.Model):
+    """Этаж филиала: 1, 2, 3… Добавляется кнопкой «+ Этаж», удаляется — только последний и пустой (кроме 1-го)."""
+
+    branch = models.ForeignKey(                                  # чей этаж
+        Branch, on_delete=models.CASCADE, related_name="floors", verbose_name="Филиал",
+    )
+    number = models.PositiveSmallIntegerField("Номер этажа")     # 1, 2, 3…
+
+    class Meta:
+        ordering = ["branch", "number"]                          # по порядку
+        verbose_name = "Этаж"
+        verbose_name_plural = "Этажи"
+        constraints = [
+            models.UniqueConstraint(fields=["branch", "number"], name="unique_floor_per_branch"),   # этаж не повторяется
+        ]
+
+    def __str__(self):
+        return f"{self.number} этаж · {self.branch}"
+
+    @classmethod
+    def for_branch(cls, branch) -> list:
+        """Этажи филиала по порядку. 1 этаж есть всегда — если его нет, создаём."""
+        cls.objects.get_or_create(branch=branch, number=1)
+        return list(cls.objects.filter(branch=branch))
+
+    @classmethod
+    def add_next(cls, branch) -> "Floor":
+        """«+ Этаж»: следующий номер после самого большого (был 2 → станет 3)."""
+        last = cls.objects.filter(branch=branch).aggregate(top=Max("number"))["top"] or 0
+        return cls.objects.create(branch=branch, number=last + 1)
 
 
 class Table(models.Model):
@@ -29,8 +63,12 @@ class Table(models.Model):
         HALL = "hall", "Стол в зале"       # гость сидит в кафе
         DELIVERY = "delivery", "Доставка"  # гость заказывает домой
 
+    branch = models.ForeignKey(                                       # филиал: у каждого свои столы и своя доставка
+        Branch, on_delete=models.PROTECT, related_name="tables", verbose_name="Филиал",
+        default=default_branch_id,
+    )
     kind = models.CharField("Тип", max_length=20, choices=Kind.choices, default=Kind.HALL)  # зал или доставка
-    floor = models.PositiveSmallIntegerField("Этаж", choices=FLOORS, default=1)   # 1 или 2 этаж (у доставки — 1)
+    floor = models.PositiveSmallIntegerField("Этаж", default=1)   # номер этажа филиала (у доставки — 1)
     number = models.PositiveIntegerField("Номер", null=True, blank=True)  # Стол 1, 2, 3… на своём этаже (ставится сам); у доставки — 1
     name = models.CharField("Название", max_length=50, blank=True)    # "Стол 7" / "Доставка" (заполнится само)
     token = models.CharField("Токен QR", max_length=32, unique=True, default=generate_token, editable=False)  # секрет в QR
@@ -42,30 +80,32 @@ class Table(models.Model):
     freed_at = models.DateTimeField("Освобождён", null=True, blank=True)   # когда последний раз нажали «Освободить стол»
 
     class Meta:
-        ordering = ["kind", "floor", "number"]   # сначала доставка, потом столы: 1 этаж, 2 этаж, по номерам
+        ordering = ["kind", "floor", "number"]   # сначала доставка, потом столы по этажам и номерам
         verbose_name = "Стол"
         verbose_name_plural = "Столы"
         constraints = [
-            # Номер не повторяется на одном этаже (и доставка может быть только одна — у неё всегда этаж 1, номер 1)
-            models.UniqueConstraint(fields=["kind", "floor", "number"], name="unique_table_number_per_floor"),
+            # Номер не повторяется на одном этаже филиала (и доставка в филиале одна — у неё всегда этаж 1, номер 1)
+            models.UniqueConstraint(fields=["branch", "kind", "floor", "number"], name="unique_table_number_per_branch_floor"),
         ]
 
     def __str__(self):
         return self.name or f"Стол {self.number}"   # как отображается в админке
 
     @classmethod
-    def next_number(cls, floor: int = 1) -> int:
-        """Самый маленький свободный номер на этаже: есть 1, 3, 4 → вернёт 2; есть 1–7 → вернёт 8."""
-        used = set(cls.objects.filter(kind=cls.Kind.HALL, floor=floor).values_list("number", flat=True))
+    def next_number(cls, floor: int = 1, branch=None) -> int:
+        """Самый маленький свободный номер на этаже филиала: есть 1, 3, 4 → вернёт 2; есть 1–7 → вернёт 8."""
+        branch = branch or Branch.default()
+        used = set(cls.objects.filter(branch=branch, kind=cls.Kind.HALL, floor=floor).values_list("number", flat=True))
         number = 1
         while number in used:
             number += 1
         return number
 
     @classmethod
-    def delivery_point(cls) -> "Table":
-        """Единственная «Доставка». Если её почему-то нет — создаём."""
-        point, _ = cls.objects.get_or_create(kind=cls.Kind.DELIVERY, number=1, defaults={"name": "Доставка"})
+    def delivery_point(cls, branch=None) -> "Table":
+        """«Доставка» филиала (без филиала — первого). Если её почему-то нет — создаём."""
+        branch = branch or Branch.default()
+        point, _ = cls.objects.get_or_create(branch=branch, kind=cls.Kind.DELIVERY, number=1, defaults={"name": "Доставка"})
         return point
 
     def save(self, *args, **kwargs):
@@ -76,7 +116,7 @@ class Table(models.Model):
             self.name = "Доставка"
         else:
             if not self.number:                                     # номер не указали —
-                self.number = self.next_number(self.floor)          # берём самый маленький свободный на этаже
+                self.number = self.next_number(self.floor, self.branch)   # берём самый маленький свободный на этаже филиала
             if not self.name or AUTO_NAME.match(self.name):         # пустое или автоматическое название —
                 self.name = f"Стол {self.number} · {self.floor} этаж"   # «Стол 8 · 2 этаж»
         super().save(*args, **kwargs)                               # сохраняем как обычно
@@ -89,4 +129,4 @@ class Table(models.Model):
     def regenerate_token(self) -> None:
         """Перевыпуск QR: новый токен, старый QR перестаёт работать."""
         self.token = generate_token()                 # новый случайный токен
-        self.save(update_fields=["token"])            # сохраняем только токен
+        self.save(update_fields=["token"])            # сохраняем только токен

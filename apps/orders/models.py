@@ -12,6 +12,8 @@ import uuid                      # генерация уникального с�
 from django.conf import settings  # чтобы сослаться на модель сотрудника (AUTH_USER_MODEL)
 from django.db import models      # поля для таблиц
 
+from apps.cafe.models import default_branch_id   # первый филиал — по умолчанию
+
 
 class Order(models.Model):
     """Заказ гостя."""
@@ -48,6 +50,10 @@ class Order(models.Model):
     source = models.CharField("Источник", max_length=10, choices=Source.choices, default=Source.SITE)
     kind = models.CharField("Тип", max_length=10, choices=Kind.choices)
     status = models.CharField("Статус", max_length=20, choices=Status.choices, default=Status.NEW, db_index=True)  # db_index — быстрый поиск по статусу
+    branch = models.ForeignKey(                      # филиал (берётся со стола); по нему — списки сотрудников и отчёты
+        "cafe.Branch", on_delete=models.PROTECT, related_name="orders", verbose_name="Филиал",
+        default=default_branch_id,
+    )
     table = models.ForeignKey(                       # стол или точка "Доставка", с которой пришёл заказ
         "tables.Table", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="orders", verbose_name="Стол",
@@ -204,4 +210,4 @@ class TableVisit(models.Model):
         verbose_name_plural = "Визиты за столами"
 
     def __str__(self):
-        return f"{self.table} — {self.started_at:%d.%m %H:%M}"
+        return f"{self.table} — {self.started_at:%d.%m %H:%M}"
