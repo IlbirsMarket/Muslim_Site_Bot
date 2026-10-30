@@ -73,6 +73,7 @@ class Order(models.Model):
     change_from = models.PositiveIntegerField("Сдача с суммы", null=True, blank=True)
     comment = models.TextField("Комментарий к заказу", blank=True)
     cancel_reason = models.CharField("Причина отмены", max_length=255, blank=True)
+    guest_chat_id = models.BigIntegerField("Telegram гостя", null=True, blank=True)   # заказ из гостевого бота: куда слать статусы
 
     # ----- Суммы (считает сервер) -----
     subtotal = models.PositiveIntegerField("Сумма блюд, сом", default=0)
@@ -210,4 +211,4 @@ class TableVisit(models.Model):
         verbose_name_plural = "Визиты за столами"
 
     def __str__(self):
-        return f"{self.table} — {self.started_at:%d.%m %H:%M}"
+        return f"{self.table} — {self.started_at:%d.%m %H:%M}"

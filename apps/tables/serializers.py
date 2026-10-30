@@ -16,20 +16,32 @@ class TablePublicSerializer(serializers.ModelSerializer):
         fields = ["number", "floor", "name", "kind", "freed_at", "branch", "branch_name"]
 
 
+def bot_url(branch_id) -> str:
+    """Ссылка на гостевой бот: открывает меню сразу этого филиала (/start b<id>). Нет имени бота — пусто."""
+    from django.conf import settings                                   # имя бота из .env
+    name = settings.TELEGRAM_GUEST_BOT_USERNAME
+    return f"https://t.me/{name}?start=b{branch_id}" if name else ""
+
+
 class TableAdminSerializer(serializers.ModelSerializer):
     """Стол для админ-панели. Через API создаются только столы: доставка одна и создаётся сама."""
 
     qr_url = serializers.CharField(read_only=True)                            # адрес из QR (для показа под картинкой)
     kind_display = serializers.CharField(source="get_kind_display", read_only=True)  # "Стол в зале" / "Доставка"
     active_orders = serializers.IntegerField(read_only=True, default=0)   # сколько незакрытых заказов у стола
+    bot_url = serializers.SerializerMethodField()                          # у «Доставки»: ссылка на гостевой бот этого филиала
 
     class Meta:
         model = Table
         fields = ["id", "kind", "kind_display", "floor", "number", "name", "token", "qr_url", "is_active",
-                  "active_orders", "occupied_since", "created_at"]
+                  "active_orders", "occupied_since", "created_at", "bot_url"]
         # kind только для чтения: новый — всегда стол; токен — только перевыпуском; «занят» — по заказам
         read_only_fields = ["kind", "token", "occupied_since", "created_at"]
         validators = []          # номер проверяем сами ниже (иначе DRF потребует номер обязательно)
+
+    def get_bot_url(self, obj) -> str:
+        """QR гостевого бота: только у «Доставки» и только если в .env указано имя бота."""
+        return bot_url(obj.branch_id) if obj.kind == Table.Kind.DELIVERY else ""
 
     def validate(self, attrs):
         """Номер можно не указывать — поставится сам. Если указали, он не должен быть занят другим столом на этом этаже."""

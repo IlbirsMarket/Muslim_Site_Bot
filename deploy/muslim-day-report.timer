@@ -1,0 +1,11 @@
+# Каждый день в 23:30 (время сервера) — отчёт за день в тему «Отчёты».
+
+[Unit]
+Description=Muslim cafe: отчёт за день каждый вечер
+
+[Timer]
+OnCalendar=*-*-* 23:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

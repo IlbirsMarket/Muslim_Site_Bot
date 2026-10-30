@@ -35,7 +35,7 @@ async def current_staff(message: Message):
 
 async def show_home(message: Message, user=None, text=None):
     """Главный экран: приветствие и кнопки."""
-    await message.answer(text or texts.welcome_text(user), reply_markup=kb.main_keyboard(user is not None))
+    await message.answer(text or texts.welcome_text(user), reply_markup=kb.main_keyboard(user is not None, user))
 
 
 # ===== /start =====
@@ -98,7 +98,7 @@ async def profile(message: Message):
     if not user:
         await show_home(message, None, "Вы ещё не вошли.")
         return
-    await message.answer(await sync_to_async(texts.profile_text)(user), reply_markup=kb.main_keyboard(True))
+    await message.answer(await sync_to_async(texts.profile_text)(user), reply_markup=kb.main_keyboard(True, user))
 
 
 @router.message(Command("menu"))
@@ -135,4 +135,4 @@ async def ids(message: Message):
         f"ID группы: <code>{message.chat.id}</code>\n"
         f"ID этой темы: <code>{thread or 'это общая тема'}</code>\n\n"
         "Напишите /ids в каждой теме (Админы, Кухня, Зал, Доставка, Отчёты) и впишите номера в .env."
-    )
+    )

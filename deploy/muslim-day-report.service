@@ -1,0 +1,11 @@
+# Разовая отправка отчёта за день в Telegram (запускается таймером muslim-day-report.timer).
+
+[Unit]
+Description=Muslim cafe: отчёт за день в Telegram
+
+[Service]
+Type=oneshot
+User=muslim
+WorkingDirectory=/home/muslim/app
+Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
+ExecStart=/home/muslim/app/venv/bin/python manage.py send_day_report

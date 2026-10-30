@@ -1,0 +1,17 @@
+# Служба Telegram: бот для гостей. Перезапускается сама при ошибке и после перезагрузки сервера.
+
+[Unit]
+Description=Muslim cafe Telegram (бот для гостей)
+After=network.target muslim.service
+
+[Service]
+User=muslim
+Group=www-data
+WorkingDirectory=/home/muslim/app
+Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
+ExecStart=/home/muslim/app/venv/bin/python manage.py runbot --bot guest
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -23,7 +23,7 @@
       ['[data-regenerate-qr]','refresh'],
       ['[data-close],[data-remove-size]','close'],
       ['[data-reload]','refresh'],
-      ['[data-download-qr],[data-download-all-qr],[data-download-checks]','download'],
+      ['[data-download-qr],[data-download-bot-qr],[data-download-all-qr],[data-download-checks]','download'],
       ['[data-print-qr]','print'],
       ['[data-export-report]',live?'download':'print'],
       ['[data-export-csv]','file'],
@@ -257,13 +257,13 @@
     // Вкладки: «Доставка», «1 этаж», «2 этаж», … и кнопка «+ Этаж» (этажи у филиала свои)
     if(tablesFloor!=='delivery'&&!floors.includes(tablesFloor))tablesFloor=floors[0]||1;     // этаж удалили или другой филиал
     const tab=(id,label,count)=>`<button role="tab" data-floor-tab="${id}" aria-selected="${String(tablesFloor)===String(id)}">${label}${count===null?'':` <span>${count}</span>`}</button>`;
-    const tabs=`<div class="floor-bar"><div class="floor-tabs" role="tablist" aria-label="Что показать">${tab('delivery','Доставка',null)}${floors.map(f=>tab(f,`${f} этаж`,onFloor(f).length)).join('')}</div><button type="button" class="secondary add-floor" data-add-floor>+ Этаж</button></div>`;
+    const tabs=`<div class="floor-bar"><div class="floor-tabs" role="tablist" aria-label="Что показать">${tab('delivery','Доставка / ТГ-бот',null)}${floors.map(f=>tab(f,`${f} этаж`,onFloor(f).length)).join('')}</div><button type="button" class="secondary add-floor" data-add-floor>+ Этаж</button></div>`;
     const onDelivery=tablesFloor==='delivery';
     const openFloor=cache.floors.find(f=>f.number===tablesFloor);                         // открытый этаж (для «Удалить этаж»)
     const deleteFloor=openFloor?.can_delete?`<button type="button" class="secondary danger-text" data-delete-floor="${openFloor.id}">Удалить ${openFloor.number} этаж</button>`:'';
     const floorTables=onDelivery?[]:onFloor(tablesFloor);                                   // столы открытого этажа
     const body=onDelivery
-      ?`<div class="qr-grid single">${delivery?deliveryCard(delivery):''}</div>`
+      ?`<div class="qr-grid single">${delivery?deliveryCard(delivery)+botCard(delivery):''}</div>`
       :`<div class="qr-grid floor-grid">${floorTables.map(tableCard).join('')}</div>${floorTables.length?'':`<div class="empty floor-empty"><p>На ${tablesFloor} этаже столов пока нет. Нажмите «Добавить стол» — появится «Стол 1 · ${tablesFloor} этаж».</p>${deleteFloor}</div>`}`;
     return heading('Столы и QR-коды',subtitle,`<button class="secondary" data-download-all-qr>Скачать все QR (PDF)</button>${onDelivery?'':`<button class="primary" data-add-table>Добавить стол на ${tablesFloor} этаж</button>`}`)+tabs+body;
   }
@@ -272,6 +272,8 @@
   function tableStatus(t){return t.occupied_since?`Занят с ${clock(t.occupied_since)}`:t.active_orders?`Новый заказ`:'Свободен';}
   function freeButton(t){return t.occupied_since?`<button class="secondary" data-close-table="${t.id}">Освободить стол</button>`:'';}
   function tableTile(t){return `<article class="table-tile ${t.occupied_since?'busy':''}"><strong>${esc(t.name)}</strong><span class="tag">${tableStatus(t)}</span>${t.active_orders?`<small>Заказов в работе: ${t.active_orders}</small>`:''}${freeButton(t)}</article>`;}
+  // Карточка «Telegram-бот» (голубая рамка): QR ведёт гостя в бот сразу в меню этого филиала. Создаётся сама
+  function botCard(t){const url=t.bot_url||'';return `<article class="qr-card kind-bot"><header class="qr-top"><h2>Telegram-бот</h2><span class="tag bot-tag">${icon('telegram')}${esc(branchName())}</span></header>${url?`<div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><p class="fine qr-note">Гость сканирует — открывается бот с меню этого филиала: фото блюд, корзина, доставка.</p><div class="actions qr-actions"><button class="primary bot-button" data-download-bot-qr="${t.id}">Скачать QR</button></div>`:`<p class="fine qr-note">Бот ещё не подключён: впишите TELEGRAM_GUEST_BOT_USERNAME в .env на сервере и перезапустите сайт — QR появится здесь сам.</p>`}</article>`;}
   // Карточка «Доставка»: свой секретный QR (как у стола). Удалить нельзя, перевыпустить — можно
   function deliveryCard(t){const url=tableUrl(t);return `<article class="qr-card kind-delivery"><header class="qr-top"><h2>Доставка</h2><span class="tag kind-tag">${icon('truck')}Всегда одна</span></header><div class="qr-image">${qrSvg(url)}</div><a class="qr-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a><p class="fine qr-note">QR для доставки и самовывоза. Без QR сайт показывает только меню.${t.active_orders?` В работе: ${t.active_orders}.`:''}</p><div class="actions qr-actions"><button class="primary" data-download-qr="${t.id}">Скачать QR</button><button class="secondary" data-regenerate-qr="${t.id}">Обновить QR</button></div></article>`;}
   // Карточка стола: под QR всегда 4 одинаковые кнопки (2×2). Недоступная — серая, но остаётся на месте
@@ -568,6 +570,7 @@
     if(button.dataset.deleteCategory){const id=button.dataset.deleteCategory,c=cache.categories.find(c=>String(c.id)===id);confirm('Удалить категорию?',`«${c?.name||''}» будет удалена. Если в ней есть блюда, сервер не даст удалить — сначала перенесите их.`,async()=>{try{await API.request(`/admin/categories/${id}/`,{method:'DELETE'});toast('Категория удалена');if(editor.open)editor.close();await render(true);}catch(error){toast(error.message);}});return;}
     if(button.dataset.editTable){editTable(button.dataset.editTable);return;}
     if(button.dataset.deleteTable){const id=button.dataset.deleteTable;if(!live&&state.orders.some(o=>String(o.table)===id))throw new Error('Сначала завершите или отмените заказы этого стола.');confirm('Удалить стол?',live?'Напечатанный QR этого стола перестанет работать. Номер освободится для нового стола.':'Стол будет удалён из локального списка.',async()=>{if(live){const t=cache.tables.find(t=>String(t.id)===id);await API.request(`/admin/tables/${id}/`,{method:'DELETE'});toast(`${t?.name||'Стол'} удалён`);}else await localChange(s=>{s.tables=s.tables.filter(t=>String(t.number)!==id);},'Стол удалён');editor.close();await render();});return;}
+    if(button.dataset.downloadBotQr){download('Муслим-QR-telegram-бот.png',await API.request(`/admin/tables/${button.dataset.downloadBotQr}/bot-qr/`,{binary:true}));return;}   // QR гостевого бота
     if(button.dataset.downloadQr){const id=button.dataset.downloadQr,t=cache.tables.find(t=>String(live?t.id:t.number)===id);if(live)download(`Муслим-QR-${t.number||'доставка'}.png`,await API.request(`/admin/tables/${id}/qr/`,{binary:true}));else download(`Муслим-стол-${id}.svg`,qrSvg(tableUrl(t)),'image/svg+xml');return;}
     if(button.hasAttribute('data-download-all-qr')){download('Муслим-QR.pdf',await API.request('/admin/tables/qr-pdf/',{binary:true}));return;}
     if(button.hasAttribute('data-print-qr')){$('#print-area').innerHTML='<h1>Муслим — столы и QR</h1>'+$('.qr-grid').outerHTML;$('#print-area').querySelectorAll('.actions').forEach(e=>e.remove());window.print();return;}

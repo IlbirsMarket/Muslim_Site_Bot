@@ -16,6 +16,14 @@ class Branch(models.Model):
     position = models.PositiveIntegerField("Порядок", default=0)           # порядок в переключателе
     is_active = models.BooleanField("Работает", default=True)              # выключенный филиал не видят гости
 
+    # ----- Telegram: группа филиала с темами (ID узнать командой /ids в группе) -----
+    tg_group_id = models.BigIntegerField("Telegram: ID группы", null=True, blank=True)        # «Муслим — смена · филиал»
+    tg_topic_admins = models.BigIntegerField("Тема «Админы»", null=True, blank=True)          # доставки и самовывозы
+    tg_topic_kitchen = models.BigIntegerField("Тема «Кухня»", null=True, blank=True)          # подтверждённые заказы
+    tg_topic_hall = models.BigIntegerField("Тема «Зал»", null=True, blank=True)               # заказы со столов, вызовы
+    tg_topic_delivery = models.BigIntegerField("Тема «Доставка»", null=True, blank=True)      # курьеры
+    tg_topic_reports = models.BigIntegerField("Тема «Отчёты»", null=True, blank=True)         # отчёт за день
+
     class Meta:
         ordering = ["position", "id"]
         verbose_name = "Филиал"
@@ -33,7 +41,8 @@ class Branch(models.Model):
 
 def default_branch_id() -> int:
     """id первого филиала — значение по умолчанию для поля «Филиал» у меню, столов и заказов."""
-    return Branch.default().pk
+    pk = Branch.objects.order_by("position", "id").values_list("pk", flat=True).first()   # только id: работает и во время миграций
+    return pk or Branch.default().pk
 
 
 class CafeSettings(models.Model):
@@ -79,4 +88,4 @@ class CafeSettings(models.Model):
 
     def can_accept_orders(self) -> bool:
         """Можно ли сейчас оформить заказ: приём включён и кафе открыто."""
-        return self.is_accepting_orders and self.is_open_now()
+        return self.is_accepting_orders and self.is_open_now()

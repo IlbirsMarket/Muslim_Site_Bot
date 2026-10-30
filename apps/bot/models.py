@@ -42,6 +42,7 @@ class BotEvent(models.Model):
     payload = models.JSONField("Подробности", default=dict, blank=True)              # мелочи: причина отмены и т.п.
     created_at = models.DateTimeField("Создано", auto_now_add=True)                  # когда сайт записал событие
     processed_at = models.DateTimeField("Отправлено", null=True, blank=True, db_index=True)  # пусто — бот ещё не отправил
+    guest_processed_at = models.DateTimeField("Гостю отправлено", null=True, blank=True, db_index=True)   # гостевой бот: пусто — ещё не смотрел
     attempts = models.PositiveSmallIntegerField("Попыток", default=0)                # сколько раз бот пробовал отправить
     last_error = models.TextField("Последняя ошибка", blank=True)                    # текст ошибки, если не получилось
 
@@ -124,4 +125,4 @@ class LinkCode(models.Model):
         """Код годен: ещё не использован и ему меньше 10 минут."""
         if self.used_at:                                      # уже использовали — второй раз нельзя
             return False
-        return timezone.now() - self.created_at < timedelta(minutes=LINK_CODE_MINUTES)  # не просрочен
+        return timezone.now() - self.created_at < timedelta(minutes=LINK_CODE_MINUTES)  # не просрочен

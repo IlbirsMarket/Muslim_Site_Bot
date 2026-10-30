@@ -83,6 +83,18 @@ class TableAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
         response["Content-Disposition"] = f'attachment; filename="{filename}"'  # браузер скачает файл
         return response
 
+    @action(detail=True, methods=["get"], url_path="bot-qr")
+    def bot_qr(self, request, pk=None):
+        """GET /api/admin/tables/{id}/bot-qr/ — QR гостевого Telegram-бота этого филиала (PNG). Только у «Доставки»."""
+        from .serializers import bot_url
+        table = self.get_object()
+        url = bot_url(table.branch_id) if table.kind == Table.Kind.DELIVERY else ""
+        if not url:
+            raise ValidationError("QR бота есть только у «Доставки», и в .env должно быть TELEGRAM_GUEST_BOT_USERNAME.")
+        response = HttpResponse(build_qr_png(url), content_type="image/png")
+        response["Content-Disposition"] = 'attachment; filename="qr-telegram-bot.png"'
+        return response
+
     @extend_schema(responses={(200, "application/pdf"): OpenApiTypes.BINARY})
     @action(detail=False, methods=["get"], url_path="qr-pdf")
     def qr_pdf(self, request):
