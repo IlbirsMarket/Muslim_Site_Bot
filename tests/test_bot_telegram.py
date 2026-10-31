@@ -121,4 +121,47 @@ class BotMenuAndQrTest(BotTelegramTest):
         with override_settings(TELEGRAM_GUEST_BOT_USERNAME="muslim_cafe_bot"):
             from apps.tables.serializers import TableAdminSerializer
             self.assertEqual(TableAdminSerializer(delivery).data["bot_url"], f"https://t.me/muslim_cafe_bot?start=b{self.b2.id}")
-        self.assertEqual(TableAdminSerializer(delivery).data["bot_url"], "")
+        with override_settings(TELEGRAM_GUEST_BOT_USERNAME=""):            # имя бота не указано (не зависит от вашего .env)
+            self.assertEqual(TableAdminSerializer(delivery).data["bot_url"], "")
+
+
+class BotCleanupTest(BotTelegramTest):
+    """Ненужные сообщения в группе удаляются: заказ ушёл с кухни / доставлен, вызов выполнен."""
+
+    def test_kitchen_and_delivery_messages_deleted(self):
+        order, _ = self.bot_order()
+        for place, mid in ((P.ADMINS, 1), (P.KITCHEN, 2), (P.DELIVERY, 3)):
+            BotMessage.objects.create(order=order, place=place, chat_id=-100, message_id=mid)
+        Order.objects.filter(pk=order.pk).update(status=Order.Status.COMPLETED)
+        event = BotEvent.objects.create(kind="order_changed", order=order)
+        plan = build_plan(event)
+        self.assertEqual(sorted((s["place"], bool(s.get("delete"))) for s in plan),
+                         [(P.ADMINS, False), (P.DELIVERY, True), (P.KITCHEN, True)])
+        for step in plan:
+            save_message(event, step, -100, None, step["old"].message_id)
+        self.assertEqual(list(BotMessage.objects.filter(order=order).values_list("place", flat=True)), [P.ADMINS])
+
+    def test_done_call_deleted(self):
+        table = Table.objects.filter(branch=self.b2, kind=Table.Kind.HALL).first()
+        self.b2.tg_topic_hall = 4
+        self.b2.save()
+        call = TableCall.objects.create(table=table, kind=TableCall.Kind.WAITER)
+        BotMessage.objects.create(call=call, place=P.HALL, chat_id=-100, message_id=9)
+        sa.call_done(222, call.id)
+        plan = build_plan(BotEvent.objects.get(call=call, kind="call_done"))
+        self.assertTrue(plan[0]["delete"])
+
+    def test_cart_helpers(self):
+        item = {"dish_id": self.lagman.id, "size_id": None, "extra_ids": [], "quantity": 2}
+        self.assertEqual(gs.item_total(item), 700)
+        self.assertIn("Лагман", gs.short_title(item))
+        self.assertIn("700", gs.config_caption(item).replace(" ", " ").replace(" ", ""))
+
+    def test_cart_page(self):
+        """Корзина по одному товару: подпись с ценой × количеством, номер позиции и итог; пустая — None."""
+        cart = [{"dish_id": self.lagman.id, "quantity": 2}, {"dish_id": self.lagman.id, "quantity": 1}]
+        page = gs.cart_page(self.b2.id, cart, 3)                       # 3 % 2 = 1 — листание по кругу
+        self.assertEqual((page["index"], page["total"]), (1, 2))
+        self.assertIn("Позиция 2 из 2", page["caption"])
+        self.assertIn("1 050", page["caption"])                        # итог корзины: 3 × 350
+        self.assertIsNone(gs.cart_page(self.b2.id, [], 0))

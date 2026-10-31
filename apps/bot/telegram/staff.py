@@ -5,13 +5,14 @@
 
 from asgiref.sync import sync_to_async                       # база Django из асинхронного бота
 from aiogram import F, Router                                # фильтры и набор обработчиков
-from aiogram.enums import ChatType                           # личка
-from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.fsm.context import FSMContext                   # где экран лички
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from apps.bot import staff_actions as sa                     # действия и права
 from apps.bot.notify import CANCEL_REASONS                   # причины отмены
 from apps.bot.texts import staff_by_telegram
-from . import keyboards as kb
+from .handlers import screen                                 # экран лички (одно сообщение)
+from .screen import add_trash
 
 staff_router = Router()                                      # кнопки работают и в группе, и в личке
 Btn = InlineKeyboardButton                                   # короткое имя
@@ -67,103 +68,105 @@ async def call_button(cb: CallbackQuery):
     await cb.answer(answer, show_alert=answer != "Готово ✅")
 
 
-# ===== Личка: стоп-лист =====
+# ===== Личка: стоп-лист (всё в одном экране) =====
 
-async def staff(message_or_cb):
+HOME = ("↩️ Кафе", "cafe")                                   # разделы кафе возвращают в «Кафе»
+
+
+async def staff(event):
     """Вошедший сотрудник или None."""
-    return await sync_to_async(staff_by_telegram)(message_or_cb.from_user.id)
+    return await sync_to_async(staff_by_telegram)(event.from_user.id)
 
 
-@staff_router.message(F.chat.type == ChatType.PRIVATE, F.text == kb.STOP)
-async def stop_list(message: Message):
-    user = await staff(message)
-    if not user or not (user.is_cook or user.is_cafe_admin):
-        return await message.answer(sa.NO_RIGHTS)
+async def show_categories(cb: CallbackQuery, state: FSMContext, user):
     cats = await sync_to_async(sa.stop_categories)(user)
-    if not cats:
-        return await message.answer("Категорий пока нет.")
-    await message.answer("🛑 Стоп-лист. Выберите категорию:", reply_markup=inline([[(name, f"sc:{cid}")] for cid, name in cats]))
+    rows = [[(name, f"sc:{cid}")] for cid, name in cats] + [[HOME]]
+    await screen(cb, state, "🛑 <b>Стоп-лист</b>\nВыберите категорию:" if cats else "Категорий пока нет.", rows)
 
 
-async def show_dishes(cb: CallbackQuery, category_id: int):
+async def show_dishes(cb: CallbackQuery, state: FSMContext, user, category_id: int):
     """Блюда категории с переключателями ✅ / ⛔."""
-    user = await staff(cb)
-    dishes = await sync_to_async(sa.stop_dishes)(user, category_id) if user else []
-    rows = [[(("✅ " if ok else "⛔ ") + name, f"st:{did}")] for did, name, ok in dishes] + [[("↩️ Категории", "sc:0")]]
-    await cb.message.edit_text("Нажмите на блюдо: ✅ есть · ⛔ в стоп-листе", reply_markup=inline(rows))
+    dishes = await sync_to_async(sa.stop_dishes)(user, category_id)
+    rows = [[(("✅ " if ok else "⛔ ") + name, f"st:{did}")] for did, name, ok in dishes] + [[("↩️ Категории", "sc:0"), HOME]]
+    await screen(cb, state, "🛑 <b>Стоп-лист</b>\nНажмите на блюдо: ✅ есть · ⛔ нет в наличии", rows)
 
 
 @staff_router.callback_query(F.data.startswith("sc:"))
-async def stop_category(cb: CallbackQuery):
+async def stop_category(cb: CallbackQuery, state: FSMContext):
+    user = await staff(cb)
+    if not user or not (user.is_cook or user.is_cafe_admin):
+        return await cb.answer(sa.NO_RIGHTS, show_alert=True)
     category_id = int(cb.data[3:])
-    if category_id == 0:                                     # назад к категориям
-        user = await staff(cb)
-        cats = await sync_to_async(sa.stop_categories)(user) if user else []
-        await cb.message.edit_text("🛑 Стоп-лист. Выберите категорию:", reply_markup=inline([[(n, f"sc:{c}")] for c, n in cats]))
+    if category_id:
+        await show_dishes(cb, state, user, category_id)
     else:
-        await show_dishes(cb, category_id)
+        await show_categories(cb, state, user)
     await cb.answer()
 
 
 @staff_router.callback_query(F.data.startswith("st:"))
-async def stop_toggle(cb: CallbackQuery):
+async def stop_toggle(cb: CallbackQuery, state: FSMContext):
     answer, category_id = await sync_to_async(sa.toggle_dish)(cb.from_user.id, int(cb.data[3:]))
     if category_id:
-        await show_dishes(cb, category_id)                   # перерисовать список
+        await show_dishes(cb, state, await staff(cb), category_id)   # перерисовать список в том же сообщении
     await cb.answer(answer, show_alert=category_id is None)
 
 
 # ===== Личка: занятые столы =====
 
-async def tables_markup(user):
+async def show_tables(cb: CallbackQuery, state: FSMContext, user):
     tables = await sync_to_async(sa.busy_tables)(user)
-    return inline([[(f"🧹 Освободить: {name}", f"ft:{tid}")] for tid, name in tables]) if tables else None
+    rows = [[(f"🧹 Освободить: {name}", f"ft:{tid}")] for tid, name in tables] + [[("🔄 Обновить", "tb"), HOME]]
+    await screen(cb, state, "🍽 <b>Занятые столы</b>" if tables else "🍽 Все столы свободны.", rows)
 
 
-@staff_router.message(F.chat.type == ChatType.PRIVATE, F.text == kb.TABLES)
-async def tables(message: Message):
-    user = await staff(message)
+@staff_router.callback_query(F.data == "tb")
+async def tables(cb: CallbackQuery, state: FSMContext):
+    user = await staff(cb)
     if not user or not (user.is_waiter or user.is_cafe_admin):
-        return await message.answer(sa.NO_RIGHTS)
-    markup = await tables_markup(user)
-    await message.answer("🍽 Занятые столы:" if markup else "Все столы свободны.", reply_markup=markup)
+        return await cb.answer(sa.NO_RIGHTS, show_alert=True)
+    await show_tables(cb, state, user)
+    await cb.answer()
 
 
 @staff_router.callback_query(F.data.startswith("ft:"))
-async def free_table(cb: CallbackQuery):
+async def free_table(cb: CallbackQuery, state: FSMContext):
     answer = await sync_to_async(sa.free_table)(cb.from_user.id, int(cb.data[3:]))
     user = await staff(cb)
     if user:
-        markup = await tables_markup(user)
-        await cb.message.edit_text("🍽 Занятые столы:" if markup else "Все столы свободны.", reply_markup=markup)
+        await show_tables(cb, state, user)
     await cb.answer(answer)
 
 
-# ===== Личка: отчёт за день =====
+# ===== Личка: отчёт за день (PDF удаляется, когда уходите с экрана) =====
 
-async def send_report(message: Message, user, key: str = ""):
+async def send_report(cb: CallbackQuery, state: FSMContext, user, key: str = ""):
     text, pdf, name = await sync_to_async(sa.day_report)(user, key)
-    await message.answer(text)
-    await message.answer_document(BufferedInputFile(pdf, filename=name))
+    back = [("↩️ Филиалы", "rpm")] if user.sees_all_branches() else []
+    await screen(cb, state, text + "\n\nPDF — ниже 👇", [back + [HOME]])
+    doc = await cb.message.bot.send_document(cb.message.chat.id, BufferedInputFile(pdf, filename=name))
+    await add_trash(state, doc.message_id)                   # PDF уберётся при следующей смене экрана
 
 
-@staff_router.message(F.chat.type == ChatType.PRIVATE, F.text == kb.REPORT)
-async def report(message: Message):
-    user = await staff(message)
+@staff_router.callback_query(F.data == "rpm")
+async def report(cb: CallbackQuery, state: FSMContext):
+    user = await staff(cb)
     if not sa.can_see_report(user):
-        return await message.answer(sa.NO_RIGHTS)
+        return await cb.answer(sa.NO_RIGHTS, show_alert=True)
     if user.sees_all_branches():                             # шеф выбирает филиал
         from apps.cafe.models import Branch
         branches = await sync_to_async(lambda: list(Branch.objects.filter(is_active=True).values_list("id", "name")))()
-        rows = [[(name, f"rp:{bid}")] for bid, name in branches] + [[("Оба филиала", "rp:all")]]
-        return await message.answer("Отчёт за сегодня — какой филиал?", reply_markup=inline(rows))
-    await send_report(message, user)
+        rows = [[(name, f"rp:{bid}")] for bid, name in branches] + [[("Оба филиала", "rp:all")], [HOME]]
+        await screen(cb, state, "📊 Отчёт за сегодня — какой филиал?", rows)
+        return await cb.answer()
+    await cb.answer("Готовлю отчёт…")
+    await send_report(cb, state, user)
 
 
 @staff_router.callback_query(F.data.startswith("rp:"))
-async def report_branch(cb: CallbackQuery):
+async def report_branch(cb: CallbackQuery, state: FSMContext):
     user = await staff(cb)
     if not sa.can_see_report(user):
         return await cb.answer(sa.NO_RIGHTS, show_alert=True)
     await cb.answer("Готовлю отчёт…")
-    await send_report(cb.message, user, cb.data[3:])
+    await send_report(cb, state, user, cb.data[3:])

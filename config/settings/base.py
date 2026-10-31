@@ -225,7 +225,10 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")                       #
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").lstrip("@")
 TELEGRAM_STAFF_BOT_TOKEN = os.getenv("TELEGRAM_STAFF_BOT_TOKEN", "") or TELEGRAM_BOT_TOKEN   # бот сотрудников (старое имя тоже работает)
 TELEGRAM_GUEST_BOT_TOKEN = os.getenv("TELEGRAM_GUEST_BOT_TOKEN", "")                         # бот для гостей: меню и заказ
-TELEGRAM_GUEST_BOT_USERNAME = os.getenv("TELEGRAM_GUEST_BOT_USERNAME", "").lstrip("@")      # имя гостевого бота (для ссылок)     # имя бота без @: для ссылки привязки
+TELEGRAM_GUEST_BOT_USERNAME = os.getenv("TELEGRAM_GUEST_BOT_USERNAME", "").lstrip("@")      # имя гостевого бота (для ссылок)
+TELEGRAM_ARCHIVE_CHAT_ID = int(os.getenv("TELEGRAM_ARCHIVE_CHAT_ID") or 0)      # группа «Архив»: сюда бот шлёт ночные копии базы
+TELEGRAM_ARCHIVE_TOPIC_ID = int(os.getenv("TELEGRAM_ARCHIVE_TOPIC_ID") or 0)    # тема в этой группе (0 — общий чат группы)
+BACKUP_DIR = os.getenv("BACKUP_DIR", "/home/muslim/backups")                   # где backup-db.sh оставляет копии     # имя бота без @: для ссылки привязки
 TELEGRAM_GROUP_ID = int(os.getenv("TELEGRAM_GROUP_ID") or 0)                   # ID группы «Муслим — смена» (отрицательное число)
 TELEGRAM_TOPICS = {                                                            # ID тем группы; 0 — тема не настроена
     place: int(os.getenv(f"TELEGRAM_TOPIC_{place.upper()}") or 0)

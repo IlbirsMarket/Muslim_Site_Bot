@@ -35,7 +35,7 @@ def order_places(order) -> list:
     places = [P.HALL if order.kind in (K.HALL, K.TAKEAWAY) else P.ADMINS]   # зал — официантам, доставка/самовывоз — админам
     if order.status in KITCHEN_STATUSES:                                 # принят и ещё не готов до конца — кухне
         places.append(P.KITCHEN)
-    if order.kind == K.DELIVERY and order.status not in (S.NEW, S.CANCELLED):   # подтверждённая доставка — курьерам
+    if order.kind == K.DELIVERY and order.status not in (S.NEW, S.CANCELLED, S.COMPLETED):   # доставка в работе — курьерам
         places.append(P.DELIVERY)
     return places
 
@@ -109,7 +109,11 @@ def build_plan(event) -> list:
         old = {m.place: m for m in order.bot_messages.exclude(place=P.GUEST)}   # уже отправленные сообщения
         places = list(dict.fromkeys(order_places(order) + list(old)))   # нужные + те, где уже было (там обновим)
         text = order_text(order)
+        now = order_places(order)
         for place in places:
+            if place not in now and place in (P.KITCHEN, P.DELIVERY) and old.get(place):   # ушёл с кухни / доставлен — убираем
+                plan.append({"place": place, "delete": True, "old": old[place]})
+                continue
             chat, thread = topic(order.branch, place)
             if old.get(place) or chat:                                   # есть куда
                 buttons = order_buttons(order, place) if place in order_places(order) else []
@@ -118,8 +122,10 @@ def build_plan(event) -> list:
         call = event.call
         old = call.bot_messages.filter(place=P.HALL).first()
         chat, thread = topic(call.table.branch, P.HALL)
-        if old or chat:
-            buttons = [] if call.is_done else [("✅ Подошёл(ла)", f"c:{call.id}:done")]
+        if call.is_done and old:                                         # подошли — вызов из «Зала» убираем
+            plan.append({"place": P.HALL, "delete": True, "old": old})
+        elif chat and not call.is_done:
+            buttons = [("✅ Подошёл(ла)", f"c:{call.id}:done")]
             plan.append({"place": P.HALL, "chat_id": chat, "thread_id": thread, "text": call_text(call), "buttons": buttons, "old": old})
     elif event.table_id:                                                 # стол освободили
         chat, thread = topic(event.table.branch, P.HALL)
@@ -135,7 +141,10 @@ def pending_events(limit=20) -> list:
 
 
 def save_message(event, step, chat_id, thread_id, message_id) -> None:
-    """Запомнить отправленное сообщение — потом его будем редактировать."""
+    """Запомнить отправленное сообщение — потом его будем редактировать. Удалённое — забыть."""
+    if step.get("delete"):
+        step["old"].delete()
+        return
     if step.get("once"):                                                 # «стол свободен» не редактируется
         return
     BotMessage.objects.update_or_create(
@@ -169,6 +178,12 @@ async def deliver(bot, step) -> int:
     """Отправить или отредактировать одно сообщение. Возвращает message_id."""
     from aiogram.exceptions import TelegramBadRequest
     old = step["old"]
+    if step.get("delete"):                                               # больше не нужно в этой теме — удаляем
+        try:
+            await bot.delete_message(old.chat_id, old.message_id)
+        except TelegramBadRequest:
+            pass                                                         # уже удалено вручную или старше 48 часов
+        return old.message_id
     if old:                                                              # уже есть — редактируем
         try:
             await bot.edit_message_text(step["text"], chat_id=old.chat_id, message_id=old.message_id, reply_markup=markup(step["buttons"]))
@@ -188,7 +203,7 @@ async def run_notifier(bot, pause: float = 2.0) -> None:
                 for step in await sync_to_async(build_plan)(event):
                     message_id = await deliver(bot, step)
                     chat = step["old"].chat_id if step["old"] else step["chat_id"]
-                    thread = step["old"].thread_id if step["old"] else step["thread_id"]
+                    thread = step["old"].thread_id if step["old"] else step.get("thread_id")
                     await sync_to_async(save_message)(event, step, chat, thread, message_id)
                 await sync_to_async(mark_done)(event)
             except Exception as error:                                  # сеть, Telegram, база — пробуем позже
