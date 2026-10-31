@@ -153,15 +153,17 @@ def cart_text(branch_id, cart: list) -> tuple:
 def create_bot_order(branch_id, chat_id, data: dict) -> tuple:
     """Создать заказ. Возвращает (заказ, None) или (None, текст ошибки)."""
     branch = Branch.objects.get(pk=branch_id)
+    at_table = data["kind"] in (Order.Kind.HALL, Order.Kind.TAKEAWAY)   # заказ со стола (бот открыт кнопкой «Заказать в Telegram»)
     payload = {
-        "table_token": Table.delivery_point(branch).token,      # QR доставки этого филиала
+        "table_token": data["table"] if at_table else Table.delivery_point(branch).token,   # стол или QR доставки филиала
         "device_key": f"tg:{chat_id}",                          # «телефон» гостя — его Telegram
-        "order_type": data["kind"], "customer_name": data.get("name", ""), "phone": data.get("phone", ""),
+        "order_type": Order.Kind.TAKEAWAY if data["kind"] == Order.Kind.TAKEAWAY else (None if at_table else data["kind"]), "customer_name": data.get("name", ""), "phone": data.get("phone", ""),
         "address": data.get("address", ""), "payment_method": data.get("payment", Order.Payment.CASH),
         "comment": data.get("comment", ""),
         "items": [{"dish_id": i["dish_id"], "size_id": i.get("size_id"), "extra_ids": i.get("extra_ids") or [], "quantity": i["quantity"]}
                   for i in data["cart"]],
     }
+    payload = {k: v for k, v in payload.items() if v is not None}   # «в зале» — без order_type
     serializer = OrderCreateSerializer(data=payload, context={"request": telegram_request(chat_id)})
     try:
         serializer.is_valid(raise_exception=True)
@@ -301,3 +303,16 @@ def cart_page(branch_id, cart: list, index: int):
               f"🛒 В корзине: <b>{money(total)}</b> (доставка +{money(fee)})"]
     photo = dish.photo.path if dish.photo and os.path.exists(dish.photo.path) else None
     return {"index": index, "total": len(cart), "caption": "\n".join(lines), "photo": photo, "name": dish.name}
+
+
+def branch_by_start(code: str):
+    """id филиала по секретному коду из QR бота (или None — QR обновили, старый не работает)."""
+    return Branch.objects.filter(tg_start_token=code, is_active=True).values_list("id", flat=True).first() if code else None
+
+
+def table_by_start(token: str):
+    """Стол из кнопки «Заказать в Telegram»: (id филиала, токен, «Стол 5 · 1 этаж») или None."""
+    table = Table.objects.filter(token=token, kind=Table.Kind.HALL, is_active=True).first() if token else None
+    if table is None:
+        return None
+    return table.branch_id, table.token, f"{table} · {table.floor} этаж"

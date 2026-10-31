@@ -9,18 +9,35 @@ class TablePublicSerializer(serializers.ModelSerializer):
     """Что видит гость, отсканировав QR: какой это стол, зал это или доставка и какой филиал."""
 
     branch_name = serializers.CharField(source="branch.name", read_only=True)   # «Филиал 1»
+    telegram_url = serializers.SerializerMethodField()                          # «Заказать в Telegram» (только у столов)
 
     class Meta:
         model = Table
         # токен и id гостю не нужны; freed_at — стол освободили; branch — меню и настройки этого филиала
-        fields = ["number", "floor", "name", "kind", "freed_at", "branch", "branch_name"]
+        fields = ["number", "floor", "name", "kind", "freed_at", "branch", "branch_name", "telegram_url"]
+
+    def get_telegram_url(self, obj) -> str:
+        return table_bot_url(obj)
 
 
 def bot_url(branch_id) -> str:
-    """Ссылка на гостевой бот: открывает меню сразу этого филиала (/start b<id>). Нет имени бота — пусто."""
+    """Ссылка на гостевой бот филиала: t.me/бот?start=b<секретный код> (обновляется кнопкой «Обновить QR»)."""
     from django.conf import settings                                   # имя бота из .env
+    from apps.cafe.models import Branch
     name = settings.TELEGRAM_GUEST_BOT_USERNAME
-    return f"https://t.me/{name}?start=b{branch_id}" if name else ""
+    branch = Branch.objects.filter(pk=branch_id).first()
+    if not name or branch is None:
+        return ""
+    if not branch.tg_start_token:                                      # старый филиал без кода — создаём
+        branch.save()
+    return f"https://t.me/{name}?start=b{branch.tg_start_token}"
+
+
+def table_bot_url(table) -> str:
+    """Ссылка «Заказать в Telegram» со стола: бот откроется сразу с этим столом (start=t<токен стола>)."""
+    from django.conf import settings
+    name = settings.TELEGRAM_GUEST_BOT_USERNAME
+    return f"https://t.me/{name}?start=t{table.token}" if name and table.kind == Table.Kind.HALL else ""
 
 
 class TableAdminSerializer(serializers.ModelSerializer):

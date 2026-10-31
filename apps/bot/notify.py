@@ -27,7 +27,8 @@ def topic(branch, place):
     """(ID группы, ID темы) филиала для места. Нет группы — (None, None)."""
     if not branch.tg_group_id:                                           # группа не настроена
         return None, None
-    return branch.tg_group_id, getattr(branch, f"tg_topic_{place}", None) or None   # без темы — общий чат группы
+    thread = getattr(branch, f"tg_topic_{place}", None)
+    return branch.tg_group_id, thread if thread and thread > 0 else None   # без темы (или ошибка в ID темы) — общий чат группы
 
 
 def order_places(order) -> list:

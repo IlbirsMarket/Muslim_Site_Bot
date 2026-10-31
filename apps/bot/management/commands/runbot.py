@@ -24,7 +24,7 @@ class Command(BaseCommand):
         if not token:                                        # без токена бот не запустится
             name = "TELEGRAM_STAFF_BOT_TOKEN" if kind == "staff" else "TELEGRAM_GUEST_BOT_TOKEN"
             raise CommandError(f"Нет {name} в .env. Возьмите токен у @BotFather и впишите в .env.")
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s", force=True)   # force — поверх настроек Django: запуск и ошибки бота видны в journalctl
         asyncio.run(self.main(kind, token))
 
     async def main(self, kind, token):
@@ -51,6 +51,7 @@ class Command(BaseCommand):
         await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in commands])
         me = await bot.get_me()
         self.stdout.write(self.style.SUCCESS(f"Бот @{me.username} запущен. Остановить — Ctrl+C."))
+        self.stdout.flush()                                  # сразу в журнал (иначе systemd покажет строку только при остановке)
         task = asyncio.create_task(worker)                   # рассылка работает параллельно с ответами
         try:
             await dp.start_polling(bot)                      # бот сам спрашивает Telegram о новых сообщениях

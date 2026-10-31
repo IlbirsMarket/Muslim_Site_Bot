@@ -228,6 +228,7 @@
       applyModes();
       if(tableInfo?.kind==='hall'&&!$('#guest-services')){
         const services=document.createElement('div');services.id='guest-services';services.className='guest-services';services.innerHTML='<button type="button" class="secondary" data-service="waiter">Позвать официанта</button><button type="button" class="secondary" data-service="bill">Попросить счёт</button>';$('.welcome').after(services);
+        if(tableInfo.telegram_url){const tg=document.createElement('a');tg.className='tg-order';tg.href=tableInfo.telegram_url;tg.target='_blank';tg.rel='noopener';tg.textContent='Заказать в Telegram';services.after(tg);}   // бот откроется сразу с этим столом
       }
       renderMyOrders();                                                   // «Мои заказы» с этого телефона
     }

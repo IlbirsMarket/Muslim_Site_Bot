@@ -62,7 +62,9 @@ async def home(event, state: FSMContext, note: str = "", here=True):
     rows = [[("🍽 Меню", "m")], [(f"🛒 Корзина ({count})" if count else "🛒 Корзина", "c"), ("📦 Мои заказы", "o")]]
     if len(branches) > 1:
         rows.append([("🏠 Сменить филиал", "b")])
-    text = (note + "\n\n" if note else "") + f"Ассаляму алейкум! Кафе «Муслим» · <b>{name}</b>\nМеню с фото, доставка и самовывоз."
+    table = data.get("table")
+    where = f"\n🍽 Вы за столом: <b>{table['label']}</b>" if table else "\nМеню с фото, доставка и самовывоз."
+    text = (note + "\n\n" if note else "") + f"Ассаляму алейкум! Кафе «Муслим» · <b>{name}</b>" + where
     await screen(event, state, text, rows, here=here)
 
 
@@ -78,12 +80,24 @@ async def start(message: Message, state: FSMContext):
     tmp = await message.answer("…", reply_markup=ReplyKeyboardRemove())   # убрать старую нижнюю клавиатуру (прошлая версия бота)
     await delete(message.bot, message.chat.id, tmp.message_id)
     arg = (message.text or "").split(maxsplit=1)[1:]
-    if arg and arg[0].startswith("b") and arg[0][1:].isdigit():          # QR филиала: /start b2
-        bid = int(arg[0][1:])
-        if bid in dict(await sync_to_async(gs.branches)()):
+    code = arg[0] if arg else ""
+    await state.update_data(table=None)                                  # режим стола — только по кнопке со стола
+    if code.startswith("t"):                                             # «Заказать в Telegram» со стола: /start t<токен>
+        found = await sync_to_async(gs.table_by_start)(code[1:])
+        if found:
+            bid, token, label = found
+            if keep.get("branch") != bid:
+                await state.update_data(branch=bid, cart=[])
+            await state.update_data(table={"token": token, "label": label})
+            return await home(message, state)
+        return await home(message, state, "Этот стол больше не принимает заказы через бота. Отсканируйте QR на столе ещё раз.")
+    if code.startswith("b"):                                             # QR бота филиала: /start b<код>
+        bid = await sync_to_async(gs.branch_by_start)(code[1:])
+        if bid:
             if keep.get("branch") != bid:
                 await state.update_data(branch=bid, cart=[])                # другой филиал — другое меню
             return await categories(message, state)
+        return await home(message, state, "Этот QR устарел. Выберите филиал ниже.")
     await home(message, state)
 
 
@@ -105,7 +119,7 @@ async def branches(cb: CallbackQuery, state: FSMContext):
 async def pick_branch(cb: CallbackQuery, state: FSMContext):
     bid = int(cb.data[2:])
     if (await state.get_data()).get("branch") != bid:
-        await state.update_data(branch=bid, cart=[])          # другой филиал — корзина с нуля
+        await state.update_data(branch=bid, cart=[], table=None)   # другой филиал — корзина с нуля, стол не тот
     await home(cb, state)
     await cb.answer("Филиал выбран")
 
@@ -291,8 +305,11 @@ async def cart_screen(event, state: FSMContext, index: int = 0, here=True):
     rows = [[("🗑 Удалить", f"cd:{i}"), ("➖", f"ci:{i}:-1"), ("➕", f"ci:{i}:1")]]
     if total > 1:
         rows.append([("◀️", f"cp:{i - 1}"), (f"{i + 1} / {total}", "_"), ("▶️", f"cp:{i + 1}")])
-    rows += [[("🚚 Доставка", "k:delivery"), ("🏃 Самовывоз", "k:pickup")],
-             [("🍽 Меню", "m"), ("↩️ Главная", "h")]]
+    if data.get("table"):                                    # за столом — «в зале» или «с собой»
+        rows.append([("🍽 В зале", "k:hall"), ("🥡 С собой", "k:takeaway")])
+    else:
+        rows.append([("🚚 Доставка", "k:delivery"), ("🏃 Самовывоз", "k:pickup")])
+    rows.append([("🍽 Меню", "m"), ("↩️ Главная", "h")])
     photo, key = photo_of(page)
     await screen(event, state, page["caption"], rows, photo, key, here=here)
 
@@ -375,7 +392,15 @@ async def next_step(event, state: FSMContext, step: str, value: str):
 
 @guest_router.callback_query(F.data.startswith("k:"))
 async def checkout_start(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(co={"kind": cb.data[2:]})
+    kind = cb.data[2:]
+    table = (await state.get_data()).get("table")
+    if kind in ("hall", "takeaway"):                          # со стола: телефон и адрес не нужны
+        if not table:
+            return await cb.answer("Заказ за столом — по кнопке «Заказать в Telegram» на сайте стола.", show_alert=True)
+        await state.update_data(co={"kind": kind, "table": table["token"], "payment": "cash"})
+        await confirm_screen(cb, state)
+        return await cb.answer()
+    await state.update_data(co={"kind": kind})
     await ask(cb, state, "phone")
     await cb.answer()
 
@@ -417,21 +442,32 @@ async def address(message: Message, state: FSMContext):
 
 @guest_router.callback_query(F.data.startswith("p:"))
 async def payment(cb: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    co = data.get("co", {})
+    co = (await state.get_data()).get("co", {})
     co["payment"] = cb.data[2:]
     await state.update_data(co=co)
+    await confirm_screen(cb, state)
+    await cb.answer()
+
+
+async def confirm_screen(cb: CallbackQuery, state: FSMContext):
+    """«Всё верно?» — состав, сумма и куда."""
+    data = await state.get_data()
+    co = data.get("co", {})
     text, total, fee = await sync_to_async(gs.cart_text)(data["branch"], data.get("cart", []))
-    delivery = co.get("kind") == "delivery"
     lines = [text, ""]
-    if delivery:
+    if co.get("kind") == "delivery":
         lines += [f"Доставка: {money(fee)}", f"Итого: <b>{money(total + fee)}</b>", f"📍 {co.get('address', '')}"]
+    elif co.get("kind") in ("hall", "takeaway"):
+        label = (data.get("table") or {}).get("label", "")
+        lines += [f"{'🍽 В зале' if co['kind'] == 'hall' else '🥡 С собой'} · {label}", f"Итого: <b>{money(total)}</b>",
+                  "Официант подойдёт и подтвердит заказ."]
     else:
         lines += ["🏃 Самовывоз", f"Итого: <b>{money(total)}</b>"]
-    lines += [f"👤 {co.get('name', '')} · {co.get('phone', '')}", "💵 Наличные" if co["payment"] == "cash" else "💳 Картой при получении",
-              "", "Всё верно?"]
+    if co.get("kind") in ("delivery", "pickup"):
+        lines += [f"👤 {co.get('name', '')} · {co.get('phone', '')}",
+                  "💵 Наличные" if co.get("payment") == "cash" else "💳 Картой при получении"]
+    lines += ["", "Всё верно?"]
     await screen(cb, state, "\n".join(lines), [[("✅ Заказать", "y")], [("✏️ Изменить корзину", "c"), ("✖️ Отмена", "h")]])
-    await cb.answer()
 
 
 @guest_router.callback_query(F.data == "y")

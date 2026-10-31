@@ -304,6 +304,6 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
   .floor-bar .add-floor{flex:0 0 auto;padding:9px 12px;min-height:40px}
 }
 
-/* QR Telegram-бота: голубая рамка (цвет Telegram) */
-.qr-card.kind-bot{border:2px solid #2AABEE;box-shadow:0 0 0 4px #2AABEE1f}.kind-bot .bot-tag{background:#e3f4fd;color:#1b7fb8;display:inline-flex;align-items:center;gap:4px}.kind-bot .bot-button{background:#2AABEE}.kind-bot .bot-button:hover{background:#1e96d4}.qr-grid.single{grid-template-columns:repeat(auto-fill,minmax(220px,300px))}
-.qr-card.kind-bot .bot-tag svg,.qr-card.kind-bot .bot-tag .ui-icon{width:13px;height:13px;max-width:13px;margin:0;flex-shrink:0;background:none;padding:0;border:0}.kind-bot .bot-tag{white-space:nowrap}
+/* QR Telegram-бота: как «Доставка», только сверху голубая полоса (цвет Telegram) */
+.qr-card.kind-bot{border-top:4px solid #2AABEE}.kind-bot .kind-tag{background:#e3f4fd;color:#1b7fb8}.qr-grid.single{grid-template-columns:repeat(auto-fill,minmax(220px,300px))}
+

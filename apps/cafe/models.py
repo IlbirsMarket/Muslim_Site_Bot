@@ -9,6 +9,12 @@ from django.db import models         # поля для таблиц
 from django.utils import timezone    # текущее время с учётом часового пояса
 
 
+def new_start_token() -> str:
+    """Случайный код для ссылки на бота (только буквы, цифры, - и _ — так требует Telegram)."""
+    import secrets
+    return secrets.token_urlsafe(9)
+
+
 class Branch(models.Model):
     """Филиал кафе: «Филиал 1», «Филиал 2». Название меняет шеф в настройках."""
 
@@ -23,6 +29,33 @@ class Branch(models.Model):
     tg_topic_hall = models.BigIntegerField("Тема «Зал»", null=True, blank=True)               # заказы со столов, вызовы
     tg_topic_delivery = models.BigIntegerField("Тема «Доставка»", null=True, blank=True)      # курьеры
     tg_topic_reports = models.BigIntegerField("Тема «Отчёты»", null=True, blank=True)         # отчёт за день
+    tg_start_token = models.CharField("Код ссылки на гостевой бот", max_length=32, blank=True, editable=False)   # QR бота: t.me/бот?start=b<код>
+
+    TOPIC_FIELDS = ["tg_topic_admins", "tg_topic_kitchen", "tg_topic_hall", "tg_topic_delivery", "tg_topic_reports"]
+
+    def clean(self):
+        """Проверка в админке: ID темы — небольшое положительное число из /ids, а не ID группы (тот с минусом)."""
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if self.tg_group_id and self.tg_group_id > 0:
+            errors["tg_group_id"] = "ID группы начинается с минуса, например -1001234567890. Узнайте его командой /ids в группе."
+        for field in self.TOPIC_FIELDS:
+            value = getattr(self, field)
+            if value is not None and value <= 0:
+                errors[field] = "Это ID группы, а не темы. Напишите /ids внутри этой темы и впишите «ID этой темы» (например 2 или 15)."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        """У каждого филиала — свой секретный код для QR гостевого бота."""
+        if not self.tg_start_token:
+            self.tg_start_token = new_start_token()
+        super().save(*args, **kwargs)
+
+    def regenerate_start_token(self) -> None:
+        """«Обновить QR» бота: старый QR перестаёт работать."""
+        self.tg_start_token = new_start_token()
+        self.save(update_fields=["tg_start_token"])
 
     class Meta:
         ordering = ["position", "id"]

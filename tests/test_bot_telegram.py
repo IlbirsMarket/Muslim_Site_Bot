@@ -9,6 +9,7 @@ from apps.bot.notify import build_plan, order_buttons, order_places, pending_eve
 from apps.orders.models import Order, TableCall
 from apps.tables.models import Table
 from apps.users.models import User
+from apps.cafe.models import Branch
 from tests.test_branches import BranchBase
 
 P = BotMessage.Place
@@ -120,7 +121,8 @@ class BotMenuAndQrTest(BotTelegramTest):
         delivery = Table.delivery_point(self.b2)
         with override_settings(TELEGRAM_GUEST_BOT_USERNAME="muslim_cafe_bot"):
             from apps.tables.serializers import TableAdminSerializer
-            self.assertEqual(TableAdminSerializer(delivery).data["bot_url"], f"https://t.me/muslim_cafe_bot?start=b{self.b2.id}")
+            self.b2.refresh_from_db()
+            self.assertEqual(TableAdminSerializer(delivery).data["bot_url"], f"https://t.me/muslim_cafe_bot?start=b{self.b2.tg_start_token}")
         with override_settings(TELEGRAM_GUEST_BOT_USERNAME=""):            # имя бота не указано (не зависит от вашего .env)
             self.assertEqual(TableAdminSerializer(delivery).data["bot_url"], "")
 
@@ -165,3 +167,34 @@ class BotCleanupTest(BotTelegramTest):
         self.assertIn("Позиция 2 из 2", page["caption"])
         self.assertIn("1 050", page["caption"])                        # итог корзины: 3 × 350
         self.assertIsNone(gs.cart_page(self.b2.id, [], 0))
+
+
+class BotStartCodesTest(BotTelegramTest):
+    """Секретный код QR бота, «Обновить QR», заказ со стола из бота, проверка ID тем в админке."""
+
+    def test_branch_code_and_regenerate(self):
+        self.b2.refresh_from_db()
+        old = self.b2.tg_start_token
+        self.assertTrue(old)
+        self.assertNotEqual(old, Branch.objects.get(pk=self.b1.pk).tg_start_token)     # у каждого филиала свой
+        self.assertEqual(gs.branch_by_start(old), self.b2.id)
+        self.b2.regenerate_start_token()
+        self.assertIsNone(gs.branch_by_start(old))                                     # старый QR больше не работает
+
+    def test_table_order_from_bot(self):
+        table = Table.objects.filter(branch=self.b2, kind=Table.Kind.HALL).first()
+        bid, token, label = gs.table_by_start(table.token)
+        self.assertEqual((bid, token), (self.b2.id, table.token))
+        order, error = gs.create_bot_order(self.b2.id, 778, {"kind": "hall", "table": token, "cart": [{"dish_id": self.lagman.id, "quantity": 1}]})
+        self.assertIsNone(error)
+        self.assertEqual((order.kind, order.table_id, order.source), ("hall", table.id, "bot"))
+        order2, _ = gs.create_bot_order(self.b2.id, 778, {"kind": "takeaway", "table": token, "cart": [{"dish_id": self.lagman.id, "quantity": 1}]})
+        self.assertEqual(order2.kind, "takeaway")
+
+    def test_topic_ids_validated(self):
+        from django.core.exceptions import ValidationError
+        self.b2.tg_topic_kitchen = -100123                                              # вписали ID группы вместо темы
+        with self.assertRaises(ValidationError):
+            self.b2.full_clean()
+        from apps.bot.notify import topic
+        self.assertEqual(topic(self.b2, "kitchen"), (-100, None))                       # бот шлёт в общий чат, а не падает

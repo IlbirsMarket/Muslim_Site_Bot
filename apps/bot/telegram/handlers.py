@@ -239,8 +239,12 @@ async def unknown(message: Message, state: FSMContext):
 async def ids(message: Message):
     """В группе: ID группы и этой темы — их нужно вписать в .env на сервере."""
     thread = message.message_thread_id if message.is_topic_message else None
-    await message.reply(
-        f"ID группы: <code>{message.chat.id}</code>\n"
-        f"ID этой темы: <code>{thread or 'это общая тема'}</code>\n\n"
-        "Напишите /ids в каждой теме (Админы, Кухня, Зал, Доставка, Отчёты) и впишите номера в админке сайта: Филиалы → ваш филиал → Telegram."
-    )
+    if thread:
+        text = (f"✅ Это тема. Впишите в админке сайта (Филиалы → ваш филиал → Telegram):\n"
+                f"• ID группы: <code>{message.chat.id}</code>\n"
+                f"• ID этой темы: <code>{thread}</code> — в поле этой темы (Админы, Кухня, Зал, Доставка или Отчёты)")
+    else:
+        text = (f"ID группы: <code>{message.chat.id}</code>\n\n"
+                "⚠️ Это общий чат, а не тема. Напишите /ids внутри каждой темы (Админы, Кухня, Зал, Доставка, Отчёты) — "
+                "у каждой свой небольшой номер.")
+    await message.reply(text)

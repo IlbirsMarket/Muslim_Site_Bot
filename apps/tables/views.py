@@ -83,6 +83,15 @@ class TableAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
         response["Content-Disposition"] = f'attachment; filename="{filename}"'  # браузер скачает файл
         return response
 
+    @action(detail=True, methods=["post"], url_path="regenerate-bot-qr")
+    def regenerate_bot_qr(self, request, pk=None):
+        """POST /api/admin/tables/{id}/regenerate-bot-qr/ — новый код ссылки на бота (старый QR бота перестанет работать)."""
+        table = self.get_object()
+        if table.kind != Table.Kind.DELIVERY:
+            raise ValidationError("QR бота есть только у «Доставки».")
+        table.branch.regenerate_start_token()
+        return Response(self.get_serializer(table).data)
+
     @action(detail=True, methods=["get"], url_path="bot-qr")
     def bot_qr(self, request, pk=None):
         """GET /api/admin/tables/{id}/bot-qr/ — QR гостевого Telegram-бота этого филиала (PNG). Только у «Доставки»."""
