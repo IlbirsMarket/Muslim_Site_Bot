@@ -12,7 +12,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError   # ош
 from apps.cafe.models import Branch
 from apps.menu.models import Category, Dish
 from apps.orders.models import Order, TableCall
-from apps.orders.status_service import available_actions, change_status, claim_order, close_visits
+from apps.orders.status_service import available_actions, change_status, claim_order, close_visits, owns_table
 from apps.tables.models import Table
 from .events import Kind, add_event
 from .notify import CANCEL_REASONS
@@ -67,6 +67,8 @@ def call_done(telegram_id: int, call_id: int) -> str:
     call = TableCall.objects.select_related("table").filter(pk=call_id).first()
     if call is None or not (user.is_waiter or user.is_cafe_admin or user.sees_all_branches()) or not _same_branch(user, call.table.branch_id):
         return NO_RIGHTS
+    if not owns_table(user, call.table):                                 # стол ведёт другой официант
+        return "Этот стол ведёт другой официант."
     if not call.is_done:                                                 # повторное нажатие ничего не меняет
         with transaction.atomic():
             call.is_done, call.done_by, call.done_at = True, user, timezone.now()
@@ -122,6 +124,8 @@ def free_table(telegram_id: int, table_id: int) -> str:
     table = Table.objects.filter(pk=table_id, kind=Table.Kind.HALL).first()
     if table is None or not (user.is_waiter or user.is_cafe_admin or user.sees_all_branches()) or not _same_branch(user, table.branch_id):
         return NO_RIGHTS
+    if not owns_table(user, table):
+        return "Этот стол ведёт другой официант."
     close_visits(table, user)
     return f"{table} свободен"
 

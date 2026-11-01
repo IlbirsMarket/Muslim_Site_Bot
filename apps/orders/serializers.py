@@ -201,10 +201,11 @@ class TableCallCreateSerializer(serializers.ModelSerializer):
     """Гость нажал «Позвать официанта» или «Попросить счёт»."""
 
     table_token = serializers.CharField(write_only=True)   # токен стола из QR
+    people = serializers.IntegerField(min_value=1, max_value=30, required=False, allow_null=True)   # «Попросить счёт»: на сколько человек делить
 
     class Meta:
         model = TableCall
-        fields = ["id", "table_token", "kind", "created_at"]
+        fields = ["id", "table_token", "kind", "people", "created_at"]
         read_only_fields = ["id", "created_at"]
 
     def validate_table_token(self, value):
@@ -218,13 +219,18 @@ class TableCallCreateSerializer(serializers.ModelSerializer):
         """Если такой же вызов уже был меньше 2 минут назад и не выполнен — новый не создаём."""
         table = validated_data.pop("table_token")          # здесь уже лежит объект стола
         kind = validated_data["kind"]
+        people = validated_data.get("people") if kind == TableCall.Kind.BILL else None
         recent = TableCall.objects.filter(
             table=table, kind=kind, is_done=False,
             created_at__gte=timezone.now() - timedelta(minutes=2),
         ).first()
         if recent:
+            if people and recent.people != people:          # гость уточнил, на сколько человек делить счёт
+                recent.people = people
+                recent.save(update_fields=["people"])
+                add_event(BotKind.CALL_CREATED, call=recent)    # бот обновит сообщение в «Зал»
             return recent                                   # возвращаем существующий вызов (нового события нет)
         with transaction.atomic():                          # вызов и событие для бота сохраняются вместе
-            call = TableCall.objects.create(table=table, kind=kind)
+            call = TableCall.objects.create(table=table, kind=kind, people=people)
             add_event(BotKind.CALL_CREATED, call=call)      # бот напишет в «Зал»: «Стол 5: Позвать официанта»
         return call

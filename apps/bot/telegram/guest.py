@@ -60,6 +60,8 @@ async def home(event, state: FSMContext, note: str = "", here=True):
     name = dict(branches).get(data["branch"], "")
     count = gs.cart_count(data.get("cart"))
     rows = [[("🍽 Меню", "m")], [(f"🛒 Корзина ({count})" if count else "🛒 Корзина", "c"), ("📦 Мои заказы", "o")]]
+    if data.get("table"):                                    # за столом — вызвать официанта и счёт прямо из бота
+        rows.insert(1, [("🔔 Позвать официанта", "tw"), ("🧾 Попросить счёт", "tb")])
     if len(branches) > 1:
         rows.append([("🏠 Сменить филиал", "b")])
     table = data.get("table")
@@ -489,6 +491,46 @@ async def confirm(cb: CallbackQuery, state: FSMContext):
     await cb.answer(f"Заказ №{order.id} принят!")
 
 
+# ===== За столом: «Позвать официанта» и «Попросить счёт» с делением на людей =====
+
+@guest_router.callback_query(F.data == "tw")
+async def table_waiter(cb: CallbackQuery, state: FSMContext):
+    table = (await state.get_data()).get("table")
+    if not table:
+        return await cb.answer("Это работает только за столом.", show_alert=True)
+    _, error = await sync_to_async(gs.create_call)(cb.message.chat.id, table["token"], "waiter")
+    await cb.answer(error or "Официант скоро подойдёт 🙂", show_alert=bool(error))
+
+
+@guest_router.callback_query(F.data == "tb")
+async def table_bill(cb: CallbackQuery, state: FSMContext):
+    """Сначала — сколько вас (чтобы поделить счёт)."""
+    table = (await state.get_data()).get("table")
+    if not table:
+        return await cb.answer("Это работает только за столом.", show_alert=True)
+    total = await sync_to_async(gs.bill_for)(table["token"])
+    rows = [[(str(n), f"tbp:{n}") for n in range(1, 5)], [(str(n), f"tbp:{n}") for n in range(5, 9)],
+            [("Больше 8 — скажу официанту", "tbp:0")], [("↩️ Назад", "h")]]
+    await screen(cb, state, f"🧾 <b>Счёт · {table['label']}</b>\nСейчас по столу: <b>{money(total)}</b>\n\nСколько вас? Поделим счёт поровну.", rows)
+    await cb.answer()
+
+
+@guest_router.callback_query(F.data.startswith("tbp:"))
+async def table_bill_people(cb: CallbackQuery, state: FSMContext):
+    table = (await state.get_data()).get("table")
+    if not table:
+        return await cb.answer()
+    people = int(cb.data[4:]) or None
+    total = await sync_to_async(gs.bill_for)(table["token"])
+    _, error = await sync_to_async(gs.create_call)(cb.message.chat.id, table["token"], "bill", people)
+    if error:
+        return await cb.answer(error, show_alert=True)
+    split = f"\n👥 {people} чел. · по <b>{money(-(-total // people))}</b>" if people and people > 1 else ""
+    await screen(cb, state, f"🧾 <b>Счёт попросили</b> · {table['label']}\nИтого: <b>{money(total)}</b>{split}\n\nОфициант скоро подойдёт.",
+                 [[("🍽 Меню", "m"), ("↩️ Главная", "h")]])
+    await cb.answer("Готово")
+
+
 # ===== Мои заказы и кнопки под статусом =====
 
 async def orders_screen(event, state: FSMContext, here=True):
@@ -525,6 +567,12 @@ async def other(message: Message, state: FSMContext):
 
 # ===== Статусы заказов гостям =====
 
+async def remove_later(bot, chat_id, message_id, seconds: float = 5.0) -> None:
+    """Убрать сигнал «🔔 …» через несколько секунд — в чате остаётся одно сообщение о заказе."""
+    await asyncio.sleep(seconds)
+    await delete(bot, chat_id, message_id)
+
+
 async def run_guest_notifier(bot, pause: float = 3.0) -> None:
     """Одно сообщение на заказ: экран после «Заказать» (или новое) — дальше только редактируется."""
     while True:
@@ -541,6 +589,13 @@ async def run_guest_notifier(bot, pause: float = 3.0) -> None:
                 except TelegramBadRequest as error:            # «не изменилось» или гость удалил чат — пропускаем
                     log.info("Гостю %s: %s", chat_id, error)
                     message_id = old.message_id if old else 0
+                ping = await sync_to_async(gs.guest_ping)(event) if old else ""
+                if ping:                                       # звук: короткое сообщение, через 5 секунд оно исчезает
+                    try:
+                        sent = await bot.send_message(chat_id, ping)
+                        asyncio.create_task(remove_later(bot, chat_id, sent.message_id))
+                    except TelegramBadRequest:
+                        pass
                 if message_id:
                     await sync_to_async(gs.guest_saved)(event, chat_id, message_id)
                 else:

@@ -91,12 +91,23 @@ def order_text(order) -> str:
 
 
 def call_text(call) -> str:
-    """Текст вызова со стола."""
+    """Текст вызова со стола: кто ведёт стол, а для счёта — сумма и сколько на каждого."""
+    from apps.orders.services import table_bill
     head = f"🔔 <b>{escape(str(call.table))}</b>: {call.get_kind_display()}"
-    if call.is_done:                                                     # уже подошли
+    lines = [head]
+    if call.kind == call.Kind.BILL:
+        bill = table_bill(call.table)
+        lines.append(f"Итого по столу: <b>{money(bill['total'])}</b>")
+        if call.people and call.people > 1:                              # гости делят счёт
+            each = -(-bill["total"] // call.people)                       # округляем вверх, чтобы хватило
+            lines.append(f"👥 {call.people} чел. · по <b>{money(each)}</b>")
+    waiter = call.table.waiter
+    if waiter:                                                           # стол ведёт официант — вызов его
+        lines.append(f"👤 Стол ведёт: {escape(waiter.first_name or waiter.username)}")
+    if call.is_done:
         who = call.done_by.first_name or call.done_by.username if call.done_by else ""
-        return f"✅ {head}\nПодошёл(ла): {escape(who)}"
-    return head
+        return "✅ " + "\n".join(lines) + f"\nПодошёл(ла): {escape(who)}"
+    return "\n".join(lines)
 
 
 def build_plan(event) -> list:
@@ -138,7 +149,7 @@ def build_plan(event) -> list:
 
 def pending_events(limit=20) -> list:
     """Неотправленные события по порядку."""
-    return list(BotEvent.objects.filter(processed_at__isnull=True).select_related("call__table__branch", "table__branch")[:limit])
+    return list(BotEvent.objects.filter(processed_at__isnull=True).select_related("call__table__branch", "call__table__waiter", "table__branch")[:limit])
 
 
 def save_message(event, step, chat_id, thread_id, message_id) -> None:

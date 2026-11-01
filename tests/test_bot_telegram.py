@@ -198,3 +198,34 @@ class BotStartCodesTest(BotTelegramTest):
             self.b2.full_clean()
         from apps.bot.notify import topic
         self.assertEqual(topic(self.b2, "kitchen"), (-100, None))                       # бот шлёт в общий чат, а не падает
+
+
+class TableWaiterAndBillTest(BotTelegramTest):
+    """Стол за официантом после «Беру стол»; счёт стола и деление на людей."""
+
+    def test_table_owned_by_waiter(self):
+        from apps.orders.status_service import claim_order, close_visits, owns_table
+        table = Table.objects.filter(branch=self.b2, kind=Table.Kind.HALL).first()
+        order, _ = gs.create_bot_order(self.b2.id, 900, {"kind": "hall", "table": table.token, "cart": [{"dish_id": self.lagman.id, "quantity": 1}]})
+        claim_order(order, self.waiter2)
+        table.refresh_from_db()
+        self.assertEqual(table.waiter_id, self.waiter2.id)                     # стол за официантом
+        other = User.objects.create_user("waiter2c", password="x", role=User.Role.WAITER, branch=self.b2, telegram_id=444)
+        self.assertFalse(owns_table(other, table))
+        self.assertIn("ведёт", sa.free_table(444, table.id))                   # чужой официант не освободит
+        order2, _ = gs.create_bot_order(self.b2.id, 901, {"kind": "hall", "table": table.token, "cart": [{"dish_id": self.lagman.id, "quantity": 1}]})
+        self.assertEqual(order2.claimed_by_id, self.waiter2.id)                # новый заказ стола — сразу его
+        close_visits(table, self.waiter2)
+        table.refresh_from_db()
+        self.assertIsNone(table.waiter_id)                                     # освободил — стол ничей
+
+    def test_bill_split(self):
+        from apps.bot.notify import call_text
+        table = Table.objects.filter(branch=self.b2, kind=Table.Kind.HALL).first()
+        gs.create_bot_order(self.b2.id, 902, {"kind": "hall", "table": table.token, "cart": [{"dish_id": self.lagman.id, "quantity": 3}]})
+        resp = self.client.get(f"/api/tables/{table.token}/bill/")
+        self.assertEqual(resp.json()["total"], 1050)
+        call = TableCall.objects.create(table=table, kind=TableCall.Kind.BILL, people=4)
+        text = call_text(call).replace(" ", " ")
+        self.assertIn("4 чел.", text)
+        self.assertIn("263", text)                                             # 1050 / 4 = 262.5 → 263

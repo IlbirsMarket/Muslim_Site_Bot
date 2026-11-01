@@ -30,6 +30,17 @@ class PublicTableView(generics.RetrieveAPIView):
         return get_object_or_404(Table, token=self.kwargs["token"], is_active=True)
 
 
+class PublicTableBillView(generics.GenericAPIView):
+    """GET /api/tables/{token}/bill/ — сколько гости за столом заказали (чтобы разделить счёт)."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        from apps.orders.services import table_bill
+        table = get_object_or_404(Table, token=token, is_active=True, kind=Table.Kind.HALL)
+        return Response(table_bill(table))
+
+
 # Какие заказы считаются «ещё в работе»
 ACTIVE_STATUSES = [
     Order.Status.NEW, Order.Status.ACCEPTED, Order.Status.COOKING,

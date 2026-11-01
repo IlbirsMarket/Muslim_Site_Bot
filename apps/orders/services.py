@@ -66,6 +66,7 @@ def create_order(data: dict) -> Order:
         kind=kind,
         status=status,
         table=table,
+        claimed_by_id=table.waiter_id if at_table else None,   # стол ведёт официант — заказ сразу за ним
         device_key=device_key,
         customer_name=data.get("customer_name", ""),
         phone=data.get("phone", ""),
@@ -94,4 +95,17 @@ def create_order(data: dict) -> Order:
     # 7. Событие для Telegram-бота: он отправит заказ в нужные темы группы
     add_event(BotKind.ORDER_CREATED, order=order, trusted=trusted)
 
-    return order
+    return order
+
+
+def table_bill(table) -> dict:
+    """
+    Счёт стола: все незаотменённые заказы с последнего «Освободить стол».
+    {"total": сумма, "orders": сколько заказов} — гость видит сумму и делит её на всех.
+    """
+    from django.db.models import Count, Sum
+    orders = Order.objects.filter(table=table).exclude(status=Order.Status.CANCELLED)
+    if table.freed_at:                                       # прошлые гости за этим столом не считаются
+        orders = orders.filter(created_at__gt=table.freed_at)
+    data = orders.aggregate(total=Sum("total"), count=Count("id"))
+    return {"total": data["total"] or 0, "orders": data["count"]}

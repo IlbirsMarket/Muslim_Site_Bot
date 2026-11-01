@@ -53,7 +53,7 @@ class BranchBase(BaseAPITest):
 class SetupTests(BranchBase):
 
     def test_two_branches_with_own_settings(self):
-        self.assertEqual([b.name for b in (self.b1, self.b2)], ["Филиал 1", "Филиал 2"])
+        self.assertEqual([b.name for b in (self.b1, self.b2)], ["Кара-Суу", "Таширов"])
         self.assertNotEqual(CafeSettings.load(self.b1).pk, CafeSettings.load(self.b2).pk)
 
     def test_staff_get_branch_chef_does_not(self):
@@ -81,9 +81,9 @@ class GuestTests(BranchBase):
 
     def test_branch_list_and_table_info(self):
         names = [b["name"] for b in self.client.get("/api/branches/").data]
-        self.assertEqual(names, ["Филиал 1", "Филиал 2"])
+        self.assertEqual(names, ["Кара-Суу", "Таширов"])
         info = self.client.get(f"/api/tables/{self.table2.token}/").data
-        self.assertEqual((info["branch"], info["branch_name"]), (self.b2.id, "Филиал 2"))
+        self.assertEqual((info["branch"], info["branch_name"]), (self.b2.id, "Таширов"))
 
     def test_order_goes_to_table_branch(self):
         response = self.order2()
@@ -97,11 +97,11 @@ class GuestTests(BranchBase):
 
     def test_closed_branch_does_not_close_other(self):
         CafeSettings.objects.filter(branch=self.b2).update(is_accepting_orders=False)
-        self.assertEqual(self.order2().status_code, 400)               # «Филиал 2» не принимает
-        self.assertEqual(self.hall_order().status_code, 201)           # «Филиал 1» работает
+        self.assertEqual(self.order2().status_code, 400)               # «Таширов» не принимает
+        self.assertEqual(self.hall_order().status_code, 201)           # «Кара-Суу» работает
         cafe = self.client.get(f"/api/cafe/?branch={self.b2.id}").data
         self.assertFalse(cafe["is_open"])
-        self.assertEqual(cafe["branch_name"], "Филиал 2")
+        self.assertEqual(cafe["branch_name"], "Таширов")
 
 
 class StaffIsolationTests(BranchBase):
@@ -174,7 +174,7 @@ class StaffIsolationTests(BranchBase):
         self.assertNotEqual(CafeSettings.load(self.b1).delivery_fee, 99)   # первый филиал не изменился
         self.b2.refresh_from_db()
         self.assertEqual(self.b2.name, "Джал")
-        same = self.client.patch("/api/admin/cafe/", {"branch_name": "филиал 1"}, format="json",
+        same = self.client.patch("/api/admin/cafe/", {"branch_name": "кара-суу"}, format="json",
                                  HTTP_X_BRANCH=str(self.b2.id))
         self.assertEqual(same.status_code, 400)                        # имя чужого филиала нельзя
 
@@ -229,7 +229,7 @@ class StaffManagementTests(BranchBase):
         self.assertEqual(len(self.client.get("/api/auth/me/").data["branches"]), 2)
         self.as_user(self.admin2)
         me = self.client.get("/api/auth/me/").data
-        self.assertEqual((me["branch"], me["branch_name"], len(me["branches"])), (self.b2.id, "Филиал 2", 1))
+        self.assertEqual((me["branch"], me["branch_name"], len(me["branches"])), (self.b2.id, "Таширов", 1))
 
 
 class ReportTests(BranchBase):
@@ -253,7 +253,7 @@ class ReportTests(BranchBase):
         self.complete(self.hall_order().data["number"])
         self.as_user(self.admin2)
         data = self.get("/api/admin/reports/day/", "all").data
-        self.assertEqual((data["branch_name"], data["orders_count"]), ("Филиал 2", 0))   # только свой филиал
+        self.assertEqual((data["branch_name"], data["orders_count"]), ("Таширов", 0))   # только свой филиал
 
     def test_periods_per_branch_aligned(self):
         self.as_user(self.chef)
@@ -278,5 +278,5 @@ class BotTests(BranchBase):
         second = "\n".join(texts.menu_parts(self.b2))
         self.assertIn("Лагман", second)
         self.assertNotIn("Пиццы", second)
-        self.assertIn("Филиал 2", second)
-        self.assertIn("Филиал: Филиал 2", texts.profile_text(self.admin2))
+        self.assertIn("Таширов", second)
+        self.assertIn("Филиал: Таширов", texts.profile_text(self.admin2))

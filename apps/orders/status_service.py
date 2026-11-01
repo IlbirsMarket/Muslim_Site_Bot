@@ -48,7 +48,7 @@ def close_visits(table, user) -> int:
     «Освободить стол»: гости ушли, стол снова свободен,
     все телефоны за ним перестают быть доверенными. Возвращает, сколько телефонов было.
     """
-    Table.objects.filter(pk=table.pk).update(occupied_since=None, freed_at=timezone.now())   # стол свободен; гости за ним выходят из режима стола
+    Table.objects.filter(pk=table.pk).update(occupied_since=None, freed_at=timezone.now(), waiter=None)   # стол больше не за официантом   # стол свободен; гости за ним выходят из режима стола
     closed = TableVisit.objects.filter(table=table, closed_at__isnull=True).update(
         closed_at=timezone.now(), closed_by=user,
     )
@@ -63,6 +63,13 @@ def at_table(order) -> bool:
     return bool(order.table_id) and order.table.kind == Table.Kind.HALL and order.kind in (K.HALL, K.TAKEAWAY)
 
 
+def owns_table(user, table) -> bool:
+    """Официант и стол: стол свободен от официанта или ведёт его он сам. Админ, шеф, программист — всегда."""
+    if user.is_cafe_admin:
+        return True
+    return user.is_waiter and (table is None or table.waiter_id in (None, user.id))
+
+
 def _can_confirm(user, order) -> bool:
     """Подтвердить / отклонить новый заказ."""
     if not at_table(order):                                         # доставка и самовывоз — только админ (звонит гостю)
@@ -71,7 +78,7 @@ def _can_confirm(user, order) -> bool:
         return True
     if not user.is_waiter:                                          # остальные — нет
         return False
-    return order.claimed_by_id in (None, user.id)                   # официант: если стол никто не взял или взял он сам
+    return order.claimed_by_id in (None, user.id) and owns_table(user, order.table)   # официант: стол ничей или его
 
 
 def _can_cook(user, order) -> bool:
@@ -98,7 +105,7 @@ def _can_complete(user, order) -> bool:
     if order.status != S.READY:                                     # остальные — после «Готов»
         return False
     if at_table(order):
-        return user.is_cafe_admin or user.is_waiter                 # со стола подаёт или отдаёт с собой официант
+        return user.is_cafe_admin or (user.is_waiter and order.claimed_by_id in (None, user.id) and owns_table(user, order.table))   # подаёт официант этого стола
     return user.is_cafe_admin                                       # самовывоз выдаёт админ
 
 
@@ -147,8 +154,14 @@ def claim_order(order, user) -> Order:
     if order.claimed_by_id and order.claimed_by_id != user.id:      # уже взял кто-то другой
         name = order.claimed_by.first_name or order.claimed_by.username
         raise ValidationError({"action": f"Этот стол уже взял(а) {name}."})
+    table = order.table
+    if table and table.waiter_id and table.waiter_id != user.id and not user.is_cafe_admin:   # стол ведёт другой официант
+        name = table.waiter.first_name or table.waiter.username
+        raise ValidationError({"action": f"Этот стол ведёт {name}."})
     order.claimed_by = user                                         # записываем, кто взял
     order.save(update_fields=["claimed_by", "updated_at"])
+    if table and user.is_waiter and not table.waiter_id:            # стол теперь за этим официантом — до «Освободить стол»
+        Table.objects.filter(pk=table.pk).update(waiter=user)
     add_event(BotKind.ORDER_CHANGED, order=order, action="claim", user_id=user.id)   # бот покажет «Стол взял(а): …»
     return order
 
@@ -202,4 +215,4 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
     order.save(update_fields=fields)                                # сохраняем
     OrderStatusLog.objects.create(order=order, status=order.status, changed_by=user)  # пишем в историю
     add_event(BotKind.ORDER_CHANGED, order=order, action=action, user_id=user.id)    # бот обновит сообщения о заказе
-    return order
+    return order

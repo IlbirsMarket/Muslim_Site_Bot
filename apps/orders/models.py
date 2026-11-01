@@ -170,6 +170,7 @@ class TableCall(models.Model):
 
     table = models.ForeignKey("tables.Table", on_delete=models.CASCADE, related_name="calls", verbose_name="Стол")
     kind = models.CharField("Что нужно", max_length=10, choices=Kind.choices)
+    people = models.PositiveSmallIntegerField("Сколько человек (разделить счёт)", null=True, blank=True)
     is_done = models.BooleanField("Выполнено", default=False)
     done_by = models.ForeignKey(                     # кто из официантов отреагировал
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Кто выполнил",

@@ -10,7 +10,7 @@ from rest_framework.decorators import action                 # свои адре
 from rest_framework.response import Response                 # ответ в JSON
 from rest_framework.views import APIView                     # простой view
 from datetime import date                                      # проверка формата даты
-from rest_framework.exceptions import ValidationError          # ответ 400
+from rest_framework.exceptions import PermissionDenied, ValidationError   # ответ 403 и 400
 
 from django.db import transaction                            # «всё или ничего»
 from apps.bot.events import Kind as BotKind, add_event       # «почтовый ящик» для Telegram-бота
@@ -19,7 +19,7 @@ from core.branches import staff_branch                       # текущий ф
 from core.permissions import IsStaffMember, IsWaiterOrAdmin
 from .models import Order, TableCall
 from .staff_serializers import OrderStaffSerializer, StatusChangeSerializer, TableCallStaffSerializer
-from .status_service import change_status, claim_order, close_visits
+from .status_service import owns_table, change_status, claim_order, close_visits
 from core.pagination import OptionalPageNumberPagination   # страницы по запросу
 
 KITCHEN_STATUSES = [Order.Status.ACCEPTED, Order.Status.COOKING, Order.Status.READY]   # что видит повар
@@ -112,6 +112,8 @@ class StaffTableCallViewSet(viewsets.ReadOnlyModelViewSet):
     def done(self, request, pk=None):
         """POST /api/staff/table-calls/{id}/done/ — официант подошёл, вызов выполнен."""
         call = self.get_object()
+        if not owns_table(request.user, call.table):                 # стол ведёт другой официант
+            raise PermissionDenied("Этот стол ведёт другой официант.")
         if not call.is_done:                                         # повторное «Выполнено» ничего не меняет
             with transaction.atomic():                               # отметка и событие для бота — вместе
                 call.is_done = True                                  # отмечаем выполненным
@@ -130,5 +132,7 @@ class CloseTableVisitView(APIView):
     @extend_schema(request=None, responses={200: dict})
     def post(self, request, table_id):
         table = get_object_or_404(Table, pk=table_id, branch=staff_branch(request))   # стол своего филиала
+        if not owns_table(request.user, table):                       # освобождает тот, кто ведёт стол (или админ)
+            raise PermissionDenied("Этот стол ведёт другой официант.")
         closed = close_visits(table, request.user)                   # закрываем визиты
-        return Response({"table": table.name, "closed_visits": closed})
+        return Response({"table": table.name, "closed_visits": closed})

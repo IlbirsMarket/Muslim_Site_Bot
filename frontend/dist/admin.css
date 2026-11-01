@@ -307,3 +307,13 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 /* QR Telegram-бота: как «Доставка», только сверху голубая полоса (цвет Telegram) */
 .qr-card.kind-bot{border-top:4px solid #2AABEE}.kind-bot .kind-tag{background:#e3f4fd;color:#1b7fb8}.qr-grid.single{grid-template-columns:repeat(auto-fill,minmax(220px,300px))}
 
+
+/* Заказы: при смене статуса карточка плавно переезжает в другую колонку (View Transitions), новые — мягко появляются */
+::view-transition-group(*){animation-duration:.45s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+.order-card{animation:card-in .35s ease}
+@keyframes card-in{from{opacity:0;transform:translateY(8px)}}
+@media(prefers-reduced-motion:reduce){.order-card{animation:none}::view-transition-group(*){animation-duration:0s}}
+/* Телефон: «Доставка» и «Telegram-бот» — по одной карточке во всю ширину экрана (с небольшим отступом) */
+@media(max-width:550px){.qr-grid.single{grid-template-columns:1fr;gap:12px}}
+/* iPhone не увеличивает экран при нажатии на поле ввода */
+@media(max-width:1200px){input,select,textarea{font-size:16px!important}}

@@ -45,6 +45,60 @@ body.view-only .cart-bottom{margin-top:0}body.view-only .my-orders{border-top:0;
 .branch-pill button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 @media(max-width:700px){.branch-pill{order:5;width:100%;margin:0}.branch-pill button{flex:1;min-width:0}}
 
-/* «Заказать в Telegram» на странице стола */
+/* (старое) «Заказать в Telegram» под приветствием — больше не используется */
 .tg-order{display:flex;align-items:center;justify-content:center;gap:8px;margin:-8px 0 20px;padding:12px;border-radius:12px;background:#2AABEE;color:white;font-weight:800;font-size:13px;text-decoration:none}.tg-order:hover{background:#1e96d4}.tg-order:before{content:'';width:18px;height:18px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M21.5 4.3 18.4 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-7.9c.4-.3-.1-.5-.6-.2L6.3 13 1.7 11.6c-1-.3-1-1 .2-1.5L20.1 3c.8-.3 1.6.2 1.4 1.3Z'/%3E%3C/svg%3E") center/contain no-repeat}
 body.view-only .tg-order{display:none!important}
+
+/* Кнопка-шарик за столом (телефон и планшет): Позвать официанта / Попросить счёт / Заказать в Telegram */
+.guest-fab{display:none}
+@media(max-width:1200px){.guest-fab{display:block}}
+.fab-main{position:fixed;right:18px;bottom:96px;z-index:31;width:58px;height:58px;border-radius:50%;background:var(--gold);color:var(--green);display:grid;place-items:center;box-shadow:0 8px 24px #1f3d2b40;transition:transform .2s}
+.fab-main .fab-x{display:none;font-size:30px;line-height:1}.guest-fab.open .fab-main .fab-open{display:none}.guest-fab.open .fab-main .fab-x{display:block}.guest-fab.open .fab-main{background:#fff}
+.fab-items{position:fixed;right:18px;bottom:166px;z-index:31;display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
+.fab-item{display:flex;align-items:center;gap:10px;background:#fff;color:var(--green);font-size:14px;font-weight:800;padding:12px 16px;border-radius:30px;box-shadow:0 4px 18px #0002;text-decoration:none;opacity:0;transform:translateY(12px) scale(.95);transition:opacity .18s,transform .18s}
+.fab-item.tg{background:#2AABEE;color:#fff}
+.guest-fab.open .fab-items{pointer-events:auto}
+.guest-fab.open .fab-item{opacity:1;transform:none}
+.guest-fab.open .fab-item:nth-child(2){transition-delay:.03s}.guest-fab.open .fab-item:nth-child(3){transition-delay:.06s}
+.fab-dim{position:fixed;inset:0;z-index:30;background:#14181266;opacity:0;pointer-events:none;transition:opacity .18s}
+.guest-fab.open .fab-dim{opacity:1;pointer-events:auto}
+body.view-only .guest-fab{display:none!important}
+.header-actions .tg-head{display:inline-flex;align-items:center;gap:7px;text-decoration:none;border-color:#2AABEE;background:#2AABEE}
+.header-actions .tg-head:hover{background:#1e96d4}
+@media(max-width:1200px){.header-actions .tg-head{display:none}}
+@media(max-width:900px){.fab-main{bottom:88px}}
+
+/* Прогресс заказа: бежевая дорожка, зелёная полоса и шарики-этапы */
+.progress{position:relative;height:46px;margin:14px 10px 4px}
+.progress .track{position:absolute;left:0;right:0;top:7px;height:6px;border-radius:6px;background:#e9dfc8;overflow:hidden}
+.progress .track i{position:absolute;inset:0;background:var(--green);transform-origin:left;transform:scaleX(var(--to));animation:progress-go .9s ease}
+@keyframes progress-go{from{transform:scaleX(var(--from))}to{transform:scaleX(var(--to))}}
+.progress .dot{position:absolute;top:0;width:20px;height:20px;margin-left:-10px;border-radius:50%;background:#e9dfc8;border:3px solid #fff;box-shadow:0 0 0 1px #e2daca;transition:background .4s}
+.progress .dot.on{background:var(--green)}
+.progress .dot.now{box-shadow:0 0 0 4px #1f3d2b2e;animation:progress-pulse 1.6s ease-in-out infinite}
+@keyframes progress-pulse{50%{box-shadow:0 0 0 7px #1f3d2b14}}
+.progress .dot b{position:absolute;top:24px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:700;color:var(--muted);white-space:nowrap}
+.progress .dot.now b{color:var(--green);font-weight:800}
+.progress .dot:first-of-type b{left:0;transform:none}.progress .dot:last-of-type b{left:auto;right:0;transform:none}
+.progress.cancelled{height:auto;margin:10px 0 0;font-size:12px;color:#8a3b2e;font-weight:700}
+.my-order{flex-direction:column;align-items:stretch}.my-order-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+@media(prefers-reduced-motion:reduce){.progress .track i,.progress .dot.now{animation:none}}
+
+/* «Попросить счёт»: сколько человек — небольшое аккуратное окно */
+#bill-dialog{max-width:340px}
+.bill-body{padding:22px 22px 20px;gap:12px}
+.bill-body h2{font-size:19px;padding-right:36px}
+.bill-body .dialog-close{width:34px;height:34px;font-size:22px}
+#bill-dialog .dialog-close{top:12px;right:12px}
+.bill-hint{font-size:12px!important;color:var(--muted);margin-top:-6px}
+.bill-people{display:flex;align-items:center;justify-content:center;gap:16px;padding:4px 0}
+.bill-people strong{font-size:24px;min-width:36px;text-align:center}
+.bill-people .round{width:38px;height:38px;border-radius:50%;background:#f1ece1;font-size:20px;font-weight:700}
+.bill-body .summary-line{margin:4px 0;font-size:13px}
+.bill-body .summary-total{padding-top:10px;font-size:14px}
+.bill-each strong{color:var(--green);font-size:15px}
+.bill-body .primary{min-height:44px;font-size:13px}
+
+/* iPhone не увеличивает экран, когда шрифт в поле ввода не меньше 16px */
+@media(max-width:1200px){input,select,textarea{font-size:16px!important}}
+body:has(.cart.is-open) .guest-fab,body:has(dialog[open]) .guest-fab{display:none!important}   /* корзина или окно открыты — шарик не мешает */

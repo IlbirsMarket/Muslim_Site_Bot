@@ -315,4 +315,29 @@ def table_by_start(token: str):
     table = Table.objects.filter(token=token, kind=Table.Kind.HALL, is_active=True).first() if token else None
     if table is None:
         return None
-    return table.branch_id, table.token, f"{table} · {table.floor} этаж"
+    return table.branch_id, table.token, str(table)                  # название уже с этажом: «Стол 2 · 2 этаж»
+
+
+def guest_ping(event) -> str:
+    """Короткий сигнал гостю «🔔 Заказ №12: Готовится» — только когда сменился статус (не на «Беру стол»)."""
+    if event.kind != BotEvent.Kind.ORDER_CHANGED or (event.payload or {}).get("action") == "claim":
+        return ""
+    order = Order.objects.filter(pk=event.order_id).first()
+    return f"🔔 Заказ №{order.id}: {order.status_label}" if order else ""
+
+
+def create_call(chat_id, table_token, kind, people=None):
+    """«Позвать официанта» / «Попросить счёт» из бота — тем же сериализатором, что и с сайта. (вызов, ошибка)."""
+    from apps.orders.serializers import TableCallCreateSerializer
+    serializer = TableCallCreateSerializer(data={"table_token": table_token, "kind": kind, "people": people})
+    if not serializer.is_valid():
+        from .staff_actions import _error_text
+        return None, _error_text(ValidationError(serializer.errors))
+    return serializer.save(), None
+
+
+def bill_for(table_token) -> int:
+    """Сумма счёта стола (для экрана «Разделить счёт»)."""
+    from apps.orders.services import table_bill
+    table = Table.objects.filter(token=table_token, kind=Table.Kind.HALL, is_active=True).first()
+    return table_bill(table)["total"] if table else 0

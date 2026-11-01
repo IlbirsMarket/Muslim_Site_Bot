@@ -151,7 +151,7 @@
     if (button.dataset.dishDelta) { selection.qty = Math.max(1, Math.min(maxQty, selection.qty + Number(button.dataset.dishDelta))); updateSelection(); return; }
     if (button.dataset.mode) { if(!allowedModes().includes(button.dataset.mode)){toast(tableInfo?.kind==='hall'?'Доставка и самовывоз — на главной странице сайта.':'«В кафе» и «С собой» — по QR-коду на столе.');return;}mode = button.dataset.mode; renderCart(); saveCart(); return; }
     if (button.dataset.service) {
-      if(live){if(!tableToken||tableInfo?.kind!=='hall'){toast('Для вызова официанта нужен QR стола.');return;}button.disabled=true;try{await API.request('/table-calls/',{method:'POST',auth:false,body:{table_token:tableToken,kind:button.dataset.service==='waiter'?'waiter':'bill'}});toast('Запрос передан сотруднику кафе');}catch(error){toast(error.message);}finally{button.disabled=false;}return;}
+      if(live){if(!tableToken||tableInfo?.kind!=='hall'){toast('Для вызова официанта нужен QR стола.');return;}if(button.dataset.service==='bill'){askBill();return;}button.disabled=true;try{await API.request('/table-calls/',{method:'POST',auth:false,body:{table_token:tableToken,kind:button.dataset.service==='waiter'?'waiter':'bill'}});toast('Запрос передан сотруднику кафе');}catch(error){toast(error.message);}finally{button.disabled=false;}return;}
       $('#service-title').textContent = button.dataset.service === 'waiter' ? 'Позвать официанта' : 'Попросить счёт';
       $('#service-dialog').showModal(); return;
     }
@@ -226,9 +226,12 @@
       if(viewOnly){enterViewOnly(false,new URLSearchParams(location.search).get('view')==='menu'?'freed':'plain');}   // только меню
       else if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});freedAt0=tableInfo.freed_at||null;rememberBranch(tableInfo.branch);$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
       applyModes();
-      if(tableInfo?.kind==='hall'&&!$('#guest-services')){
-        const services=document.createElement('div');services.id='guest-services';services.className='guest-services';services.innerHTML='<button type="button" class="secondary" data-service="waiter">Позвать официанта</button><button type="button" class="secondary" data-service="bill">Попросить счёт</button>';$('.welcome').after(services);
-        if(tableInfo.telegram_url){const tg=document.createElement('a');tg.className='tg-order';tg.href=tableInfo.telegram_url;tg.target='_blank';tg.rel='noopener';tg.textContent='Заказать в Telegram';services.after(tg);}   // бот откроется сразу с этим столом
+      if(tableInfo?.kind==='hall'&&!$('#guest-fab')){
+        const tg=tableInfo.telegram_url?`<a class="fab-item tg" href="${escape(tableInfo.telegram_url)}" target="_blank" rel="noopener">${ICON_TG}Заказать в Telegram</a>`:'';
+        const fab=document.createElement('div');fab.id='guest-fab';fab.className='guest-fab';   // кнопка-шарик: на телефоне и планшете
+        fab.innerHTML=`<div class="fab-dim" data-fab-close></div><div class="fab-items"><button type="button" class="fab-item" data-service="waiter">${ICON_BELL}Позвать официанта</button><button type="button" class="fab-item" data-service="bill">${ICON_BILL}Попросить счёт</button>${tg}</div><button type="button" class="fab-main" data-fab aria-label="Официант, счёт, Telegram" aria-expanded="false"><span class="fab-open">${ICON_BELL}</span><span class="fab-x">×</span></button>`;
+        document.body.append(fab);
+        if(tableInfo.telegram_url&&!$('.header-actions .tg-head')){const a=document.createElement('a');a.className='outline tg-head';a.href=tableInfo.telegram_url;a.target='_blank';a.rel='noopener';a.innerHTML=ICON_TG+'Telegram';$('#table-label').before(a);}   // на компьютере — в шапке
       }
       renderMyOrders();                                                   // «Мои заказы» с этого телефона
     }
@@ -267,7 +270,7 @@
     if ($('#dish-dialog').open && selection && !menu.dishes.some(d => d.id === selection.id && d.available)) { $('#dish-dialog').close(); toast('Это блюдо только что закончилось.'); }
     renderMenu();
   }
-  setInterval(()=>{refreshMenu();checkTable();if(!document.hidden)renderMyOrders();}, 30000);   // меню, стол и статусы — раз в 30 секунд
+  setInterval(()=>{refreshMenu();checkTable();if(!document.hidden)renderMyOrders();}, 15000);   // меню, стол и статусы — раз в 30 секунд
   document.addEventListener('visibilitychange', () => { if (!document.hidden){refreshMenu();checkTable();renderMyOrders();} });
   // Какие способы можно выбрать: со стола — «В кафе» и «С собой», с главной страницы — «Доставка» и «Самовывоз»
   function allowedModes(){return !live?['cafe','delivery','pickup']:tableInfo?.kind==='hall'?['cafe','takeaway']:['delivery','pickup'];}
@@ -291,7 +294,7 @@
     const place=order.kind==='hall'||order.kind==='takeaway'?`${order.table_name||''}${order.kind==='takeaway'?' · с собой':''}`:order.kind_display;
     const cancelled=order.status==='cancelled';
     const time=iso=>{try{return new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});}catch{return '';}};
-    dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body"><span class="eyebrow">Ваш заказ · ${escape(place)}</span><h2>Заказ №${order.number}</h2><p class="info order-state${cancelled?' cancelled':''}">${escape(order.status_label)}${cancelled&&order.cancel_reason?`<br><small>Причина: ${escape(order.cancel_reason)}</small>`:''}</p>${order.items.map(i=>`<div class="summary-line"><span>${escape(i.dish_name)} ${escape(i.size_name)} × ${i.quantity}</span><strong>${money(i.line_total)}</strong></div>`).join('')}${order.delivery_fee?`<div class="summary-line"><span>Доставка</span><strong>${money(order.delivery_fee)}</strong></div>`:''}<div class="total"><span>Итого</span><strong>${money(order.total)}</strong></div><div class="order-timeline">${(order.timeline||[]).map(t=>`<p><span>${escape(t.label)}</span><span>${escape(t.at?time(t.at):'')}</span></p>`).join('')}</div><button class="primary" id="refresh-order-status">Обновить статус</button><p id="order-status-error" class="info" hidden></p></div>`;
+    dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body"><span class="eyebrow">Ваш заказ · ${escape(place)}</span><h2>Заказ №${order.number}</h2>${progress(order)}<p class="info order-state${cancelled?' cancelled':''}">${escape(order.status_label)}${cancelled&&order.cancel_reason?`<br><small>Причина: ${escape(order.cancel_reason)}</small>`:''}</p>${order.items.map(i=>`<div class="summary-line"><span>${escape(i.dish_name)} ${escape(i.size_name)} × ${i.quantity}</span><strong>${money(i.line_total)}</strong></div>`).join('')}${order.delivery_fee?`<div class="summary-line"><span>Доставка</span><strong>${money(order.delivery_fee)}</strong></div>`:''}<div class="total"><span>Итого</span><strong>${money(order.total)}</strong></div><div class="order-timeline">${(order.timeline||[]).map(t=>`<p><span>${escape(t.label)}</span><span>${escape(t.at?time(t.at):'')}</span></p>`).join('')}</div><button class="primary" id="refresh-order-status">Обновить статус</button><p id="order-status-error" class="info" hidden></p></div>`;
     $('#refresh-order-status').onclick=async()=>{const button=$('#refresh-order-status');button.disabled=true;try{const next=await API.request(`/orders/${encodeURIComponent(order.public_id)}/`,{auth:false});dialog.close();showOrder(next);renderMyOrders();}catch(error){$('#order-status-error').hidden=false;$('#order-status-error').textContent=error.message;}finally{button.disabled=false;}};
     if(!dialog.open)dialog.showModal();
   }
@@ -308,6 +311,32 @@
   }
   function rememberOrder(order){storage.write(ORDERS_KEY,[{id:order.public_id,at:Date.now()},...myOrders().filter(o=>o.id!==order.public_id)].slice(0,5));}
   let myOrdersBusy=false;
+  const ICON_BELL='<svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>';
+  const ICON_BILL='<svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>';
+  const ICON_TG='<svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor;stroke:none"><path d="M21.5 4.3 18.4 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-7.9c.4-.3-.1-.5-.6-.2L6.3 13 1.7 11.6c-1-.3-1-1 .2-1.5L20.1 3c.8-.3 1.6.2 1.4 1.3Z"/></svg>';
+  function toggleFab(open){const fab=$('#guest-fab');if(!fab)return;fab.classList.toggle('open',open);fab.querySelector('[data-fab]').setAttribute('aria-expanded',String(open));}
+  document.addEventListener('click',event=>{if(event.target.closest('[data-fab]')){toggleFab(!$('#guest-fab').classList.contains('open'));return;}if(event.target.closest('[data-fab-close],.fab-item'))toggleFab(false);});
+  // ===== Прогресс заказа: бежевая дорожка с шариками, зелёная полоса едет по мере смены статуса =====
+  const STEPS={hall:['Отправлен','Принят','Готовится','Готов','Подан'],takeaway:['Отправлен','Принят','Готовится','Готов','Отдан'],delivery:['Отправлен','Принят','Готовится','В пути','Доставлен'],pickup:['Отправлен','Принят','Готовится','Готов','Выдан']};
+  const STEP_OF={new:0,accepted:1,cooking:2,ready:3,on_the_way:3,completed:4};
+  const lastStep={};                                                    // где была полоса в прошлый раз — чтобы она «доехала», а не прыгнула
+  function progress(order){
+    if(order.status==='cancelled')return `<div class="progress cancelled">Заказ отменён${order.cancel_reason?': '+escape(order.cancel_reason):''}</div>`;
+    const steps=STEPS[order.kind]||STEPS.hall;let step=STEP_OF[order.status]??0;
+    if(order.kind==='delivery'&&order.status==='ready')step=2;           // доставка: «Готов» — ещё на кухне, дальше «В пути»
+    const from=lastStep[order.number]??step;lastStep[order.number]=step;
+    return `<div class="progress" data-step="${step}" style="--from:${from/(steps.length-1)};--to:${step/(steps.length-1)}"><div class="track"><i></i></div>${steps.map((label,i)=>`<span class="dot${i<=step?' on':''}${i===step?' now':''}" style="left:${i/(steps.length-1)*100}%"><b>${label}</b></span>`).join('')}</div>`;
+  }
+  // ===== «Попросить счёт»: сколько вас — делим поровну =====
+  async function askBill(){
+    let dialog=$('#bill-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='bill-dialog';document.body.append(dialog);}
+    let people=1,total=0;
+    try{total=(await API.request(`/tables/${encodeURIComponent(tableToken)}/bill/`,{auth:false})).total||0;}catch{/* сумму не узнали — делим без неё */}
+    const draw=()=>{const each=Math.ceil(total/people);dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body bill-body"><span class="eyebrow">Счёт · ${escape($('#table-label').textContent)}</span><h2>Сколько вас?</h2><p class="bill-hint">Поделим счёт поровну</p><div class="bill-people"><button type="button" class="round" data-bill="-1" aria-label="Меньше">−</button><strong>${people}</strong><button type="button" class="round" data-bill="1" aria-label="Больше">+</button></div><div class="summary-line summary-total"><span>Итого по столу</span><strong>${money(total)}</strong></div>${people>1?`<div class="summary-line bill-each"><span>С каждого (${people} чел.)</span><strong>${money(each)}</strong></div>`:''}<button class="primary" id="bill-send">Попросить счёт</button></div>`;
+      dialog.querySelectorAll('[data-bill]').forEach(b=>b.onclick=()=>{people=Math.max(1,Math.min(30,people+Number(b.dataset.bill)));draw();});
+      $('#bill-send').onclick=async()=>{const b=$('#bill-send');b.disabled=true;try{await API.request('/table-calls/',{method:'POST',auth:false,body:{table_token:tableToken,kind:'bill',people}});dialog.close();toast(people>1?`Счёт попросили · по ${money(each)} с каждого`:'Счёт попросили — официант скоро подойдёт');}catch(error){toast(error.message);b.disabled=false;}};};
+    draw();if(!dialog.open)dialog.showModal();
+  }
   async function renderMyOrders(){
     if(!live||myOrdersBusy)return;
     const list=myOrders();let box=$('#my-orders');
@@ -317,7 +346,7 @@
     try{
       const orders=(await Promise.all(list.map(o=>API.request(`/orders/${encodeURIComponent(o.id)}/`,{auth:false}).catch(()=>null)))).filter(Boolean);
       cache.myOrders=orders;
-      box.innerHTML=`<h3>Мои заказы</h3>${orders.map((o,i)=>`<button type="button" class="my-order status-${escape(o.status)}" data-my-order="${i}"><span>№${o.number} · ${money(o.total)}</span><strong>${escape(o.status_label)}</strong></button>`).join('')}`;
+      box.innerHTML=`<h3>Мои заказы</h3>${orders.map((o,i)=>`<button type="button" class="my-order status-${escape(o.status)}" data-my-order="${i}"><span class="my-order-top"><span>№${o.number} · ${money(o.total)}</span><strong>${escape(o.status_label)}</strong></span>${progress(o)}</button>`).join('')}`;
       if(viewOnly)$('#open-cart').hidden=false;                         // на телефоне кнопка внизу открывает «Мои заказы»
     }finally{myOrdersBusy=false;}
   }

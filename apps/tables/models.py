@@ -78,6 +78,10 @@ class Table(models.Model):
     # и очищается кнопкой «Гости ушли — закрыть стол». Пусто — стол свободен
     occupied_since = models.DateTimeField("Занят с", null=True, blank=True)
     freed_at = models.DateTimeField("Освобождён", null=True, blank=True)   # когда последний раз нажали «Освободить стол»
+    waiter = models.ForeignKey(                                         # официант, который нажал «Беру стол»: стол за ним до «Освободить стол»
+        "users.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="served_tables", verbose_name="Официант стола",
+    )
 
     class Meta:
         ordering = ["kind", "floor", "number"]   # сначала доставка, потом столы по этажам и номерам
