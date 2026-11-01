@@ -229,3 +229,32 @@ class TableWaiterAndBillTest(BotTelegramTest):
         text = call_text(call).replace(" ", " ")
         self.assertIn("4 чел.", text)
         self.assertIn("263", text)                                             # 1050 / 4 = 262.5 → 263
+
+
+class SyncFixesTest(BotTelegramTest):
+    """Порядок столов, главная без QR, «Освободить стол» для гостей бота."""
+
+    def test_tables_in_order_after_readd(self):
+        self.as_user(self.chef) if hasattr(self, "as_user") else self.client.force_authenticate(self.admin2)
+        for _ in range(3):
+            self.client.post("/api/admin/tables/", {"floor": 1}, format="json", HTTP_X_BRANCH=str(self.b2.id))
+        numbers = [t["number"] for t in self.client.get("/api/admin/tables/", HTTP_X_BRANCH=str(self.b2.id)).json() if t["kind"] == "hall" and t["floor"] == 1]
+        self.assertEqual(numbers, sorted(numbers))
+
+    def test_branch_list_has_order_token(self):
+        data = self.client.get("/api/branches/").json()
+        self.assertTrue(all(b["order_token"] for b in data))
+        self.assertEqual(Table.objects.get(token=data[1]["order_token"]).kind, Table.Kind.DELIVERY)
+
+    def test_freed_table_ends_bot_table_mode(self):
+        from django.utils import timezone
+        from apps.orders.status_service import close_visits
+        table = Table.objects.filter(branch=self.b2, kind=Table.Kind.HALL).first()
+        since = timezone.now().isoformat()
+        self.assertTrue(gs.table_active(table.token, since))
+        gs.create_bot_order(self.b2.id, 905, {"kind": "hall", "table": table.token, "cart": [{"dish_id": self.lagman.id, "quantity": 1}]})
+        close_visits(table, self.admin2)
+        self.assertFalse(gs.table_active(table.token, since))
+        event = [e for e in gs.guest_pending() if e.kind == "table_freed"][0]
+        token, chats = gs.freed_table_chats(event)
+        self.assertEqual((token, chats), (table.token, [905]))

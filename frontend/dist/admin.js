@@ -250,7 +250,7 @@
     cache.tables=list(tableData);cache.floors=list(floorData);                            // столы и этажи филиала
     const halls=cache.tables.filter(t=>(t.kind||'hall')==='hall'),busy=halls.filter(t=>t.occupied_since).length;
     const subtitle=`${halls.length} ${plural(halls.length,'стол','стола','столов')} · занято ${busy}`;
-    const onFloor=f=>halls.filter(t=>(t.floor||1)===f);                                    // столы одного этажа
+    const onFloor=f=>halls.filter(t=>(t.floor||1)===f).sort((a,b)=>(a.number||0)-(b.number||0));   // по номерам: «Стол 2» всегда между 1 и 3                                    // столы одного этажа
     const floors=waiter?[...new Set(halls.map(t=>t.floor||1))].sort((a,b)=>a-b):cache.floors.map(f=>f.number);   // официанту — этажи, где есть столы
     if(waiter)return heading('Столы',subtitle)+(floors.length?floors:[1]).map(f=>`<section class="floor-block"><h2 class="floor-title">${f} этаж <span class="fine">${onFloor(f).filter(t=>t.occupied_since).length} из ${onFloor(f).length} занято</span></h2><div class="table-tiles">${onFloor(f).map(tableTile).join('')||'<div class="empty">На этом этаже столов нет</div>'}</div></section>`).join('');
     const delivery=cache.tables.find(t=>t.kind==='delivery');
@@ -371,7 +371,7 @@
   // Официант (и админ): новый заказ, «Позвать официанта», «Попросить счёт», заказ готов.
   // Повар: заказ подтверждён официантом — пора готовить.
   let watchTimer=null,seen=null;
-  const WATCH_EVERY=10000;                                      // 10 секунд
+  const WATCH_EVERY=5000;                                       // 5 секунд: изменения из Telegram сразу видны и на сайте
   function startWatch(){stopWatch();if(!live)return;watch();watchTimer=setInterval(watch,WATCH_EVERY);paintBell();}
   function stopWatch(){clearInterval(watchTimer);watchTimer=null;seen=null;MuslimNotify.title(0);}
   // Запоминаем, что сотрудник уже видел (чтобы не звенеть повторно)

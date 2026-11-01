@@ -19,6 +19,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, FSInputFile, Message, ReplyKeyboardRemove
 
 from apps.bot import guest_services as gs                    # меню, корзина, заказ (без Telegram)
+from django.utils import timezone                             # когда гость сел за стол (для «Освободить стол»)
+
 from apps.bot.texts import money
 from .screen import delete, drop_user_message, forget_screen, inline, show
 
@@ -65,6 +67,10 @@ async def home(event, state: FSMContext, note: str = "", here=True):
     if len(branches) > 1:
         rows.append([("🏠 Сменить филиал", "b")])
     table = data.get("table")
+    if table and not await sync_to_async(gs.table_active)(table["token"], table.get("since")):   # стол освободили (на сайте или в боте)
+        table = None
+        await state.update_data(table=None)
+        note = (note + "\n\n" if note else "") + "🧹 Стол освобождён. Спасибо, что были у нас! Доставка и самовывоз — всегда здесь."
     where = f"\n🍽 Вы за столом: <b>{table['label']}</b>" if table else "\nМеню с фото, доставка и самовывоз."
     text = (note + "\n\n" if note else "") + f"Ассаляму алейкум! Кафе «Муслим» · <b>{name}</b>" + where
     await screen(event, state, text, rows, here=here)
@@ -90,7 +96,7 @@ async def start(message: Message, state: FSMContext):
             bid, token, label = found
             if keep.get("branch") != bid:
                 await state.update_data(branch=bid, cart=[])
-            await state.update_data(table={"token": token, "label": label})
+            await state.update_data(table={"token": token, "label": label, "since": timezone.now().isoformat()})
             return await home(message, state)
         return await home(message, state, "Этот стол больше не принимает заказы через бота. Отсканируйте QR на столе ещё раз.")
     if code.startswith("b"):                                             # QR бота филиала: /start b<код>
@@ -397,6 +403,9 @@ async def checkout_start(cb: CallbackQuery, state: FSMContext):
     kind = cb.data[2:]
     table = (await state.get_data()).get("table")
     if kind in ("hall", "takeaway"):                          # со стола: телефон и адрес не нужны
+        if table and not await sync_to_async(gs.table_active)(table["token"], table.get("since")):
+            await home(cb, state)                             # стол освободили — главная скажет об этом
+            return await cb.answer("Стол уже освобождён.", show_alert=True)
         if not table:
             return await cb.answer("Заказ за столом — по кнопке «Заказать в Telegram» на сайте стола.", show_alert=True)
         await state.update_data(co={"kind": kind, "table": table["token"], "payment": "cash"})
@@ -496,6 +505,9 @@ async def confirm(cb: CallbackQuery, state: FSMContext):
 @guest_router.callback_query(F.data == "tw")
 async def table_waiter(cb: CallbackQuery, state: FSMContext):
     table = (await state.get_data()).get("table")
+    if table and not await sync_to_async(gs.table_active)(table["token"], table.get("since")):
+        await home(cb, state)
+        return await cb.answer("Стол уже освобождён.", show_alert=True)
     if not table:
         return await cb.answer("Это работает только за столом.", show_alert=True)
     _, error = await sync_to_async(gs.create_call)(cb.message.chat.id, table["token"], "waiter")
@@ -506,6 +518,9 @@ async def table_waiter(cb: CallbackQuery, state: FSMContext):
 async def table_bill(cb: CallbackQuery, state: FSMContext):
     """Сначала — сколько вас (чтобы поделить счёт)."""
     table = (await state.get_data()).get("table")
+    if table and not await sync_to_async(gs.table_active)(table["token"], table.get("since")):
+        await home(cb, state)
+        return await cb.answer("Стол уже освобождён.", show_alert=True)
     if not table:
         return await cb.answer("Это работает только за столом.", show_alert=True)
     total = await sync_to_async(gs.bill_for)(table["token"])
@@ -573,11 +588,33 @@ async def remove_later(bot, chat_id, message_id, seconds: float = 5.0) -> None:
     await delete(bot, chat_id, message_id)
 
 
-async def run_guest_notifier(bot, pause: float = 3.0) -> None:
+async def free_guests(bot, storage, event) -> None:
+    """Гости бота за освобождённым столом больше не «за столом»: короткое сообщение, режим стола выключается."""
+    from aiogram.fsm.storage.base import StorageKey
+    token, chats = await sync_to_async(gs.freed_table_chats)(event)
+    for chat_id in chats:
+        if storage is not None:
+            key = StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
+            data = await storage.get_data(key)
+            if (data.get("table") or {}).get("token") != token:   # гость уже за другим столом — не трогаем
+                continue
+            data["table"] = None
+            await storage.set_data(key, data)
+        try:
+            sent = await bot.send_message(chat_id, "🧹 Стол освобождён. Спасибо, что были у нас!")
+            asyncio.create_task(remove_later(bot, chat_id, sent.message_id, 8))
+        except TelegramBadRequest:
+            pass
+
+
+async def run_guest_notifier(bot, pause: float = 3.0, storage=None) -> None:
     """Одно сообщение на заказ: экран после «Заказать» (или новое) — дальше только редактируется."""
     while True:
         try:
             for event in await sync_to_async(gs.guest_pending)():
+                if event.kind == gs.BotEvent.Kind.TABLE_FREED:      # «Освободить стол» на сайте или в боте
+                    await free_guests(bot, storage, event)
+                    continue
                 chat_id, text, old = await sync_to_async(gs.guest_step)(event)
                 message_id = 0
                 try:

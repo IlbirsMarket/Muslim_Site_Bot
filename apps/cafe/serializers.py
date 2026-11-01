@@ -9,10 +9,16 @@ class BranchPublicSerializer(serializers.ModelSerializer):
     """Филиал для переключателя: id, название, адрес."""
 
     address = serializers.CharField(source="settings.address", read_only=True, default="")   # адрес из настроек
+    order_token = serializers.SerializerMethodField()                                       # заказ с главной: доставка этого филиала
 
     class Meta:
         model = Branch
-        fields = ["id", "name", "address"]
+        fields = ["id", "name", "address", "order_token"]
+
+    def get_order_token(self, obj) -> str:
+        """Главная страница (без QR) заказывает доставку / самовывоз выбранного филиала — через его точку «Доставка»."""
+        from apps.tables.models import Table
+        return Table.delivery_point(obj).token
 
 
 class CafePublicSerializer(serializers.ModelSerializer):

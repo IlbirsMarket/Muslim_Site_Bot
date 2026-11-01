@@ -47,7 +47,7 @@ class Command(BaseCommand):
             from apps.bot.telegram.guest import guest_router, run_guest_notifier
             dp.include_router(guest_router)
             commands = [("start", "Меню и заказ")]
-            worker = run_guest_notifier(bot)                 # статусы заказов гостям
+            worker = run_guest_notifier(bot, storage=dp.storage)   # статусы заказов гостям и «стол освобождён»
         await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in commands])
         me = await bot.get_me()
         self.stdout.write(self.style.SUCCESS(f"Бот @{me.username} запущен. Остановить — Ctrl+C."))

@@ -6,7 +6,8 @@ from rest_framework import generics, mixins, viewsets  # готовые views, �
 from rest_framework.exceptions import ValidationError  # ошибка 400 с понятным текстом
 from rest_framework.decorators import action           # дополнительные адреса во ViewSet
 from rest_framework.permissions import AllowAny        # доступ для всех
-from rest_framework.response import Response           # ответ в JSON
+from rest_framework.response import Response
+from rest_framework.views import APIView                 # простой ответ без сериализатора (счёт стола)           # ответ в JSON
 from drf_spectacular.utils import OpenApiTypes, extend_schema  # описание ответов для Swagger
 from django.db.models import Count, Max, Q             # подсчёт заказов с условием; самый большой номер этажа
 
@@ -30,11 +31,12 @@ class PublicTableView(generics.RetrieveAPIView):
         return get_object_or_404(Table, token=self.kwargs["token"], is_active=True)
 
 
-class PublicTableBillView(generics.GenericAPIView):
+class PublicTableBillView(APIView):
     """GET /api/tables/{token}/bill/ — сколько гости за столом заказали (чтобы разделить счёт)."""
 
     permission_classes = [AllowAny]
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def get(self, request, token):
         from apps.orders.services import table_bill
         table = get_object_or_404(Table, token=token, is_active=True, kind=Table.Kind.HALL)
@@ -59,6 +61,10 @@ class TableAdminViewSet(BranchScopedMixin, viewsets.ModelViewSet):
     queryset = with_active_orders(Table.objects.filter(is_active=True))   # каждый стол сразу со счётчиком незакрытых заказов
     serializer_class = TableAdminSerializer
     permission_classes = [IsCafeAdmin]
+
+    def get_queryset(self):
+        """Всегда по порядку: доставка, потом столы по этажам и номерам (новый «Стол 2» встаёт на своё место)."""
+        return super().get_queryset().order_by("kind", "floor", "number")
 
     def list(self, request, *args, **kwargs):
         """GET: доставка должна быть всегда — если её нет, создаём перед показом списка."""

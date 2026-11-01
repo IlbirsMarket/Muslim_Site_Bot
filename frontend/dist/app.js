@@ -5,8 +5,10 @@
   const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
   const API=window.MuslimAPI,live=API.enabled;
   let cafe=null,tableInfo=null;
-  const tableToken=new URLSearchParams(location.search).get('token');
-  let viewOnly=live&&(!tableToken||new URLSearchParams(location.search).get('view')==='menu');   // без QR или после «Освободить стол» — только меню
+  let tableToken=new URLSearchParams(location.search).get('token');
+  const freedView=new URLSearchParams(location.search).get('view')==='menu';
+  const plainMode=live&&!tableToken&&!freedView;                     // главная без QR: доставка / самовывоз выбранного филиала
+  let viewOnly=live&&freedView;                                       // после «Освободить стол» — только меню
   let freedAt0=null;                                                              // когда стол освобождали до того, как гость открыл QR
   const cartKey=live?'muslim-api-cart-v1':'muslim-cart-v1';
   const maxQty=live?50:99;
@@ -31,7 +33,7 @@
   }
   function paintBranches(){                                                      // «Филиал 1 / Филиал 2» над меню
     let box=$('#branch-switch');
-    if(!live||!viewOnly||branches.length<2){box?.remove();return;}
+    if(!live||!(viewOnly||plainMode)||branches.length<2){box?.remove();return;}
     if(!box){box=document.createElement('div');box.id='branch-switch';box.className='branch-pill';box.setAttribute('role','group');box.setAttribute('aria-label','Филиал');$('.header-actions').before(box);}   // в зелёной шапке — один выбор на весь сайт
     const current=guestBranch||branches[0].id;
     box.innerHTML=branches.map(b=>`<button type="button" data-guest-branch="${b.id}" aria-pressed="${b.id===current}" ${b.address?`title="${escape(b.address)}"`:''}>${escape(b.name)}</button>`).join('');
@@ -134,6 +136,7 @@
     if(branchButton){                                                   // гость смотрит меню другого филиала
       const id=Number(branchButton.dataset.guestBranch);if(id===(guestBranch||branches[0]?.id))return;
       rememberBranch(id);paintBranches();
+      if(plainMode){location.reload();return;}                          // главная: другой филиал — его меню и его доставка
       try{[menu,cafe]=await Promise.all([MenuRepository.load(),API.request('/cafe/'+branchQuery(),{auth:false})]);}catch(error){toast(error.message);return;}
       category=menu.categories[0]?.id||'';renderMenu();renderCart();window.scrollTo({top:0,behavior:'smooth'});
       return;
@@ -215,7 +218,12 @@
     const link = document.createElement('a'); link.href = url; link.download = 'Муслим — список заказа.txt'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
   async function start() {
-    if(live&&viewOnly)await loadBranches();                               // без QR — нужен список филиалов
+    if(live&&(viewOnly||plainMode))await loadBranches();                 // без QR — нужен список филиалов
+    if(plainMode){                                                         // главная: заказываем доставку / самовывоз выбранного филиала
+      const chosen=branches.find(b=>b.id===guestBranch)||branches[0];
+      if(chosen?.order_token){tableToken=chosen.order_token;rememberBranch(chosen.id);paintBranches();}   // переключатель филиалов в шапке
+      else viewOnly=true;                                                 // филиалов нет — просто меню
+    }
     menu = await MenuRepository.load();
     if(!menu.categories.some(c=>c.id===category))category=menu.categories[0]?.id||'';
     if(live){
@@ -223,7 +231,7 @@
       $('#menu-note').textContent='Цены актуальные. Итог заказа кафе подтвердит после отправки.';
       $('.draft-note').textContent='Заказ сразу увидят в кафе.';
       // Есть токен — это QR стола. Нет токена — главная страница = QR доставки
-      if(viewOnly){enterViewOnly(false,new URLSearchParams(location.search).get('view')==='menu'?'freed':'plain');}   // только меню
+      if(viewOnly){enterViewOnly(false,freedView?'freed':'plain');}   // только меню
       else if(tableToken){try{tableInfo=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});freedAt0=tableInfo.freed_at||null;rememberBranch(tableInfo.branch);$('#table-label').textContent=tableInfo.kind==='hall'?(tableInfo.name||`Стол №${tableInfo.number}`):'Доставка';}catch(error){$('#table-label').textContent='QR устарел';toast('Этот QR больше не работает. Попросите у официанта новый.');}}
       applyModes();
       if(tableInfo?.kind==='hall'&&!$('#guest-fab')){
@@ -270,7 +278,8 @@
     if ($('#dish-dialog').open && selection && !menu.dishes.some(d => d.id === selection.id && d.available)) { $('#dish-dialog').close(); toast('Это блюдо только что закончилось.'); }
     renderMenu();
   }
-  setInterval(()=>{refreshMenu();checkTable();if(!document.hidden)renderMyOrders();}, 15000);   // меню, стол и статусы — раз в 30 секунд
+  setInterval(()=>{refreshMenu();checkTable();if(!document.hidden)renderMyOrders();}, 15000);
+  setInterval(()=>{if(!document.hidden&&cache.myOrders.some(o=>!['completed','cancelled'].includes(o.status)))renderMyOrders();},4000);   // заказ в работе — статус обновляется каждые 4 секунды   // меню, стол и статусы — раз в 30 секунд
   document.addEventListener('visibilitychange', () => { if (!document.hidden){refreshMenu();checkTable();renderMyOrders();} });
   // Какие способы можно выбрать: со стола — «В кафе» и «С собой», с главной страницы — «Доставка» и «Самовывоз»
   function allowedModes(){return !live?['cafe','delivery','pickup']:tableInfo?.kind==='hall'?['cafe','takeaway']:['delivery','pickup'];}
@@ -291,6 +300,7 @@
   // Окно заказа у гостя: номер, статус, состав, история. Отменён — видна причина
   function showOrder(order){
     let dialog=$('#order-status-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='order-status-dialog';document.body.append(dialog);}
+    dialog.dataset.number=String(order.number);                      // открытый заказ — его обновим сами, без кнопки
     const place=order.kind==='hall'||order.kind==='takeaway'?`${order.table_name||''}${order.kind==='takeaway'?' · с собой':''}`:order.kind_display;
     const cancelled=order.status==='cancelled';
     const time=iso=>{try{return new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});}catch{return '';}};
@@ -346,6 +356,8 @@
     try{
       const orders=(await Promise.all(list.map(o=>API.request(`/orders/${encodeURIComponent(o.id)}/`,{auth:false}).catch(()=>null)))).filter(Boolean);
       cache.myOrders=orders;
+      const open=$('#order-status-dialog');                             // окно заказа открыто — статус и полоса меняются сами
+      if(open?.open){const fresh=orders.find(o=>String(o.number)===open.dataset.number);if(fresh)showOrder(fresh);}
       box.innerHTML=`<h3>Мои заказы</h3>${orders.map((o,i)=>`<button type="button" class="my-order status-${escape(o.status)}" data-my-order="${i}"><span class="my-order-top"><span>№${o.number} · ${money(o.total)}</span><strong>${escape(o.status_label)}</strong></span>${progress(o)}</button>`).join('')}`;
       if(viewOnly)$('#open-cart').hidden=false;                         // на телефоне кнопка внизу открывает «Мои заказы»
     }finally{myOrdersBusy=false;}

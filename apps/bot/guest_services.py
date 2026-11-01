@@ -189,8 +189,9 @@ def guest_text(order) -> str:
 
 def guest_pending(limit=20) -> list:
     """События для гостевого бота. Ненужные (не про заказы из бота) сразу отмечаются."""
-    BotEvent.objects.filter(guest_processed_at__isnull=True).exclude(kind__in=STATUS_EVENTS, order__guest_chat_id__isnull=False) \
-        .update(guest_processed_at=timezone.now())
+    from django.db.models import Q
+    wanted = Q(kind__in=STATUS_EVENTS, order__guest_chat_id__isnull=False) | Q(kind=BotEvent.Kind.TABLE_FREED)   # статусы и «стол освобождён»
+    BotEvent.objects.filter(guest_processed_at__isnull=True).exclude(wanted).update(guest_processed_at=timezone.now())
     return list(BotEvent.objects.filter(guest_processed_at__isnull=True)[:limit])
 
 
@@ -341,3 +342,23 @@ def bill_for(table_token) -> int:
     from apps.orders.services import table_bill
     table = Table.objects.filter(token=table_token, kind=Table.Kind.HALL, is_active=True).first()
     return table_bill(table)["total"] if table else 0
+
+
+def table_active(token: str, since: str) -> bool:
+    """Гость ещё «за столом»: стол работает и его не освобождали после того, как гость открыл бота со стола."""
+    from django.utils.dateparse import parse_datetime
+    table = Table.objects.filter(token=token, kind=Table.Kind.HALL, is_active=True).first()
+    if table is None:
+        return False
+    started = parse_datetime(since or "")
+    return not (table.freed_at and started and table.freed_at > started)
+
+
+def freed_table_chats(event) -> tuple:
+    """«Освободить стол»: (токен стола, чаты гостей бота, которые заказывали за этим столом за последние 12 часов)."""
+    from datetime import timedelta
+    since = timezone.now() - timedelta(hours=12)
+    chats = list(Order.objects.filter(table_id=event.table_id, guest_chat_id__isnull=False, created_at__gte=since)
+                 .values_list("guest_chat_id", flat=True).distinct())
+    BotEvent.objects.filter(pk=event.pk).update(guest_processed_at=timezone.now())
+    return event.table.token, chats
