@@ -297,3 +297,29 @@ class PushTest(BotTelegramTest):
         v1 = self.client.get("/api/version/").json()["v"]
         self.bot_order()
         self.assertGreater(self.client.get("/api/version/").json()["v"], v1)
+
+
+class PhotoWebpTest(BotTelegramTest):
+    """Фото блюда при загрузке уменьшается и становится WebP; для Telegram — JPEG."""
+
+    def test_upload_becomes_small_webp(self):
+        import os
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from core.images import jpeg_bytes
+        raw = BytesIO()
+        size = (2560, 1440)                                                                # «тяжёлое» фото 2К (~2 МБ)
+        Image.merge("RGB", [Image.linear_gradient("L").resize(size), Image.effect_noise(size, 30),
+                            Image.linear_gradient("L").rotate(90).resize(size)]).save(raw, "JPEG", quality=92)
+        self.client.force_authenticate(self.admin2)
+        resp = self.client.patch(f"/api/admin/dishes/{self.lagman.id}/", {"photo": SimpleUploadedFile("big.jpg", raw.getvalue(), "image/jpeg")},
+                                 format="multipart", HTTP_X_BRANCH=str(self.b2.id))
+        self.assertEqual(resp.status_code, 200, resp.content[:200])
+        self.lagman.refresh_from_db()
+        self.assertTrue(self.lagman.photo.name.endswith(".webp"))
+        with Image.open(self.lagman.photo.path) as image:
+            self.assertEqual(max(image.size), 1400)                                         # уменьшено
+        self.assertLess(self.lagman.photo.size, len(raw.getvalue()) // 4)                   # в разы легче оригинала
+        self.assertTrue(jpeg_bytes(self.lagman.photo.path).startswith(b"\xff\xd8"))         # для Telegram
+        os.remove(self.lagman.photo.path)

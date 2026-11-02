@@ -182,7 +182,10 @@ async def menu_dish(cb: CallbackQuery, state: FSMContext):
     i, total = page["index"], page["total"]
     rows = [[("◀️", f"smv:{cat}:{i - 1}"), (f"{i + 1} / {total}", "_"), ("▶️", f"smv:{cat}:{i + 1}")]] if total > 1 else []
     rows += [[("📋 Списком", f"sml:{cat}:{i // LIST_SIZE}"), ("↩️ Категории", "smn")]]
-    if page["photo"]:
+    if page["photo"] and page["photo"].endswith(".webp"):      # WebP с сайта → JPEG для Telegram
+        from core.images import jpeg_bytes
+        photo, key = BufferedInputFile(jpeg_bytes(page["photo"]), filename="dish.jpg"), page["photo"]
+    elif page["photo"]:
         photo, key = FSInputFile(page["photo"]), page["photo"]
     else:
         photo, key = BufferedInputFile(gs.placeholder_photo(page["name"]), filename="dish.jpg"), f"ph:{page['name']}"

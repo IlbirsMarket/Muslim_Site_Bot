@@ -7,6 +7,7 @@ Admin — для админ-панели (создание и редактиро
 from rest_framework import serializers                 # инструменты DRF
 
 from core.branches import check_same_branch            # ссылки — только на своё меню филиала
+from core.images import to_webp                         # фото → лёгкий WebP
 from .models import Category, Dish, DishSize, Extra   # модели меню
 
 MAX_PHOTO_BYTES = int(3.5 * 1024 * 1024)                # фото блюда — не больше 3,5 МБ
@@ -175,4 +176,4 @@ class DishAdminSerializer(serializers.ModelSerializer):
         image = getattr(value, "image", None)                       # Pillow уже открыл файл и проверил, что это картинка
         if image is not None and (image.format or "").upper() not in ALLOWED_PHOTO_FORMATS:
             raise serializers.ValidationError("Подойдёт только JPG, PNG или WebP.")
-        return value
+        return to_webp(value)                                       # уменьшаем и переводим в WebP — меню грузится быстрее

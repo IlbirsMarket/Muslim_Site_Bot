@@ -161,6 +161,9 @@ async def menu(cb: CallbackQuery, state: FSMContext):
 def photo_of(page):
     """Фото блюда: файл с диска или нарисованная картинка."""
     if page["photo"]:
+        if page["photo"].endswith(".webp"):                   # WebP с сайта → JPEG для Telegram
+            from core.images import jpeg_bytes
+            return BufferedInputFile(jpeg_bytes(page["photo"]), filename="dish.jpg"), page["photo"]
         return FSInputFile(page["photo"]), page["photo"]
     return BufferedInputFile(gs.placeholder_photo(page["name"]), filename="dish.jpg"), f"ph:{page['name']}"
 
