@@ -37,10 +37,12 @@
     wallet:'<path d="M4 7h15a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3M16 13h.01"/>',
     user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     note:'<path d="M5 4h14v12l-4 4H5ZM15 20v-4h4M8 9h8M8 13h5"/>',
-    telegram:'<path d="m21 4-18 7.5 6 2 2 6.5 3.5-4.5 4.5 3.5L21 4ZM9 13.5 21 4"/>'
+    telegram:'<path d="m21 4-18 7.5 6 2 2 6.5 3.5-4.5 4.5 3.5L21 4ZM9 13.5 21 4"/>',
+    more:'<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',   // «⋯» — меню в верхней полосе телефона
+    mobile:'<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>'                                // телефон — Push-уведомления
   };
   function render(name) {
     return `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name] || paths.image}</svg>`;
   }
   window.MuslimIcons = { render };
-})();
+})();

@@ -69,7 +69,7 @@
     if(fab){const list=me?.branches||[],at=list.findIndex(b=>String(b.id)===String(current?.id)),next=list[(at+1)%Math.max(list.length,1)];
       fab.hidden=!html;
       if(html&&next){fab.dataset.branch=next.id;fab.setAttribute('aria-label',`Сменить филиал: сейчас «${current?.name}», открыть «${next.name}»`);fab.innerHTML=`<span aria-hidden="true">⇄</span>Сменить<span class="fab-branch">${esc(current?.name||'')}</span>`;}}
-    $('#environment-label').textContent=live?`Панель кафе «Муслим»${branchName()?' · '+branchName():''}`:'Демо · изменения только в этом браузере · Telegram не подключён';
+    $('#environment-label').innerHTML=live?`<span class="env-app">Панель кафе «Муслим»</span>${branchName()?`<span class="env-sep"> · </span><b class="env-branch">${esc(branchName())}</b>`:''}`:'Демо · изменения только в этом браузере · Telegram не подключён';   // на телефоне филиал — крупно, «Панель…» — мелко под ним
     const guestLink=$('.environment-actions a');if(guestLink)guestLink.href=live&&currentBranch()?`./?branch=${currentBranch().id}`:'./';   // «Меню гостей» — меню этого филиала
   }
   function canManageMenu(){return !live||['programmer','chef','admin'].includes(me?.role);}
@@ -420,9 +420,10 @@
   function paintTelegram(){
     let b=$('#telegram-toggle');
     if(!b){b=document.createElement('button');b.type='button';b.id='telegram-toggle';$('#notify-toggle').before(b);}   // кнопка рядом со «Звук»
-    b.hidden=!live;if(!live)return;
+    b.hidden=!live;if($('#tg-chip'))$('#tg-chip').hidden=true;if(!live)return;   // метку «TG» покажем ниже, когда знаем, привязан ли
     const on=Boolean(me?.telegram_id);                                                  // уже привязан?
-    b.innerHTML=icon('telegram')+`<span class="tg-long">${on?'Telegram ✓':'Telegram не привязан'}</span><span class="tg-short">${on?'TG ✓':'Telegram'}</span>`;
+    b.innerHTML=icon('telegram')+`<span class="tg-long">${on?'Telegram ✓':'Telegram не привязан'}</span><span class="tg-short">${on?'TG ✓':'Telegram'}</span><span class="m-lbl">Telegram</span><em class="m-state">${on?'подключён':'не привязан'}</em>`;   // m-… — подписи для меню «⋯» на телефоне
+    const chip=$('#tg-chip');if(chip){chip.hidden=false;chip.classList.toggle('linked',on);chip.innerHTML=icon('telegram')+`<span>${on?'TG':'TG ✕'}</span>`;chip.setAttribute('aria-label',b.getAttribute('aria-label')||'Telegram');}   // метка «TG» рядом с «⋯»
     b.classList.toggle('linked',on);b.setAttribute('aria-label',on?'Telegram привязан. Нажмите, чтобы отвязать':'Telegram не привязан. Как привязать');
   }
   async function telegramDialog(){
@@ -442,8 +443,8 @@
     else $('#tg-status').textContent='Пока не привязан. Войдите в боте своим логином и паролем и нажмите «Проверить» снова.';
   }
   // Кнопка «Звук» в верхней полосе
-  async function paintPush(){const b=$('#push-toggle');if(!b||!window.MuslimPush)return;b.hidden=!live;if(!live)return;const on=await MuslimPush.active().catch(()=>false);b.textContent=on?'📲 Push вкл':'📲 Push';b.setAttribute('aria-pressed',String(on));}   // push на телефон
-  function paintBell(){paintPush();const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span>${on?'Звук вкл':'Звук выкл'}</span>`;b.classList.toggle('muted',!on);}
+  async function paintPush(){const b=$('#push-toggle');if(!b||!window.MuslimPush)return;b.hidden=!live;if(!live)return;const on=await MuslimPush.active().catch(()=>false);b.innerHTML=`<span class="m-only">${icon('mobile')}</span><span class="d-lbl">${on?'📲 Push вкл':'📲 Push'}</span><span class="m-lbl">Push-уведомления</span><em class="m-state">${on?'вкл':''}</em>`;b.setAttribute('aria-pressed',String(on));}   // push на телефон
+  function paintBell(){paintPush();const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span class="d-lbl">${on?'Звук вкл':'Звук выкл'}</span><span class="m-lbl">Звук заказов</span><em class="m-state">${on?'вкл':'выкл'}</em>`;b.classList.toggle('muted',!on);}
   function reportBranch(){return multiBranch()&&reportScope==='all'?'all':undefined;}   // «Оба филиала» — только у шефа
   async function reportsView(){
     const actions=`<button class="secondary" data-export-report>${live?'Скачать PDF':'Печать / PDF'}</button><button class="secondary" data-export-csv>${live?'JSON':'CSV'}</button>`;
@@ -698,6 +699,13 @@
   function logout(){API.logout();try{sessionStorage.removeItem('muslim-demo-open');}catch{/* Нет сохранённой демо-сессии. */}location.hash='';showLogin();}
   $('#logout').addEventListener('click',logout);
   $('#session-logout').addEventListener('click',logout);
+  // ===== Телефон: меню «⋯» в верхней полосе (Telegram, звук, Push, меню гостей, выход) =====
+  const envBar=$('.environment'),envMore=$('#env-more');
+  function envMenu(open){envBar.classList.toggle('open',open);envMore.setAttribute('aria-expanded',String(open));}   // открыть / закрыть список
+  envMore.addEventListener('click',event=>{event.stopPropagation();envMenu(!envBar.classList.contains('open'));});
+  document.addEventListener('click',event=>{if(envBar.classList.contains('open')&&!event.target.closest('#env-more'))setTimeout(()=>envMenu(false));},true);   // нажали пункт или мимо — закрываем (пункт при этом срабатывает)
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&envBar.classList.contains('open')){envMenu(false);envMore.focus();}});
+  $('#tg-chip').addEventListener('click',()=>$('#telegram-toggle')?.click());   // метка «TG» — то же, что пункт «Telegram»
   window.addEventListener('muslim-session-expired',()=>{if(live)showLogin('Сессия истекла. Войдите повторно.');});
   window.addEventListener('muslim-api-result',()=>{if(view==='api'&&$('#api-results'))$('#api-results').innerHTML=resultRows();});
   $('#login-description').textContent=API.enabled?'Войдите по email или логину, который выдал администратор.':'Панель без базы данных. Вы можете проверить все разделы на демонстрационных данных.';
