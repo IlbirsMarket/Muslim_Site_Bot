@@ -31,30 +31,26 @@ def topic(branch, place):
     return branch.tg_group_id, thread if thread and thread > 0 else None   # без темы (или ошибка в ID темы) — общий чат группы
 
 
+# Темы группы — как колонки «Заказов» на сайте. Заказ всегда ровно в одной теме и сам переезжает:
+#   «Новые» (поле tg_topic_admins) → «Готовятся» (tg_topic_kitchen) → «Готовы и в пути» (tg_topic_delivery).
+#   Подан / доставлен / выдан / отменён — сообщение исчезает (история — на сайте и в отчётах).
+#   Вызовы со столов — тема «Вызовы» (tg_topic_hall), отчёт за день — «Отчёты».
+STAGE = {S.NEW: P.ADMINS, S.ACCEPTED: P.KITCHEN, S.COOKING: P.KITCHEN, S.READY: P.DELIVERY, S.ON_THE_WAY: P.DELIVERY}
+
+
 def order_places(order) -> list:
-    """В какие темы должен попасть заказ сейчас."""
-    places = [P.HALL if order.kind in (K.HALL, K.TAKEAWAY) else P.ADMINS]   # зал — официантам, доставка/самовывоз — админам
-    if order.status in KITCHEN_STATUSES:                                 # принят и ещё не готов до конца — кухне
-        places.append(P.KITCHEN)
-    if order.kind == K.DELIVERY and order.status not in (S.NEW, S.CANCELLED, S.COMPLETED):   # доставка в работе — курьерам
-        places.append(P.DELIVERY)
-    return places
+    """В какой теме заказ сейчас (одна тема; пусто — заказ закрыт)."""
+    place = STAGE.get(order.status)
+    return [place] if place else []
 
 
-def order_buttons(order, place) -> list:
-    """Кнопки под заказом: [(текст, callback)]. Права проверяются при нажатии."""
-    if place == P.KITCHEN:                                               # на кухне — только «Готовится» / «Готов»
-        names = ["cook", "ready"]
-    elif place == P.DELIVERY:                                            # курьерам — «В пути» / «Доставлен»
-        names = ["send", "complete"]
-    else:
-        names = list(ACTIONS)                                            # в зале и у админов — всё
+def order_buttons(order, place=None) -> list:
+    """Кнопки стадии (как на карточке на сайте): [(текст, callback)]. Права проверяются при нажатии."""
     buttons = []
     claimable = (at_table(order) and order.status == S.NEW) or (order.kind == K.DELIVERY and order.status in COURIER_STATUSES)
-    if claimable and not order.claimed_by_id and place != P.KITCHEN:     # «Беру стол» / «Беру заказ»
+    if claimable and not order.claimed_by_id:                            # «Беру стол» / «Беру заказ»
         buttons.append(("🙋 Беру стол" if at_table(order) else "🙋 Беру заказ", f"o:{order.id}:claim"))
-    for name in names:
-        rule = ACTIONS[name]
+    for name, rule in ACTIONS.items():
         if order.status in rule["from"]:                                 # действие подходит к статусу
             if name == "send" and order.kind != K.DELIVERY:              # «В пути» — только доставка
                 continue
@@ -123,7 +119,7 @@ def build_plan(event) -> list:
         text = order_text(order)
         now = order_places(order)
         for place in places:
-            if place not in now and place in (P.KITCHEN, P.DELIVERY) and old.get(place):   # ушёл с кухни / доставлен — убираем
+            if place not in now and old.get(place):                     # заказ переехал в другую тему или закрыт — старое убираем
                 plan.append({"place": place, "delete": True, "old": old[place]})
                 continue
             chat, thread = topic(order.branch, place)
@@ -139,11 +135,7 @@ def build_plan(event) -> list:
         elif chat and not call.is_done:
             buttons = [("✅ Подошёл(ла)", f"c:{call.id}:done")]
             plan.append({"place": P.HALL, "chat_id": chat, "thread_id": thread, "text": call_text(call), "buttons": buttons, "old": old})
-    elif event.table_id:                                                 # стол освободили
-        chat, thread = topic(event.table.branch, P.HALL)
-        if chat:
-            plan.append({"place": P.HALL, "chat_id": chat, "thread_id": thread,
-                         "text": f"🧹 {escape(str(event.table))} свободен", "buttons": [], "old": None, "once": True})
+    # «Стол освобождён» в группу не пишем: стол сразу виден свободным на сайте, а вызовы стола уже закрыты
     return plan
 
 
@@ -218,6 +210,11 @@ async def run_notifier(bot, pause: float = 2.0) -> None:
                     thread = step["old"].thread_id if step["old"] else step.get("thread_id")
                     await sync_to_async(save_message)(event, step, chat, thread, message_id)
                 await sync_to_async(mark_done)(event)
+                try:                                                     # push на телефоны (сайт на экране «Домой»)
+                    from .push import push_event
+                    await sync_to_async(push_event)(event)
+                except Exception:                                        # push не главное — Telegram уже отправлен
+                    log.exception("Push по событию %s", event.pk)
             except Exception as error:                                  # сеть, Telegram, база — пробуем позже
                 log.exception("Событие %s не отправлено", event.pk)
                 await sync_to_async(mark_done)(event, str(error) or error.__class__.__name__)

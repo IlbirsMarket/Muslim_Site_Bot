@@ -47,11 +47,15 @@ class BotTelegramTest(BranchBase):
         self.assertEqual(BotMessage.objects.get(order=order).message_id, 55)
 
     def test_places_follow_status(self):
-        """Принятая доставка — у админов, на кухне и у курьеров; кухне — только кухонные кнопки."""
+        """Заказ всегда в одной теме, как колонки на сайте: «Новые» → «Готовятся» → «Готовы и в пути» → исчезает."""
         order, _ = self.bot_order()
+        expected = {"new": [P.ADMINS], "accepted": [P.KITCHEN], "cooking": [P.KITCHEN], "ready": [P.DELIVERY],
+                    "on_the_way": [P.DELIVERY], "completed": [], "cancelled": []}
+        for status, places in expected.items():
+            order.status = status
+            self.assertEqual(order_places(order), places, status)
         order.status = Order.Status.ACCEPTED
-        self.assertEqual(order_places(order), [P.ADMINS, P.KITCHEN, P.DELIVERY])
-        self.assertEqual([d.split(":")[2] for _, d in order_buttons(order, P.KITCHEN)], ["cook"])
+        self.assertIn("cook", [d.split(":")[2] for _, d in order_buttons(order)])
 
     def test_buttons_check_rights_and_branch(self):
         """Админ филиала 2 подтверждает; повар чужого филиала — «Нет прав»; не вошедший — просьба войти."""
@@ -138,10 +142,10 @@ class BotCleanupTest(BotTelegramTest):
         event = BotEvent.objects.create(kind="order_changed", order=order)
         plan = build_plan(event)
         self.assertEqual(sorted((s["place"], bool(s.get("delete"))) for s in plan),
-                         [(P.ADMINS, False), (P.DELIVERY, True), (P.KITCHEN, True)])
+                         [(P.ADMINS, True), (P.DELIVERY, True), (P.KITCHEN, True)])   # закрытый заказ исчезает из всех тем
         for step in plan:
             save_message(event, step, -100, None, step["old"].message_id)
-        self.assertEqual(list(BotMessage.objects.filter(order=order).values_list("place", flat=True)), [P.ADMINS])
+        self.assertFalse(BotMessage.objects.filter(order=order).exists())
 
     def test_done_call_deleted(self):
         table = Table.objects.filter(branch=self.b2, kind=Table.Kind.HALL).first()
@@ -258,3 +262,38 @@ class SyncFixesTest(BotTelegramTest):
         event = [e for e in gs.guest_pending() if e.kind == "table_freed"][0]
         token, chats = gs.freed_table_chats(event)
         self.assertEqual((token, chats), (table.token, [905]))
+
+
+class PushTest(BotTelegramTest):
+    """Push на телефон: подписка, кому уходит, «ящик» для телефона, подпись VAPID."""
+
+    def test_push_flow(self):
+        from unittest import mock
+        from django.test import override_settings
+        from apps.bot import push
+        from apps.bot.models import PushSubscription
+        public, private = push.make_keys()
+        with override_settings(VAPID_PUBLIC_KEY=public, VAPID_PRIVATE_KEY=private):
+            self.assertEqual(self.client.get("/api/push/key/").json()["key"], public)
+            self.assertTrue(push.vapid_header("https://fcm.googleapis.com/fcm/send/x").startswith("vapid t="))
+            self.client.force_authenticate(self.admin2)
+            self.client.post("/api/push/subscribe/", {"endpoint": "https://push.example/admin2"}, format="json")
+            self.client.force_authenticate(None)
+            order, _ = self.bot_order()
+            Order.objects.filter(pk=order.pk).update(device_key="dev-guest")
+            self.client.post("/api/push/subscribe/", {"endpoint": "https://push.example/guest", "device_key": "dev-guest"}, format="json")
+            with mock.patch("urllib.request.urlopen") as sent:
+                push.push_event(BotEvent.objects.get(order=order, kind="order_created"))     # новый заказ → админу
+                self.assertEqual(sent.call_count, 1)
+                sa.order_action(111, order.id, "accept")
+                push.push_event(BotEvent.objects.filter(order=order, kind="order_changed").last())   # статус → гостю
+                self.assertEqual(sent.call_count, 2)
+            items = self.client.post("/api/push/inbox/", {"endpoint": "https://push.example/guest"}, format="json").json()["items"]
+            self.assertIn("Принят", items[0]["body"])
+            self.assertEqual(self.client.post("/api/push/inbox/", {"endpoint": "https://push.example/guest"}, format="json").json()["items"], [])
+            self.assertEqual(PushSubscription.objects.count(), 2)
+
+    def test_version_endpoint(self):
+        v1 = self.client.get("/api/version/").json()["v"]
+        self.bot_order()
+        self.assertGreater(self.client.get("/api/version/").json()["v"], v1)

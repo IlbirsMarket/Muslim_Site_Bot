@@ -25,3 +25,4 @@ uritemplate==4.2.0
 
 gunicorn==23.0.0
 aiogram>=3.20,<4
+cryptography>=42      # подпись push-уведомлений (VAPID)

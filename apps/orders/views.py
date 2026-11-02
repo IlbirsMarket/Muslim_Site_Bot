@@ -43,3 +43,20 @@ class TableCallCreateView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "calls"                      # лимит из настроек (5 в минуту)
+
+class ChangesVersionView(generics.GenericAPIView):
+    """
+    GET /api/version/ — номер последнего изменения (заказ, статус, вызов, стол).
+    Панель и сайт гостя спрашивают его раз в 1–2 секунды: ответ крошечный, а полный список
+    заказов загружается только когда номер поменялся. Так изменения видны всем почти сразу.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses={200: {"type": "object", "properties": {"v": {"type": "integer"}}}})
+    def get(self, request):
+        from apps.bot.models import BotEvent                       # каждое изменение записывается событием для бота
+        last = BotEvent.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        response = Response({"v": last})
+        response["Cache-Control"] = "no-store"                     # всегда свежий ответ
+        return response

@@ -102,3 +102,11 @@ body.view-only .guest-fab{display:none!important}
 /* iPhone не увеличивает экран, когда шрифт в поле ввода не меньше 16px */
 @media(max-width:1200px){input,select,textarea{font-size:16px!important}}
 body:has(.cart.is-open) .guest-fab,body:has(dialog[open]) .guest-fab{display:none!important}   /* корзина или окно открыты — шарик не мешает */
+
+/* Подсказка у золотого колокольчика — только в первый раз */
+.fab-hint{position:fixed;right:18px;bottom:166px;z-index:32;width:min(280px,calc(100vw - 36px));background:#fff;border-radius:16px;padding:16px;box-shadow:0 12px 40px #0003;font-size:13px;line-height:1.6;color:var(--ink);animation:fab-hint-in .3s ease}
+.fab-hint strong{display:block;font-size:15px;margin-bottom:4px;color:var(--green)}
+.fab-hint .primary{min-height:40px;margin-top:12px;font-size:13px}
+.fab-hint:after{content:'';position:absolute;right:22px;bottom:-8px;width:16px;height:16px;background:#fff;transform:rotate(45deg)}
+@media(max-width:900px){.fab-hint{bottom:158px}}
+@keyframes fab-hint-in{from{opacity:0;transform:translateY(8px)}}

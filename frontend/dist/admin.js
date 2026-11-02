@@ -118,9 +118,10 @@
   }
   async function ordersView(){
     let orders,calls=[];
-    if(live){const data=await Promise.all([API.request('/staff/orders/?active=true'),seesCalls()?API.request('/staff/table-calls/'):Promise.resolve([])]);orders=list(data[0]);calls=list(data[1]);}
+    if(live&&cache.fresh){({orders,calls}=cache.fresh);cache.fresh=null;}   // данные только что получены — без лишнего запроса
+    else if(live){const data=await Promise.all([API.request('/staff/orders/?active=true'),seesCalls()?API.request('/staff/table-calls/'):Promise.resolve([])]);orders=list(data[0]);calls=list(data[1]);}
     else orders=state.orders;
-    cache.orders=orders;cache.newCount=waitingCount(orders);if(live)remember(orders,calls);   // то, что уже на экране, не «новое»
+    cache.orders=orders;cache.calls=calls;cache.newCount=waitingCount(orders);if(live)remember(orders,calls);   // то, что уже на экране, не «новое»
     const filtered=orders.filter(o=>orderFilter==='all'||kindOf(o)===orderFilter);   // фильтр по типу: в кафе / с собой / доставка / самовывоз
     const groups=live&&me.role==='courier'
       ?[['cooking','Готовятся',['accepted','cooking']],['ready','Готовы к выдаче',['ready']],['way','В пути',['on_the_way']]]   // курьер: свои колонки
@@ -372,10 +373,17 @@
   // Повар: заказ подтверждён официантом — пора готовить.
   let watchTimer=null,seen=null;
   const WATCH_EVERY=5000;                                       // 5 секунд: изменения из Telegram сразу видны и на сайте
-  function startWatch(){stopWatch();if(!live)return;watch();watchTimer=setInterval(watch,WATCH_EVERY);paintBell();}
+  let lastVersion=null,lastFull=0,versionBusy=false;
+  async function tick(){                                         // раз в 1,5 секунды: «что-то изменилось?» — крошечный запрос
+    if(!live||versionBusy||document.hidden)return;versionBusy=true;
+    try{const {v}=await API.request('/version/',{auth:false});
+      if(v!==lastVersion||Date.now()-lastFull>WATCH_EVERY*4){lastVersion=v;lastFull=Date.now();await watch();}   // изменилось — обновляем сразу
+    }catch{/* нет связи — попробуем через секунду */}finally{versionBusy=false;}
+  }
+  function startWatch(){stopWatch();if(!live)return;lastVersion=null;tick();watchTimer=setInterval(tick,1500);paintBell();}
   function stopWatch(){clearInterval(watchTimer);watchTimer=null;seen=null;MuslimNotify.title(0);}
   // Запоминаем, что сотрудник уже видел (чтобы не звенеть повторно)
-  function remember(orders,calls){seen={orders:new Map(orders.map(o=>[o.id,o.status])),calls:new Set(calls.map(c=>c.id)),key:orders.map(o=>o.id+':'+o.status).join(',')+'|'+calls.map(c=>c.id).join(',')};}
+  function remember(orders,calls){seen={orders:new Map(orders.map(o=>[o.id,o.status])),calls:new Set(calls.map(c=>c.id)),key:orders.map(o=>o.id+':'+o.status+':'+(o.claimed_by_name||'')+':'+(o.available_actions||[]).map(a=>a.action).join('.')).join(',')+'|'+calls.map(c=>c.id).join(',')};}   // «Беру стол» и кнопки — тоже изменение
   // Человек сейчас что-то вводит — не перерисовываем страницу у него под руками
   function typing(){const el=document.activeElement;return Boolean(el&&$('#content').contains(el)&&/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));}
   async function watch(){
@@ -406,7 +414,7 @@
     const waiting=waitingCount(orders);                                             // ждут реакции
     cache.newCount=waiting;nav();MuslimNotify.title(waiting+calls.length);           // цифра в меню и во вкладке
     if(events.length){MuslimNotify.alert(events);toast(events.slice(0,3).join(' · ')+(events.length>3?` и ещё ${events.length-3}`:''),kinds[0]);}
-    if(before&&before.key!==seen.key&&['orders','tables'].includes(view)&&!document.querySelector('dialog[open]')&&!typing())await render(true);   // список сам обновился
+    if(before&&before.key!==seen.key&&['orders','tables'].includes(view)&&!document.querySelector('dialog[open]')&&!typing()){if(view==='orders')cache.fresh={orders,calls};await render(true);}   // список сам обновился
   }
   // ===== Кнопка «Telegram» в верхней полосе: привязан ли Telegram (привязка — входом в боте), «Отвязать» =====
   function paintTelegram(){
@@ -434,7 +442,8 @@
     else $('#tg-status').textContent='Пока не привязан. Войдите в боте своим логином и паролем и нажмите «Проверить» снова.';
   }
   // Кнопка «Звук» в верхней полосе
-  function paintBell(){const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span>${on?'Звук вкл':'Звук выкл'}</span>`;b.classList.toggle('muted',!on);}
+  async function paintPush(){const b=$('#push-toggle');if(!b||!window.MuslimPush)return;b.hidden=!live;if(!live)return;const on=await MuslimPush.active().catch(()=>false);b.textContent=on?'📲 Push вкл':'📲 Push';b.setAttribute('aria-pressed',String(on));}   // push на телефон
+  function paintBell(){paintPush();const b=$('#notify-toggle');if(!b)return;b.hidden=!live;const on=MuslimNotify.enabled();b.setAttribute('aria-pressed',String(on));b.innerHTML=icon('bell')+`<span>${on?'Звук вкл':'Звук выкл'}</span>`;b.classList.toggle('muted',!on);}
   function reportBranch(){return multiBranch()&&reportScope==='all'?'all':undefined;}   // «Оба филиала» — только у шефа
   async function reportsView(){
     const actions=`<button class="secondary" data-export-report>${live?'Скачать PDF':'Печать / PDF'}</button><button class="secondary" data-export-csv>${live?'JSON':'CSV'}</button>`;
@@ -529,6 +538,7 @@
     if(button.dataset.view){view=button.dataset.view;query='';await render();return;}
     if(button.id==='telegram-toggle'){await telegramDialog();return;}   // привязать / отвязать Telegram
     if(button.id==='telegram-check'){await telegramCheck();return;}     // проверить привязку
+    if(button.id==='push-toggle'){button.disabled=true;try{const result=await MuslimPush.enable();toast(result==='ok'?'Push включены: уведомления будут приходить на этот телефон':result);}catch(error){toast(error.message);}finally{button.disabled=false;paintPush();}return;}
     if(button.id==='notify-toggle'){const on=!MuslimNotify.enabled();MuslimNotify.setEnabled(on);if(on){MuslimNotify.unlock();await MuslimNotify.askPermission();MuslimNotify.beep();}paintBell();toast(on?'Уведомления включены':'Уведомления выключены');return;}
     if(button.dataset.branch){if(String(button.dataset.branch)===String(currentBranch()?.id))return;API.setBranch(button.dataset.branch);cache={};menuFilter='all';tablesFloor='delivery';paintBranch();toast(`Филиал: ${branchName()}`);await render();startWatch();return;}   // другой филиал: всё панели — по нему
     if(button.hasAttribute('data-reload')){await render();return;}
@@ -555,7 +565,7 @@
     if(button.hasAttribute('data-remove-size')){button.closest('.sizes-row').remove();syncBasePrice();return;}
     if(button.dataset.deleteDish){const id=button.dataset.deleteDish,d=cache.dishes.find(d=>String(d.id)===id);confirm('Удалить блюдо?',`«${d.name}» будет удалено ${live?'с сервера':'из локального меню'}.`,async()=>{if(live){await API.request(`/admin/dishes/${id}/`,{method:'DELETE'});toast(`«${d.name}» удалено`);}else await localChange(s=>{s.menu.dishes=s.menu.dishes.filter(d=>d.id!==id);},'Блюдо удалено');editor.close();await render();});return;}
     if(button.dataset.order){const id=Number(button.dataset.order),action=button.dataset.action,label=button.textContent.trim(),number=button.dataset.number||id;
-      const perform=async reason=>{if(live){await API.orderAction(id,action,reason);toast(`Заказ №${number}: ${({claim:'вы взяли его',accept:'подтверждён',reject:'отклонён',cancel:'отменён',cook:'готовится',ready:'готов',send:'в пути'})[action]||label.toLowerCase()}`,button.dataset.kind);}else await localChange(s=>Store.transition(s,id,action),'Статус обновлён');await render(true);};
+      const perform=async reason=>{if(live){const card=button.closest('.order-card');card?.classList.add('is-busy');card?.querySelectorAll('button').forEach(b=>b.disabled=true);let updated;try{updated=await API.orderAction(id,action,reason);}catch(error){card?.classList.remove('is-busy');card?.querySelectorAll('button').forEach(b=>b.disabled=false);throw error;}if(cache.orders&&updated){const rest=cache.orders.filter(o=>o.id!==updated.id);cache.fresh={orders:['completed','cancelled'].includes(updated.status)?rest:cache.orders.map(o=>o.id===updated.id?updated:o),calls:cache.calls||[]};}toast(`Заказ №${number}: ${({claim:'вы взяли его',accept:'подтверждён',reject:'отклонён',cancel:'отменён',cook:'готовится',ready:'готов',send:'в пути'})[action]||label.toLowerCase()}`,button.dataset.kind);}else await localChange(s=>Store.transition(s,id,action),'Статус обновлён');await render(true);};
       if(live&&action==='reject'){const site=['delivery','pickup'].includes(button.dataset.kind);reasonDialog(`Отклонить заказ №${number}?`,reason=>perform(reason),site?'Кафе не смогло принять заказ':'Официант не подтвердил заказ со стола','Отклонить заказ');return;}
       if(button.dataset.reason==='true'){reasonDialog(`Отменить заказ №${number}?`,reason=>perform(reason));}else await perform('');return;
     }

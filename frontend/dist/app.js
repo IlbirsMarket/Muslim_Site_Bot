@@ -222,6 +222,8 @@
     if(plainMode){                                                         // главная: заказываем доставку / самовывоз выбранного филиала
       const chosen=branches.find(b=>b.id===guestBranch)||branches[0];
       if(chosen?.order_token){tableToken=chosen.order_token;rememberBranch(chosen.id);paintBranches();}   // переключатель филиалов в шапке
+      let freed=false;try{freed=sessionStorage.getItem('muslim-freed')==='1';sessionStorage.removeItem('muslim-freed');}catch{/* без подсказки */}
+      if(freed)setTimeout(()=>toast('Стол освобождён. Спасибо! Можно заказать доставку или самовывоз.'),600);
       else viewOnly=true;                                                 // филиалов нет — просто меню
     }
     menu = await MenuRepository.load();
@@ -239,6 +241,13 @@
         const fab=document.createElement('div');fab.id='guest-fab';fab.className='guest-fab';   // кнопка-шарик: на телефоне и планшете
         fab.innerHTML=`<div class="fab-dim" data-fab-close></div><div class="fab-items"><button type="button" class="fab-item" data-service="waiter">${ICON_BELL}Позвать официанта</button><button type="button" class="fab-item" data-service="bill">${ICON_BILL}Попросить счёт</button>${tg}</div><button type="button" class="fab-main" data-fab aria-label="Официант, счёт, Telegram" aria-expanded="false"><span class="fab-open">${ICON_BELL}</span><span class="fab-x">×</span></button>`;
         document.body.append(fab);
+        if(!storage.read('muslim-fab-hint',false)){                       // первый раз — подсказка, что это за золотой кружок
+          const hint=document.createElement('div');hint.className='fab-hint';hint.setAttribute('role','dialog');hint.setAttribute('aria-label','Подсказка');
+          hint.innerHTML='<strong>Нужна помощь?</strong>Нажмите на колокольчик: позвать официанта, попросить счёт (можно разделить на всех) или заказать в Telegram.<button type="button" class="primary" data-fab-hint>Понятно</button>';
+          fab.append(hint);
+          const close=()=>{hint.remove();storage.write('muslim-fab-hint',true);};
+          hint.querySelector('[data-fab-hint]').onclick=close;fab.querySelector('[data-fab]').addEventListener('click',close,{once:true});
+        }
         if(tableInfo.telegram_url&&!$('.header-actions .tg-head')){const a=document.createElement('a');a.className='outline tg-head';a.href=tableInfo.telegram_url;a.target='_blank';a.rel='noopener';a.innerHTML=ICON_TG+'Telegram';$('#table-label').before(a);}   // на компьютере — в шапке
       }
       renderMyOrders();                                                   // «Мои заказы» с этого телефона
@@ -279,7 +288,13 @@
     renderMenu();
   }
   setInterval(()=>{refreshMenu();checkTable();if(!document.hidden)renderMyOrders();}, 15000);
-  setInterval(()=>{if(!document.hidden&&cache.myOrders.some(o=>!['completed','cancelled'].includes(o.status)))renderMyOrders();},4000);   // заказ в работе — статус обновляется каждые 4 секунды   // меню, стол и статусы — раз в 30 секунд
+  let seenVersion=null;
+  setInterval(async()=>{                                                // раз в 2 секунды: «что-то изменилось?» — крошечный запрос
+    if(!live||document.hidden)return;
+    const active=cache.myOrders.some(o=>!['completed','cancelled'].includes(o.status));
+    if(!active&&!(tableInfo?.kind==='hall'))return;                    // нечего ждать — не спрашиваем
+    try{const {v}=await API.request('/version/',{auth:false});if(seenVersion!==null&&v!==seenVersion){renderMyOrders();checkTable();}seenVersion=v;}catch{/* нет связи */}
+  },2000);   // меню, стол и статусы — раз в 30 секунд
   document.addEventListener('visibilitychange', () => { if (!document.hidden){refreshMenu();checkTable();renderMyOrders();} });
   // Какие способы можно выбрать: со стола — «В кафе» и «С собой», с главной страницы — «Доставка» и «Самовывоз»
   function allowedModes(){return !live?['cafe','delivery','pickup']:tableInfo?.kind==='hall'?['cafe','takeaway']:['delivery','pickup'];}
@@ -305,6 +320,10 @@
     const cancelled=order.status==='cancelled';
     const time=iso=>{try{return new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});}catch{return '';}};
     dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body"><span class="eyebrow">Ваш заказ · ${escape(place)}</span><h2>Заказ №${order.number}</h2>${progress(order)}<p class="info order-state${cancelled?' cancelled':''}">${escape(order.status_label)}${cancelled&&order.cancel_reason?`<br><small>Причина: ${escape(order.cancel_reason)}</small>`:''}</p>${order.items.map(i=>`<div class="summary-line"><span>${escape(i.dish_name)} ${escape(i.size_name)} × ${i.quantity}</span><strong>${money(i.line_total)}</strong></div>`).join('')}${order.delivery_fee?`<div class="summary-line"><span>Доставка</span><strong>${money(order.delivery_fee)}</strong></div>`:''}<div class="total"><span>Итого</span><strong>${money(order.total)}</strong></div><div class="order-timeline">${(order.timeline||[]).map(t=>`<p><span>${escape(t.label)}</span><span>${escape(t.at?time(t.at):'')}</span></p>`).join('')}</div><button class="primary" id="refresh-order-status">Обновить статус</button><p id="order-status-error" class="info" hidden></p></div>`;
+    if(live&&window.MuslimPush&&!['completed','cancelled'].includes(order.status)){   // «Уведомлять о статусе» — push на телефон
+      MuslimPush.active().then(on=>{if(on||$('#push-order'))return;const b=document.createElement('button');b.type='button';b.id='push-order';b.className='secondary';b.textContent='🔔 Уведомлять о статусе';$('#refresh-order-status').before(b);
+        b.onclick=async()=>{b.disabled=true;try{const result=await MuslimPush.enable({device_key:deviceKey()});toast(result==='ok'?'Готово: статус придёт уведомлением':result);if(result==='ok')b.remove();}catch(error){toast(error.message);}finally{b.disabled=false;}};});
+    }
     $('#refresh-order-status').onclick=async()=>{const button=$('#refresh-order-status');button.disabled=true;try{const next=await API.request(`/orders/${encodeURIComponent(order.public_id)}/`,{auth:false});dialog.close();showOrder(next);renderMyOrders();}catch(error){$('#order-status-error').hidden=false;$('#order-status-error').textContent=error.message;}finally{button.disabled=false;}};
     if(!dialog.open)dialog.showModal();
   }
@@ -381,10 +400,15 @@
     if(announce)toast('Стол освобождён. Чтобы заказать снова, отсканируйте QR-код на столе.');
     renderMyOrders();
   }
-  async function checkTable(){                                            // раз в 30 секунд: не освободили ли стол
+  function leaveTable(){                                                 // стол освободили: гость остаётся на сайте и может заказать доставку / самовывоз
+    if(tableInfo?.branch)rememberBranch(tableInfo.branch);
+    try{sessionStorage.setItem('muslim-freed','1');}catch{/* нет хранилища — просто без подсказки */}
+    location.replace('./');                                             // главная: выбор филиала, доставка и самовывоз
+  }
+  async function checkTable(){                                            // не освободили ли стол
     if(!live||viewOnly||!tableToken||tableInfo?.kind!=='hall')return;
-    try{const info=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});if((info.freed_at||null)!==freedAt0)enterViewOnly();}
-    catch(error){if(error.status===404)enterViewOnly();}                   // QR удалили или перевыпустили
+    try{const info=await API.request(`/tables/${encodeURIComponent(tableToken)}/`,{auth:false});if((info.freed_at||null)!==freedAt0)leaveTable();}
+    catch(error){if(error.status===404)leaveTable();}                      // QR удалили или перевыпустили
   }
 
   window.addEventListener('storage',event=>{if(!live&&event.key===window.MuslimStore.KEY){document.querySelectorAll('dialog[open]').forEach(d=>d.close());start().catch(error=>toast(error.message));}});

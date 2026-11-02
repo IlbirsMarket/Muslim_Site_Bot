@@ -125,4 +125,27 @@ class LinkCode(models.Model):
         """Код годен: ещё не использован и ему меньше 10 минут."""
         if self.used_at:                                      # уже использовали — второй раз нельзя
             return False
-        return timezone.now() - self.created_at < timedelta(minutes=LINK_CODE_MINUTES)  # не просрочен
+        return timezone.now() - self.created_at < timedelta(minutes=LINK_CODE_MINUTES)  # не просрочен
+
+class PushSubscription(models.Model):
+    """
+    Телефон / компьютер, который разрешил push-уведомления (сайт добавлен на экран «Домой» или открыт в браузере).
+    Сотрудник — по аккаунту (уведомления по его роли и филиалу), гость — по ключу устройства (статусы его заказов).
+    Само уведомление приходит пустым, а текст телефон забирает из pending (так не нужна шифровка содержимого).
+    """
+
+    endpoint = models.URLField("Адрес push-сервиса", max_length=600, unique=True)     # куда слать (Apple / Google / Mozilla)
+    user = models.ForeignKey(                                                            # сотрудник (или пусто — гость)
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="push_subscriptions", verbose_name="Сотрудник",
+    )
+    device_key = models.CharField("Ключ устройства гостя", max_length=64, blank=True, db_index=True)
+    pending = models.JSONField("Ждут показа", default=list, blank=True)                 # [{title, body, url}] — телефон заберёт
+    created_at = models.DateTimeField("Подписка", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Push-подписка"
+        verbose_name_plural = "Push-подписки"
+
+    def __str__(self):
+        return f"{self.user or 'Гость'} — {self.endpoint[:40]}…"

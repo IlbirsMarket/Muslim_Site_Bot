@@ -317,3 +317,6 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 @media(max-width:550px){.qr-grid.single{grid-template-columns:1fr;gap:12px}}
 /* iPhone не увеличивает экран при нажатии на поле ввода */
 @media(max-width:1200px){input,select,textarea{font-size:16px!important}}
+
+/* Нажали кнопку заказа — карточка сразу «гаснет», пока сервер отвечает */
+.order-card.is-busy{opacity:.55;pointer-events:none;transition:opacity .15s}

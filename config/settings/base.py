@@ -229,6 +229,9 @@ TELEGRAM_GUEST_BOT_USERNAME = os.getenv("TELEGRAM_GUEST_BOT_USERNAME", "").lstri
 TELEGRAM_ARCHIVE_CHAT_ID = int(os.getenv("TELEGRAM_ARCHIVE_CHAT_ID") or 0)      # группа «Архив»: сюда бот шлёт ночные копии базы
 TELEGRAM_ARCHIVE_TOPIC_ID = int(os.getenv("TELEGRAM_ARCHIVE_TOPIC_ID") or 0)    # тема в этой группе (0 — общий чат группы)
 BACKUP_DIR = os.getenv("BACKUP_DIR", "/home/muslim/backups")                   # где backup-db.sh оставляет копии     # имя бота без @: для ссылки привязки
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")                                  # push на телефон: ключи — python manage.py make_vapid_keys
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:admin@muslim-cafe.com")           # контакт для push-сервисов (Apple / Google)
 TELEGRAM_GROUP_ID = int(os.getenv("TELEGRAM_GROUP_ID") or 0)                   # ID группы «Муслим — смена» (отрицательное число)
 TELEGRAM_TOPICS = {                                                            # ID тем группы; 0 — тема не настроена
     place: int(os.getenv(f"TELEGRAM_TOPIC_{place.upper()}") or 0)

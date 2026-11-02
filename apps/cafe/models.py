@@ -24,10 +24,10 @@ class Branch(models.Model):
 
     # ----- Telegram: группа филиала с темами (ID узнать командой /ids в группе) -----
     tg_group_id = models.BigIntegerField("Telegram: ID группы", null=True, blank=True)        # «Муслим — смена · филиал»
-    tg_topic_admins = models.BigIntegerField("Тема «Админы»", null=True, blank=True)          # доставки и самовывозы
-    tg_topic_kitchen = models.BigIntegerField("Тема «Кухня»", null=True, blank=True)          # подтверждённые заказы
-    tg_topic_hall = models.BigIntegerField("Тема «Зал»", null=True, blank=True)               # заказы со столов, вызовы
-    tg_topic_delivery = models.BigIntegerField("Тема «Доставка»", null=True, blank=True)      # курьеры
+    tg_topic_admins = models.BigIntegerField("Тема «Новые»", null=True, blank=True)           # новые заказы: подтвердить / «Беру стол»
+    tg_topic_kitchen = models.BigIntegerField("Тема «Готовятся»", null=True, blank=True)      # приняты и готовятся: повар
+    tg_topic_hall = models.BigIntegerField("Тема «Вызовы»", null=True, blank=True)            # «Позвать официанта», «Счёт»
+    tg_topic_delivery = models.BigIntegerField("Тема «Готовы и в пути»", null=True, blank=True)   # подать / отдать / везти
     tg_topic_reports = models.BigIntegerField("Тема «Отчёты»", null=True, blank=True)         # отчёт за день
     tg_start_token = models.CharField("Код ссылки на гостевой бот", max_length=32, blank=True, editable=False)   # QR бота: t.me/бот?start=b<код>
 
