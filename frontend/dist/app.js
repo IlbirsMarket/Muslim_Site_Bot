@@ -222,9 +222,9 @@
     if(plainMode){                                                         // главная: заказываем доставку / самовывоз выбранного филиала
       const chosen=branches.find(b=>b.id===guestBranch)||branches[0];
       if(chosen?.order_token){tableToken=chosen.order_token;rememberBranch(chosen.id);paintBranches();}   // переключатель филиалов в шапке
-      let freed=false;try{freed=sessionStorage.getItem('muslim-freed')==='1';sessionStorage.removeItem('muslim-freed');}catch{/* без подсказки */}
-      if(freed)setTimeout(()=>toast('Стол освобождён. Спасибо! Можно заказать доставку или самовывоз.'),600);
       else viewOnly=true;                                                 // филиалов нет — просто меню
+      let freed=false;try{freed=sessionStorage.getItem('muslim-freed')==='1';sessionStorage.removeItem('muslim-freed');}catch{/* без подсказки */}
+      if(freed)setTimeout(()=>toast('Стол освобождён. Спасибо! Можно заказать доставку или самовывоз.'),600);   // пришли сюда после «Освободить стол»
     }
     menu = await MenuRepository.load();
     if(!menu.categories.some(c=>c.id===category))category=menu.categories[0]?.id||'';
