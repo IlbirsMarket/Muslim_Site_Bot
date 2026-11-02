@@ -51,7 +51,7 @@ SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30 if USE_HTTPS else 0   # браузер 3
 # Swagger (документация API) на сервере видят только админы, вошедшие в Django-админку
 SPECTACULAR_SETTINGS = {**SPECTACULAR_SETTINGS, "SERVE_PERMISSIONS": ["core.permissions.IsCafeAdmin"]}  # noqa: F405
 
-# Запрос без файлов не больше 2 МБ, фото — до 5 МБ (это же ограничение стоит и в nginx)
+# Запрос без файлов не больше 2 МБ, фото — до 3,5 МБ (nginx пропускает до 5 МБ — с запасом)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 
 # SQLite на сервере: ждём до 20 секунд, если база занята другим запросом, а не падаем с ошибкой
@@ -63,4 +63,4 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "WARNING"},
-}
+}

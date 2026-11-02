@@ -9,7 +9,7 @@ from rest_framework import serializers                 # инструменты 
 from core.branches import check_same_branch            # ссылки — только на своё меню филиала
 from .models import Category, Dish, DishSize, Extra   # модели меню
 
-MAX_PHOTO_BYTES = 5 * 1024 * 1024                      # фото блюда — не больше 5 МБ
+MAX_PHOTO_BYTES = int(3.5 * 1024 * 1024)                # фото блюда — не больше 3,5 МБ
 ALLOWED_PHOTO_FORMATS = {"JPEG", "PNG", "WEBP"}        # какие картинки принимаем
 
 
@@ -167,11 +167,11 @@ class DishAdminSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def validate_photo(self, value):
-        """Фото: только настоящие картинки JPG, PNG или WebP и не больше 5 МБ (проверяем само содержимое файла)."""
+        """Фото: только настоящие картинки JPG, PNG или WebP и не больше 3,5 МБ (проверяем само содержимое файла)."""
         if not value:
             return value
         if value.size > MAX_PHOTO_BYTES:
-            raise serializers.ValidationError("Фото больше 5 МБ. Выберите файл поменьше.")
+            raise serializers.ValidationError("Фото больше 3,5 МБ. Выберите файл поменьше.")
         image = getattr(value, "image", None)                       # Pillow уже открыл файл и проверил, что это картинка
         if image is not None and (image.format or "").upper() not in ALLOWED_PHOTO_FORMATS:
             raise serializers.ValidationError("Подойдёт только JPG, PNG или WebP.")
