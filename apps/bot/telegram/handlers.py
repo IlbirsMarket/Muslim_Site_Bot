@@ -16,7 +16,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, FSInputFile, Message
 from apps.bot import guest_services as gs                    # меню с фото — то же, что у гостей
 from apps.bot import texts                                   # тексты и данные из базы
 from apps.bot.services import login_from_telegram, unlink_telegram
-from .screen import delete, drop_user_message, inline, show   # «один экран»
+from .screen import delete, drop_user_message, inline, mini_app_url, show   # «один экран», адрес мини-приложения
 
 router = Router()                                            # обработчики лички
 router.message.filter(F.chat.type == ChatType.PRIVATE)       # всё ниже — только в личном чате с ботом
@@ -31,29 +31,31 @@ class Login(StatesGroup):
 
 
 def home_rows(user) -> list:
-    """Главная: до входа — «Войти»; после — два раздела: «Кафе» и «Профиль»."""
+    """
+    Главная. Есть https-сайт — главная кнопка «📱 Открыть панель» (мини-приложение: та же панель, что на сайте).
+    Без https (на своём компьютере) — бот на кнопках: «Войти» / «Кафе» и «Профиль».
+    """
+    app = mini_app_url("/admin")
+    if app:
+        rows = [[("📱 Открыть панель кафе", "web:" + app)]]
+        return rows + ([[("👤 Профиль", "sp")]] if user else [])
     if user is None:
         return [[("🔑 Войти как сотрудник", "sl")]]
     return [[("☕ Кафе", "cafe"), ("👤 Профиль", "sp")]]
 
 
 def cafe_rows(user) -> list:
-    """Раздел «Кафе» в две колонки — те же разделы, что в панели на сайте (только то, что можно роли)."""
-    items = [("🧾 Заказы", "Po"), ("📋 Меню кафе", "smn")]               # заказы видят все роли (каждая — свои)
+    """Разделы «Кафе» — как меню панели на сайте, по одному в ряд (только то, что можно роли)."""
+    items = [("🧾 Заказы", "Po")]                                        # заказы видят все роли (каждая — свои)
+    if user.is_cafe_admin or user.is_cook:
+        items.append(("🍽 Блюда и категории", "Pm"))                    # повар — только стоп-лист
+    if user.is_cafe_admin or user.is_waiter:
+        items.append(("🪑 Столы и QR", "Pt:1"))                          # официант — занятые столы и «Освободить»
     if user.is_cafe_admin:
-        items += [("🍽 Блюда", "Pd"), ("🧩 Добавки", "Px")]               # редактор меню
-    if user.is_cook or user.is_cafe_admin:
-        items.append(("🛑 Стоп-лист", "sc:0"))
-    if user.is_cafe_admin:
-        items.append(("🪑 Столы и QR", "Pt"))
-    if user.is_waiter or user.is_cafe_admin:
-        items.append(("🧹 Занятые столы", "tb"))
-    if user.is_cafe_admin:
-        items += [("👥 Сотрудники", "Pu"), ("⚙️ Настройки", "Ps"), ("📊 Отчёты", "rpm")]
-    rows = [items[i:i + 2] for i in range(0, len(items), 2)]
-    if user.sees_all_branches():                                         # шеф и программист — другой филиал
-        rows.append([("⇄ Сменить филиал", "cafe")])
-    return rows + [[("↩️ Главная", "sh")]]
+        items += [("👥 Пользователи и роли", "Pu:all"), ("📊 Отчёты", "rpm"), ("⚙️ Настройки", "Pset")]
+    rows = [[item] for item in items]
+    bottom = [("⇄ Сменить филиал", "cafe")] if user.sees_all_branches() else []   # шеф и программист — другой филиал
+    return rows + [bottom + [("↩️ Главная", "sh")]]
 
 
 async def chosen_branch(state: FSMContext, user) -> int:
@@ -91,7 +93,7 @@ async def current_staff(event):
 async def show_home(event, state: FSMContext, user=None, note=""):
     """Главный экран."""
     await state.set_state(None)
-    text = (note + "\n\n" if note else "") + texts.welcome_text(user)
+    text = (note + "\n\n" if note else "") + texts.welcome_text(user, bool(mini_app_url()))
     await screen(event, state, text, home_rows(user))
 
 

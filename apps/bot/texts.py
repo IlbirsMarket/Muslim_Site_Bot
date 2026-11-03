@@ -32,8 +32,15 @@ def person(user) -> str:
     return escape(user.first_name or user.username)
 
 
-def welcome_text(user) -> str:
-    """Первое сообщение после /start."""
+def welcome_text(user, mini_app: bool = False) -> str:
+    """Первое сообщение после /start. mini_app — панель открывается мини-приложением (кнопка «📱 Открыть панель кафе»)."""
+    if mini_app:
+        if user:
+            return (f"Ассаляму алейкум, {person(user)}!\nВы вошли как <b>{user.get_role_display()}</b>.\n\n"
+                    "Заказы приходят в группу филиала с кнопками. Вся панель кафе — по кнопке ниже 👇")
+        return ("Ассаляму алейкум! Это бот сотрудников кафе «Муслим».\n\n"
+                "Нажмите «📱 Открыть панель кафе» и войдите один раз логином и паролем с сайта — "
+                "дальше панель будет открываться сама, а кнопки в группе заработают.")
     if user:                                                       # уже вошёл
         return (f"Ассаляму алейкум, {person(user)}!\n"
                 f"Вы вошли как <b>{user.get_role_display()}</b>.\n\n"

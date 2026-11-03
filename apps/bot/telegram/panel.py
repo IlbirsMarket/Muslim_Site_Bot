@@ -1,7 +1,9 @@
 """
-Панель кафе в Telegram-боте сотрудников: всё, что умеет панель на сайте, — на инлайн-кнопках в одном экране.
-  Заказы и вызовы · Блюда и категории (размеры, добавки, фото, порядок) · Добавки · Столы, этажи и QR ·
-  Сотрудники и роли · Настройки филиала · Отчёты за период и архив.
+Панель кафе в Telegram-боте сотрудников — те же разделы, что в меню панели на сайте:
+  🧾 Заказы · 🍽 Блюда и категории (категории, блюда, стоп-лист) · 🪑 Столы и QR ·
+  👥 Пользователи и роли · 📊 Отчёты · ⚙️ Настройки.
+Карточка (блюдо, сотрудник, стол) показывает данные и кнопки «✏️ Изменить» / «🗑 Удалить»;
+«✏️ Изменить» открывает список полей, каждое поле — отдельный вопрос.
 Каждое действие — запрос к тому же API, что у сайта (apps/bot/panel_api.py): права, проверки и база общие.
 Шеф и программист работают с филиалом, выбранным в «Кафе».
 
@@ -46,8 +48,9 @@ def two(items) -> list:
     return [items[i:i + 2] for i in range(0, len(items), 2)]
 
 
-def yes(value) -> str:
-    return "да" if value else "нет"
+def grid(items, per_row: int) -> list:
+    """Кнопки рядами по per_row (вкладки, столы)."""
+    return [items[i:i + per_row] for i in range(0, len(items), per_row)]
 
 
 SCREENS = {}                                                  # код → функция экрана или действия
@@ -178,10 +181,9 @@ OBJ = {                                                        # что → (а�
     "cat": ("/admin/categories/{}/", "Pc:{}"),
     "dish": ("/admin/dishes/{}/", "Pi:{}"),
     "size": ("/admin/sizes/{}/", "Pz1:{}"),
-    "extra": ("/admin/extras/{}/", "Pxe:{}"),
     "table": ("/admin/tables/{}/", "Ptt:{}"),
     "staff": ("/admin/staff/{}/", "Pu1:{}"),
-    "cafe": ("/admin/cafe/", "Ps"),
+    "cafe": ("/admin/cafe/", "Pset"),
 }
 FIELDS = {                                                     # поле → (вопрос, тип ответа)
     "name": ("Новое название", "text"),
@@ -252,14 +254,19 @@ async def save_field(message, state, user, bid, spec, value):
     return None if result.ok else f"❌ {result.error}"
 
 
+
+
 # ===================================================================
-#  ЗАКАЗЫ И ВЫЗОВЫ
+#  🧾 ЗАКАЗЫ И ВЫЗОВЫ
 # ===================================================================
 
+STATUS_ICON = {"new": "🆕", "accepted": "✅", "cooking": "🍳", "ready": "🛎", "on_the_way": "🚗"}
+
+
 def order_title(o) -> str:
-    """№12 · Стол 3 · Новый."""
+    """🆕 №12 · Стол 3 · Новый."""
     where = o.get("table_name") if o["kind"] in ("hall", "takeaway") and o.get("table_name") else o["kind_display"]
-    return f"№{o['number']} · {where} · {o['status_label']}"
+    return f"{STATUS_ICON.get(o['status'], '🧾')} №{o['number']} · {where} · {o['status_label']}"
 
 
 @code("Po")
@@ -276,7 +283,7 @@ async def orders(event, state, user, bid, note=""):
         calls = list(got.data) if got.ok else []
         rows += [[(f"🔔 {c['table_name']}: {c['kind_display']} — подошёл", f"Pk:{c['id']}")] for c in calls]
     text = f"🧾 <b>Заказы в работе</b> · {await branch_title(bid)}\n"
-    text += f"Заказов: {len(items)}" + (f" · вызовов: {len(calls)}" if calls else "") if items or calls else "Сейчас нет заказов в работе."
+    text += (f"Заказов: {len(items)}" + (f" · вызовов: {len(calls)}" if calls else "")) if items or calls else "Сейчас нет заказов в работе."
     await screen(event, state, head(note) + text, rows + [[("🔄 Обновить", "Po"), CAFE]])
 
 
@@ -322,46 +329,86 @@ async def call_done(event, state, user, bid, pk, note=""):
 
 
 # ===================================================================
-#  БЛЮДА И КАТЕГОРИИ
+#  🍽 БЛЮДА И КАТЕГОРИИ: категории · блюда · стоп-лист
 # ===================================================================
+
+PAGE = 8                                                       # блюд на странице
+
 
 async def categories_list(user, bid):
     result = await api(user, "get", "/admin/categories/", bid=bid)
     return list(result.data) if result.ok else []
 
 
+async def dishes_list(user, bid, category=0):
+    """Блюда филиала (повару тоже можно — для стоп-листа). category=0 — все."""
+    result = await api(user, "get", f"/admin/dishes/?category={category}" if int(category) else "/admin/dishes/", bid=bid)
+    return list(result.data) if result.ok else []
+
+
+def short_price(d) -> str:
+    """«от 550» для блюда с размерами, иначе «390»."""
+    if d.get("sizes"):
+        return "от " + str(min(s["price"] for s in d["sizes"]))
+    return str(d.get("price") or 0)
+
+
+def chips(cats, current, route) -> list:
+    """Вкладки категорий «Все · Пиццы · …» (выбранная — в точках). route — «Pb:{}:0»."""
+    items = [("• Все •" if str(current) == "0" else "Все", route.format(0))]
+    items += [(f"• {name} •" if str(cid) == str(current) else name, route.format(cid)) for cid, name in cats]
+    return grid(items, 3)
+
+
+def pages(items, page, route) -> tuple:
+    """Срез страницы и ряд «◀️ 1 / 3 ▶️» (если страниц больше одной)."""
+    total = max(1, -(-len(items) // PAGE))
+    page = int(page) % total
+    nav = [[("◀️", route.format(page - 1)), (f"{page + 1} / {total}", "_"), ("▶️", route.format(page + 1))]] if total > 1 else []
+    return items[page * PAGE:(page + 1) * PAGE], nav
+
+
+@code("Pm")
+async def menu_hub(event, state, user, bid, note=""):
+    """Раздел «Блюда и категории»: Категории · Блюда · Стоп-лист (повар — только стоп-лист)."""
+    dishes = await dishes_list(user, bid)
+    stopped = sum(1 for d in dishes if not d["is_available"])
+    text = f"🍽 <b>Блюда и категории</b> · {await branch_title(bid)}\n"
+    if user.is_cafe_admin:
+        cats = await categories_list(user, bid)
+        text += f"Категорий: {len(cats)} · блюд: {len(dishes)}\n⛔ в стоп-листе: {stopped}"
+        rows = [[("📂 Категории", "Pd"), ("🍽 Блюда", "Pb:0:0")], [("🛑 Стоп-лист", "Pso:0:0")]]
+    else:
+        text += f"Блюд: {len(dishes)} · ⛔ в стоп-листе: {stopped}"
+        rows = [[("🛑 Стоп-лист", "Pso:0:0")]]
+    await screen(event, state, head(note) + text, rows + [[CAFE]])
+
+
+# ----- Категории -----
+
 @code("Pd")
 async def categories(event, state, user, bid, note=""):
-    if not user.is_cafe_admin:                                 # как на сайте: редактор меню — админ и выше
-        return "❌ Нет прав: редактор меню — для админа и шефа."
+    if not user.is_cafe_admin:                                 # как на сайте: категории меняет админ и выше
+        return "❌ Нет прав: категории меняет админ или шеф."
     cats = await categories_list(user, bid)
-    rows = [[(("" if c["is_active"] else "🙈 ") + f"{c['name']} · {c['dishes_count']}", f"Pc:{c['id']}")] for c in cats]
-    text = f"🍽 <b>Блюда и категории</b> · {await branch_title(bid)}\n" + ("Выберите категорию (🙈 — скрыта от гостей):" if cats else "Категорий пока нет.")
-    await screen(event, state, head(note) + text, rows + [[("➕ Категория", "Pnc")], [CAFE]])
-
-
-def price_text(d) -> str:
-    """Цена блюда или цены размеров."""
-    if d.get("sizes"):
-        return " / ".join(f"{esc(s['name'])} {money(s['price'])}" for s in d["sizes"])
-    return money(d.get("price") or 0)
+    rows = [[(("🙈 " if not c["is_active"] else "") + f"{c['name']} · {c['dishes_count']} блюд", f"Pc:{c['id']}")] for c in cats]
+    text = f"📂 <b>Категории</b> · {len(cats)}\n" + ("<i>🙈 — скрыта от гостей</i>" if cats else "Категорий пока нет.")
+    await screen(event, state, head(note) + text, rows + [[("➕ Добавить категорию", "Pnc")], [("↩️ Блюда и категории", "Pm")]])
 
 
 @code("Pc")
 async def category(event, state, user, bid, pk, note=""):
     cats = await categories_list(user, bid)
-    cat = next((c for c in cats if str(c["id"]) == str(pk)), None)
-    if cat is None:
+    index = next((n for n, c in enumerate(cats) if str(c["id"]) == str(pk)), None)
+    if index is None:
         return await categories(event, state, user, bid, note="❌ Категория не найдена — возможно, уже удалена.")
-    got = await api(user, "get", f"/admin/dishes/?category={pk}", bid=bid)
-    dishes = list(got.data) if got.ok else []
-    rows = [[(("✅ " if d["is_available"] else "⛔ ") + ("" if d["is_active"] else "🙈 ") + d["name"], f"Pi:{d['id']}")] for d in dishes]
-    text = (f"📂 <b>{esc(cat['name'])}</b>\nБлюд: {len(dishes)} · {'видна гостям' if cat['is_active'] else '🙈 скрыта от гостей'}\n"
-            "✅ есть · ⛔ нет в наличии · 🙈 скрыто")
-    rows += [[("➕ Блюдо", f"Pnd:{pk}")],
-             [("✏️ Название", f"Pe:cat:{pk}:name"), ("🙈 Скрыть" if cat["is_active"] else "👁 Показать", f"Pcv:{pk}")],
-             [("⬆️ Выше", f"Pco:{pk}:-1"), ("⬇️ Ниже", f"Pco:{pk}:1")],
-             [("🗑 Удалить категорию", f"Pcd:{pk}")], [("↩️ Категории", "Pd")]]
+    cat = cats[index]
+    text = (f"📂 <b>{esc(cat['name'])}</b>\nБлюд: {cat['dishes_count']} · {'видна гостям' if cat['is_active'] else '🙈 скрыта от гостей'}\n"
+            f"В меню: {index + 1}-я по счёту")
+    rows = [[("✏️ Изменить", f"Pe:cat:{pk}:name"), ("🗑 Удалить", f"Pcd:{pk}")],
+            [("🙈 Скрыть от гостей" if cat["is_active"] else "👁 Показать гостям", f"Pcv:{pk}")],
+            [("⬆️ Выше", f"Pco:{pk}:-1"), ("⬇️ Ниже", f"Pco:{pk}:1")],
+            [("🍽 Блюда этой категории", f"Pb:{pk}:0")], [("↩️ Категории", "Pd")]]
     await screen(event, state, head(note) + text, rows)
 
 
@@ -375,7 +422,7 @@ async def category_visible(event, state, user, bid, pk, note=""):
 
 @code("Pco")
 async def category_move(event, state, user, bid, pk, step, note=""):
-    """Поменять порядок категорий в меню гостей (как перетаскивание на сайте)."""
+    """Порядок категорий в меню гостей (как перетаскивание на сайте)."""
     ids = [c["id"] for c in await categories_list(user, bid)]
     i = next((n for n, x in enumerate(ids) if str(x) == str(pk)), None)
     j = i + int(step) if i is not None else -1
@@ -410,9 +457,30 @@ async def category_create(message, state, user, bid, spec, value):
     return (f"Pc:{result.data['id']}", "✅ Категория добавлена") if result.ok else f"❌ {result.error}"
 
 
-async def extras_list(user, bid):
-    result = await api(user, "get", "/admin/extras/", bid=bid)
-    return list(result.data) if result.ok else []
+# ----- Блюда -----
+
+@code("Pb")
+async def dishes(event, state, user, bid, cat="0", page="0", note=""):
+    """Все блюда по страницам, сверху — вкладки категорий."""
+    if not user.is_cafe_admin:
+        return "❌ Нет прав: блюда меняет админ или шеф."
+    cats = [(c["id"], c["name"]) for c in await categories_list(user, bid)]
+    items = await dishes_list(user, bid, cat)
+    chunk, nav = pages(items, page, f"Pb:{cat}:{{}}")
+    await state.update_data(dish_back=f"Pb:{cat}:{page}")      # карточка блюда вернётся сюда
+    rows = chips(cats, cat, "Pb:{}:0")
+    rows += [[(("⛔ " if not d["is_available"] else "✅ ") + ("🙈 " if not d["is_active"] else "") + f"{d['name']} · {short_price(d)}",
+               f"Pi:{d['id']}")] for d in chunk]
+    text = f"🍽 <b>Блюда</b> · {len(items)}\n<i>✅ есть · ⛔ стоп-лист · 🙈 скрыто</i>" if items else "🍽 <b>Блюда</b>\nЗдесь пока нет блюд."
+    add = f"Pnd:{cat}" if str(cat) != "0" else "Pnd0"
+    await screen(event, state, head(note) + text, rows + nav + [[("➕ Добавить блюдо", add)], [("↩️ Блюда и категории", "Pm")]])
+
+
+def price_text(d) -> str:
+    """Цена блюда или цены размеров."""
+    if d.get("sizes"):
+        return " · ".join(f"{esc(s['name'])} {s['price']}" for s in d["sizes"]) + " сом"
+    return money(d.get("price") or 0)
 
 
 def dish_photo(pk):
@@ -433,27 +501,38 @@ def dish_photo(pk):
 
 @code("Pi")
 async def dish(event, state, user, bid, pk, note=""):
-    """Карточка блюда: фото, цены, добавки и все кнопки редактора."""
+    """Карточка блюда: фото и данные + «✏️ Изменить», «🗑 Удалить», стоп-лист."""
     result = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
+    back = (await state.get_data()).get("dish_back") or "Pb:0:0"
     if not result.ok:
-        return await categories(event, state, user, bid, note=f"❌ {result.error}")
+        return await dishes(event, state, user, bid, note=f"❌ {result.error}")
     d = result.data
-    names = {e["id"]: e["name"] for e in await extras_list(user, bid)}
-    extras = ", ".join(esc(names.get(e, "?")) for e in d.get("extras", [])) or "нет"
-    text = (f"🍽 <b>{esc(d['name'])}</b>\n📂 {esc(d['category_name'])}\n💰 {price_text(d)}\n🧩 Добавки: {extras}\n"
+    text = (f"🍽 <b>{esc(d['name'])}</b>\n📂 {esc(d['category_name'])}\n💰 {price_text(d)}\n"
             f"{'✅ Есть в наличии' if d['is_available'] else '⛔ Нет в наличии (стоп-лист)'} · "
             f"{'видно гостям' if d['is_active'] else '🙈 скрыто от гостей'}")
     if d.get("description"):
         text += f"\n\n<i>{esc(d['description'])[:500]}</i>"
-    rows = [[("✏️ Название", f"Pe:dish:{pk}:name"), ("💰 Цена", f"Pe:dish:{pk}:price")],
-            [("📝 Описание", f"Pe:dish:{pk}:description"), ("📷 Фото", f"Pph:{pk}")],
-            [("📏 Размеры", f"Pz:{pk}"), ("🧩 Добавки", f"Pdx:{pk}")],
-            [("📂 Категория", f"Pdk:{pk}"), ("⛔ В стоп-лист" if d["is_available"] else "✅ Есть в наличии", f"Pda:{pk}")],
-            [("🙈 Скрыть" if d["is_active"] else "👁 Показать", f"Pdv:{pk}"), ("🗑 Удалить", f"Pdd:{pk}")],
-            [("⬆️ Выше", f"Pdo:{pk}:-1"), ("⬇️ Ниже", f"Pdo:{pk}:1")],
-            [(f"↩️ {d['category_name']}", f"Pc:{d['category']}")]]
+    rows = [[("✏️ Изменить", f"Pie:{pk}"), ("🗑 Удалить", f"Pdd:{pk}")],
+            [("⛔ В стоп-лист" if d["is_available"] else "✅ Снова в наличии", f"Pda:{pk}")],
+            [("↩️ Блюда", back)]]
     photo, key = await sync_to_async(dish_photo)(pk)
     await screen(event, state, (head(note) + text)[:1024], rows, photo, key)
+
+
+@code("Pie")
+async def dish_edit(event, state, user, bid, pk, note=""):
+    """«✏️ Изменить» блюдо: что именно."""
+    got = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
+    if not got.ok:
+        return f"❌ {got.error}"
+    d = got.data
+    rows = [[("🏷 Название", f"Pe:dish:{pk}:name"), ("💰 Цена", f"Pe:dish:{pk}:price")],
+            [("📝 Описание", f"Pe:dish:{pk}:description"), ("📷 Фото", f"Pph:{pk}")],
+            [("📏 Размеры", f"Pz:{pk}"), ("📂 Категория", f"Pdk:{pk}")],
+            [("🙈 Скрыть от гостей" if d["is_active"] else "👁 Показать гостям", f"Pdv:{pk}")],
+            [("⬆️ Выше", f"Pdo:{pk}:-1"), ("⬇️ Ниже", f"Pdo:{pk}:1")],
+            [("↩️ Блюдо", f"Pi:{pk}")]]
+    await screen(event, state, head(note) + f"✏️ <b>{esc(d['name'])}</b> — что изменить?", rows)
 
 
 @code("Pda")
@@ -466,29 +545,30 @@ async def dish_available(event, state, user, bid, pk, note=""):
 async def dish_visible(event, state, user, bid, pk, note=""):
     got = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
     result = await api(user, "patch", f"/admin/dishes/{pk}/", {"is_active": not got.data["is_active"]}, bid) if got.ok else got
-    await dish(event, state, user, bid, pk, note="✅ Сохранено" if result.ok else f"❌ {result.error}")
+    await dish_edit(event, state, user, bid, pk, note="✅ Сохранено" if result.ok else f"❌ {result.error}")
 
 
 @code("Pdo")
 async def dish_move(event, state, user, bid, pk, step, note=""):
+    """Порядок блюда в его категории."""
     got = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
     if not got.ok:
         return f"❌ {got.error}"
     cat = got.data["category"]
-    ids = [d["id"] for d in (await api(user, "get", f"/admin/dishes/?category={cat}", bid=bid)).data]
+    ids = [d["id"] for d in await dishes_list(user, bid, cat)]
     i = ids.index(int(pk))
     j = i + int(step)
     if not 0 <= j < len(ids):
         return "Дальше двигать некуда"
     ids[i], ids[j] = ids[j], ids[i]
     result = await api(user, "post", "/admin/dishes/reorder/", {"category": cat, "ids": ids}, bid)
-    await dish(event, state, user, bid, pk, note="✅ Порядок изменён" if result.ok else f"❌ {result.error}")
+    await dish_edit(event, state, user, bid, pk, note="✅ Порядок изменён" if result.ok else f"❌ {result.error}")
 
 
 @code("Pdk")
 async def dish_category(event, state, user, bid, pk, note=""):
     cats = await categories_list(user, bid)
-    rows = [[(c["name"], f"Pdkc:{pk}:{c['id']}")] for c in cats] + [[("↩️ Блюдо", f"Pi:{pk}")]]
+    rows = [[(c["name"], f"Pdkc:{pk}:{c['id']}")] for c in cats] + [[("↩️ Изменить", f"Pie:{pk}")]]
     await screen(event, state, "📂 В какую категорию перенести блюдо?", rows)
 
 
@@ -498,30 +578,6 @@ async def dish_category_set(event, state, user, bid, pk, cat, note=""):
     await dish(event, state, user, bid, pk, note="✅ Перенесено" if result.ok else f"❌ {result.error}")
 
 
-@code("Pdx")
-async def dish_extras(event, state, user, bid, pk, note=""):
-    """Добавки блюда: нажатие включает / выключает."""
-    got = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
-    if not got.ok:
-        return f"❌ {got.error}"
-    chosen = set(got.data.get("extras", []))
-    extras = await extras_list(user, bid)
-    rows = [[(("✅ " if e["id"] in chosen else "▫️ ") + f"{e['name']} +{e['price']}", f"Pdxt:{pk}:{e['id']}")] for e in extras]
-    text = f"🧩 <b>Добавки к «{esc(got.data['name'])}»</b>\nНажмите, чтобы включить ✅ или выключить ▫️." if extras else "Добавок пока нет — создайте их в разделе «🧩 Добавки»."
-    await screen(event, state, head(note) + text, rows + [[("↩️ Блюдо", f"Pi:{pk}")]])
-
-
-@code("Pdxt")
-async def dish_extra_toggle(event, state, user, bid, pk, extra, note=""):
-    got = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
-    if not got.ok:
-        return f"❌ {got.error}"
-    chosen = set(got.data.get("extras", []))
-    chosen ^= {int(extra)}                                     # было — убираем, не было — добавляем
-    result = await api(user, "patch", f"/admin/dishes/{pk}/", {"extras": sorted(chosen)}, bid)
-    await dish_extras(event, state, user, bid, pk, note="" if result.ok else f"❌ {result.error}")
-
-
 @code("Pdd")
 async def dish_delete_ask(event, state, user, bid, pk, note=""):
     await confirm(event, state, "Удалить блюдо? Заказы с ним останутся в истории.", f"Pdy:{pk}", f"Pi:{pk}")
@@ -529,36 +585,44 @@ async def dish_delete_ask(event, state, user, bid, pk, note=""):
 
 @code("Pdy")
 async def dish_delete(event, state, user, bid, pk, note=""):
-    got = await api(user, "get", f"/admin/dishes/{pk}/", bid=bid)
     result = await api(user, "delete", f"/admin/dishes/{pk}/", bid=bid)
-    if result.ok and got.ok:
-        return await category(event, state, user, bid, got.data["category"], note="🗑 Блюдо удалено")
-    await categories(event, state, user, bid, note=f"❌ {result.error}")
+    back = (await state.get_data()).get("dish_back") or "Pb:0:0"
+    await go(event, state, user, bid, back, note="🗑 Блюдо удалено" if result.ok else f"❌ {result.error}")
+
+
+@code("Pnd0")
+async def dish_new_category(event, state, user, bid, note=""):
+    """«➕ Добавить блюдо» из «Все» — сначала категория."""
+    cats = await categories_list(user, bid)
+    if not cats:
+        return "❌ Сначала добавьте категорию."
+    rows = [[(c["name"], f"Pnd:{c['id']}")] for c in cats] + [[("✖️ Отмена", "Pb:0:0")]]
+    await screen(event, state, "➕ <b>Новое блюдо</b>\nВ какую категорию?", rows)
 
 
 @code("Pnd")
 async def dish_new(event, state, user, bid, cat, note=""):
-    await ask(event, state, "➕ <b>Новое блюдо</b>\nШаг 1 из 2. Напишите название:", f"Pc:{cat}", {"do": "new_dish", "cat": cat})
+    await ask(event, state, "➕ <b>Новое блюдо</b>\nШаг 1 из 2. Напишите название:", f"Pb:{cat}:0", {"do": "new_dish", "cat": cat})
 
 
 @answers("new_dish")
 async def dish_new_name(message, state, user, bid, spec, value):
-    """Шаг 1 — название, шаг 2 — цена; потом блюдо создаётся, фото и остальное — в карточке."""
+    """Шаг 1 — название, шаг 2 — цена; потом блюдо создаётся, фото и остальное — через «✏️ Изменить»."""
     if "name" not in spec:
         await ask(message, state, f"➕ <b>{esc(value)}</b>\nШаг 2 из 2. Цена в сомах (если будут размеры — напишите 0):",
-                  f"Pc:{spec['cat']}", {"do": "new_dish", "cat": spec["cat"], "name": value})
+                  f"Pb:{spec['cat']}:0", {"do": "new_dish", "cat": spec["cat"], "name": value})
         return ("ask",)
     try:
         price = parse("int", value)
     except ValueError as error:
         return f"❌ {error}"
     result = await api(user, "post", "/admin/dishes/", {"category": int(spec["cat"]), "name": spec["name"], "price": price}, bid)
-    return (f"Pi:{result.data['id']}", "✅ Блюдо добавлено. Добавьте фото кнопкой «📷 Фото».") if result.ok else f"❌ {result.error}"
+    return (f"Pi:{result.data['id']}", "✅ Блюдо добавлено. Фото — через «✏️ Изменить» → «📷 Фото».") if result.ok else f"❌ {result.error}"
 
 
 @code("Pph")
 async def dish_photo_ask(event, state, user, bid, pk, note=""):
-    await ask(event, state, "📷 <b>Фото блюда</b>\nПришлите фото (картинкой или файлом), до 3,5 МБ.", f"Pi:{pk}",
+    await ask(event, state, "📷 <b>Фото блюда</b>\nПришлите фото (картинкой или файлом), до 3,5 МБ.", f"Pie:{pk}",
               {"do": "photo", "pk": pk, "photo": True})
 
 
@@ -578,7 +642,7 @@ async def sizes(event, state, user, bid, pk, note=""):
     rows = [[(f"{s['name']} — {money(s['price'])}", f"Pz1:{s['id']}")] for s in got.data.get("sizes", [])]
     text = (f"📏 <b>Размеры «{esc(got.data['name'])}»</b>\n"
             + ("Гость выбирает размер, цена берётся из размера." if rows else "Размеров нет — у блюда одна цена."))
-    await screen(event, state, head(note) + text, rows + [[("➕ Размер", f"Pnz:{pk}")], [("↩️ Блюдо", f"Pi:{pk}")]])
+    await screen(event, state, head(note) + text, rows + [[("➕ Добавить размер", f"Pnz:{pk}")], [("↩️ Изменить", f"Pie:{pk}")]])
 
 
 @code("Pz1")
@@ -587,7 +651,7 @@ async def size(event, state, user, bid, pk, note=""):
     if not got.ok:
         return f"❌ {got.error}"
     s = got.data
-    rows = [[("✏️ Название", f"Pe:size:{pk}:name"), ("💰 Цена", f"Pe:size:{pk}:price")],
+    rows = [[("🏷 Название", f"Pe:size:{pk}:name"), ("💰 Цена", f"Pe:size:{pk}:price")],
             [("🗑 Удалить размер", f"Pzd:{pk}")], [("↩️ Размеры", f"Pz:{s['dish']}")]]
     await screen(event, state, head(note) + f"📏 <b>{esc(s['name'])}</b> — {money(s['price'])}", rows)
 
@@ -630,129 +694,135 @@ async def size_create(message, state, user, bid, spec, value):
     return (f"Pz:{spec['dish']}", "✅ Размер добавлен") if result.ok else f"❌ {result.error}"
 
 
-# ===================================================================
-#  ДОБАВКИ
-# ===================================================================
+# ----- Стоп-лист (админ и повар) -----
 
-@code("Px")
-async def extras(event, state, user, bid, note=""):
-    if not user.is_cafe_admin:
-        return "❌ Нет прав: добавки меняет админ или шеф."
-    items = await extras_list(user, bid)
-    rows = [[(("✅ " if e["is_available"] else "⛔ ") + f"{e['name']} · {money(e['price'])}", f"Pxe:{e['id']}")] for e in items]
-    text = f"🧩 <b>Добавки</b> · {await branch_title(bid)}\n" + ("✅ есть · ⛔ нет в наличии" if items else "Добавок пока нет.")
-    await screen(event, state, head(note) + text, rows + [[("➕ Добавка", "Pnx")], [CAFE]])
-
-
-@code("Pxe")
-async def extra(event, state, user, bid, pk, note=""):
-    got = await api(user, "get", f"/admin/extras/{pk}/", bid=bid)
-    if not got.ok:
-        return await extras(event, state, user, bid, note=f"❌ {got.error}")
-    e = got.data
-    rows = [[("✏️ Название", f"Pe:extra:{pk}:name"), ("💰 Цена", f"Pe:extra:{pk}:price")],
-            [("⛔ Нет в наличии" if e["is_available"] else "✅ Есть в наличии", f"Pxa:{pk}"), ("🗑 Удалить", f"Pxd:{pk}")],
-            [("↩️ Добавки", "Px")]]
-    await screen(event, state, head(note) + f"🧩 <b>{esc(e['name'])}</b> — {money(e['price'])}\n"
-                 f"{'✅ Есть в наличии' if e['is_available'] else '⛔ Нет в наличии'}", rows)
+@code("Pso")
+async def stop_list(event, state, user, bid, cat="0", page="0", note=""):
+    """Нажатие на блюдо: ✅ есть ⇄ ⛔ нет. Вкладки категорий — из самих блюд (повару категории не нужны отдельно)."""
+    if not (user.is_cook or user.is_cafe_admin):
+        return "❌ Нет прав: стоп-лист — для повара и админа."
+    every = [d for d in await dishes_list(user, bid) if d["is_active"]]
+    cats = list(dict.fromkeys((d["category"], d["category_name"]) for d in every))   # категории по порядку меню
+    items = [d for d in every if str(cat) == "0" or str(d["category"]) == str(cat)]
+    chunk, nav = pages(items, page, f"Pso:{cat}:{{}}")
+    rows = chips(cats, cat, "Pso:{}:0")
+    rows += [[(("✅ " if d["is_available"] else "⛔ ") + d["name"], f"Psot:{d['id']}:{cat}:{page}")] for d in chunk]
+    text = "🛑 <b>Стоп-лист</b>\nНажмите на блюдо: ✅ есть → ⛔ нет" if items else "🛑 <b>Стоп-лист</b>\nБлюд пока нет."
+    await screen(event, state, head(note) + text, rows + nav + [[("↩️ Блюда и категории", "Pm")]])
 
 
-@code("Pxa")
-async def extra_available(event, state, user, bid, pk, note=""):
-    got = await api(user, "get", f"/admin/extras/{pk}/", bid=bid)
-    result = await api(user, "patch", f"/admin/extras/{pk}/", {"is_available": not got.data["is_available"]}, bid) if got.ok else got
-    await extra(event, state, user, bid, pk, note="✅ Сохранено" if result.ok else f"❌ {result.error}")
-
-
-@code("Pxd")
-async def extra_delete_ask(event, state, user, bid, pk, note=""):
-    await confirm(event, state, "Удалить добавку? Она пропадёт у всех блюд.", f"Pxy:{pk}", f"Pxe:{pk}")
-
-
-@code("Pxy")
-async def extra_delete(event, state, user, bid, pk, note=""):
-    result = await api(user, "delete", f"/admin/extras/{pk}/", bid=bid)
-    await extras(event, state, user, bid, note="🗑 Добавка удалена" if result.ok else f"❌ {result.error}")
-
-
-@code("Pnx")
-async def extra_new(event, state, user, bid, note=""):
-    await ask(event, state, "➕ <b>Новая добавка</b>\nНапишите название и цену, например: <code>Сыр 80</code>", "Px", {"do": "new_extra"})
-
-
-@answers("new_extra")
-async def extra_create(message, state, user, bid, spec, value):
-    try:
-        name, price = name_and_price(value)
-    except ValueError as error:
-        return f"❌ {error}"
-    result = await api(user, "post", "/admin/extras/", {"name": name, "price": price}, bid)
-    return ("Px", "✅ Добавка создана") if result.ok else f"❌ {result.error}"
+@code("Psot")
+async def stop_toggle(event, state, user, bid, pk, cat, page, note=""):
+    result = await api(user, "post", f"/admin/dishes/{pk}/toggle-available/", bid=bid)
+    await stop_list(event, state, user, bid, cat, page, note="" if result.ok else f"❌ {result.error}")
+    if result.ok:
+        return "✅ Есть в наличии" if result.data["is_available"] else "⛔ В стоп-листе"
 
 
 # ===================================================================
-#  СТОЛЫ, ЭТАЖИ И QR
+#  🪑 СТОЛЫ И QR (админ — всё; официант — занятые столы и «Освободить»)
 # ===================================================================
 
-async def tables_and_floors(user, bid):
-    tables = await api(user, "get", "/admin/tables/", bid=bid)
-    floors = await api(user, "get", "/admin/floors/", bid=bid)
-    return (list(tables.data) if tables.ok else []), (list(floors.data) if floors.ok else [])
+async def hall_tables(user, bid):
+    """(столы, этажи, доставка). Админу — из /admin/tables/ (с QR), официанту — из /staff/tables/."""
+    if user.is_cafe_admin:
+        got = await api(user, "get", "/admin/tables/", bid=bid)
+        floors = await api(user, "get", "/admin/floors/", bid=bid)
+        items = list(got.data) if got.ok else []
+        delivery = next((t for t in items if t["kind"] == "delivery"), None)
+        return [t for t in items if t["kind"] == "hall"], (list(floors.data) if floors.ok else []), delivery
+    got = await api(user, "get", "/staff/tables/", bid=bid)
+    items = list(got.data) if got.ok else []
+    floors = [{"number": n, "id": None, "can_delete": False} for n in sorted({t["floor"] for t in items})] or [{"number": 1, "id": None, "can_delete": False}]
+    return items, floors, None
 
 
 @code("Pt")
-async def tables(event, state, user, bid, note=""):
-    if not user.is_cafe_admin:
-        return "❌ Нет прав: столы и QR — для админа и шефа."
-    items, floors = await tables_and_floors(user, bid)
-    delivery = next((t for t in items if t["kind"] == "delivery"), None)
-    rows = [[("🚚 Доставка (QR)", f"Ptt:{delivery['id']}")]] if delivery else []
-    rows += [[(f"{f['number']} этаж · столов: {f['tables_count']}", f"Ptf:{f['number']}") for f in floors[i:i + 2]] for i in range(0, len(floors), 2)]
-    rows.append([("➕ Этаж", "Pfa")] + ([("🗑 Последний этаж", f"Pfd:{floors[-1]['id']}")] if floors and floors[-1].get("can_delete") else []))
-    rows.append([("📄 Все QR одним PDF", "Ptp")])
-    await screen(event, state, head(note) + f"🪑 <b>Столы и QR</b> · {await branch_title(bid)}\nВыберите этаж или «Доставку»:", rows + [[CAFE]])
+async def tables(event, state, user, bid, number="1", note=""):
+    """Этаж: вкладки «Доставка · 1 этаж · 2 этаж», столы сеткой 🟢 / 🔴."""
+    if not (user.is_waiter or user.is_cafe_admin):
+        return "❌ Нет прав: столы — для официанта и админа."
+    items, floors, delivery = await hall_tables(user, bid)
+    numbers = [f["number"] for f in floors]
+    number = int(number) if int(number) in numbers else (numbers[0] if numbers else 1)
+    here = sorted((t for t in items if t["floor"] == number), key=lambda t: t["number"] or 0)
+    tabs = ([("🚚 Доставка", f"Ptt:{delivery['id']}")] if delivery else [])
+    tabs += [(f"• {n} этаж •" if n == number else f"{n} этаж", f"Pt:{n}") for n in numbers]
+    cells = [(("🔴 " if t.get("occupied_since") else "🟢 ") + str(t["number"]), f"Ptt:{t['id']}") for t in here]
+    busy = sum(1 for t in here if t.get("occupied_since"))
+    text = (f"🪑 <b>Столы и QR</b> · {number} этаж\n🟢 свободен · 🔴 занят\n"
+            + (f"Занято: {busy} из {len(here)}" if here else "На этом этаже пока нет столов."))
+    rows = grid(tabs, 3) + grid(cells, 4)
+    if user.is_cafe_admin:
+        rows.append([("➕ Стол", f"Pta:{number}"), ("➕ Этаж", "Pfa")])
+        last = floors[-1] if floors else None
+        if last and last["number"] == number and last.get("can_delete"):
+            rows.append([(f"🗑 Удалить {number} этаж", f"Pfd:{last['id']}")])
+        rows.append([("📄 Все QR (PDF)", "Ptp")])
+    await screen(event, state, head(note) + text, rows + [[CAFE]])
+
+
+def table_extra(pk):
+    """Кто ведёт стол (официант после «Беру стол»)."""
+    from apps.tables.models import Table
+    t = Table.objects.select_related("waiter").filter(pk=pk).first()
+    return (t.waiter.first_name or t.waiter.username) if t and t.waiter_id else ""
+
+
+@code("Ptt")
+async def table(event, state, user, bid, pk, note=""):
+    """Карточка стола: занят ли, QR и кнопки."""
+    if user.is_cafe_admin:
+        got = await api(user, "get", f"/admin/tables/{pk}/", bid=bid)
+        t = got.data if got.ok else None
+    else:
+        items, _, _ = await hall_tables(user, bid)
+        t = next((x for x in items if str(x["id"]) == str(pk)), None)
+    if not t:
+        return await tables(event, state, user, bid, note="❌ Стол не найден — возможно, уже удалён.")
+    delivery = t.get("kind") == "delivery"
+    busy = bool(t.get("occupied_since"))
+    if delivery:
+        text = "🚚 <b>Доставка</b>\nQR для заказов на доставку и самовывоз."
+    else:
+        text = f"{'🔴' if busy else '🟢'} <b>{esc(t['name'])}</b> · {t['floor']} этаж\n"
+        if busy:
+            since = str(t["occupied_since"])[11:16]
+            text += f"Занят с {since}" + (f" · заказов в работе: {t['active_orders']}" if t.get("active_orders") else "")
+            waiter = await sync_to_async(table_extra)(pk)
+            text += f"\nВедёт: {esc(waiter)}" if waiter else ""
+        else:
+            text += "Свободен"
+    if t.get("qr_url"):
+        text += f"\n\nQR ведёт на:\n{esc(t['qr_url'])}"
+    rows = [[("🧹 Освободить стол", f"Ptf:{pk}")]] if busy else []
+    if user.is_cafe_admin:
+        rows.append([("🖼 QR-код", f"Ptq:{pk}"), ("🔄 Новый QR", f"Ptr:{pk}")])
+        if delivery and t.get("bot_url"):
+            rows.append([("🤖 QR бота", f"Ptb:{pk}"), ("🔄 Новый QR бота", f"Ptrb:{pk}")])
+        if not delivery:
+            rows.append([("✏️ Изменить", f"Pte:{pk}"), ("🗑 Удалить", f"Ptd:{pk}")])
+    rows.append([("↩️ Столы", "Pt:1")] if delivery else [(f"↩️ {t['floor']} этаж", f"Pt:{t['floor']}")])
+    await screen(event, state, head(note) + text, rows)
+
+
+@code("Pte")
+async def table_edit(event, state, user, bid, pk, note=""):
+    await screen(event, state, "✏️ Что изменить у стола?",
+                 [[("🏷 Название", f"Pe:table:{pk}:name"), ("🔢 Номер", f"Pe:table:{pk}:number")], [("↩️ Стол", f"Ptt:{pk}")]])
 
 
 @code("Ptf")
-async def floor(event, state, user, bid, number, note=""):
-    items, _ = await tables_and_floors(user, bid)
-    hall = sorted((t for t in items if t["kind"] == "hall" and str(t["floor"]) == str(number)), key=lambda t: t["number"] or 0)
-    rows = [[(t["name"] + (" · 🍽 занят" if t.get("occupied_since") else ""), f"Ptt:{t['id']}") for t in hall[i:i + 2]] for i in range(0, len(hall), 2)]
-    text = f"🪑 <b>{number} этаж</b> · столов: {len(hall)}" + ("" if hall else "\nСтолов пока нет.")
-    await screen(event, state, head(note) + text, rows + [[("➕ Стол", f"Pta:{number}")], [("↩️ Этажи", "Pt")]])
+async def table_free(event, state, user, bid, pk, note=""):
+    """«🧹 Освободить стол» — гости ушли (как на сайте)."""
+    result = await api(user, "post", f"/staff/tables/{pk}/close-visit/", bid=bid)
+    await table(event, state, user, bid, pk, note="✅ Стол свободен" if result.ok else f"❌ {result.error}")
 
 
 @code("Pta")
 async def table_add(event, state, user, bid, number, note=""):
     result = await api(user, "post", "/admin/tables/", {"floor": int(number)}, bid)
-    if result.ok:
-        return await table(event, state, user, bid, result.data["id"], note=f"✅ Добавлен: {esc(result.data['name'])}")
-    await floor(event, state, user, bid, number, note=f"❌ {result.error}")
-
-
-@code("Ptt")
-async def table(event, state, user, bid, pk, note=""):
-    got = await api(user, "get", f"/admin/tables/{pk}/", bid=bid)
-    if not got.ok:
-        return await tables(event, state, user, bid, note=f"❌ {got.error}")
-    t = got.data
-    delivery = t["kind"] == "delivery"
-    text = f"{'🚚' if delivery else '🪑'} <b>{esc(t['name'])}</b>"
-    if not delivery:
-        text += f"\n{t['floor']} этаж · номер {t['number']}" + (" · 🍽 занят" if t.get("occupied_since") else " · свободен")
-        if t.get("active_orders"):
-            text += f"\nЗаказов в работе: {t['active_orders']}"
-    text += f"\n\nQR ведёт на:\n{esc(t['qr_url'])}"
-    if t.get("bot_url"):
-        text += f"\n\nQR Telegram-бота:\n{esc(t['bot_url'])}"
-    rows = [[("🖼 QR-картинка", f"Ptq:{pk}")] + ([("🤖 QR бота", f"Ptb:{pk}")] if t.get("bot_url") else [])]
-    if not delivery:
-        rows.append([("✏️ Название", f"Pe:table:{pk}:name"), ("🔢 Номер", f"Pe:table:{pk}:number")])
-    rows.append([("🔄 Новый QR", f"Ptr:{pk}")] + ([("🔄 Новый QR бота", f"Ptrb:{pk}")] if delivery and t.get("bot_url") else []))
-    if not delivery:
-        rows.append([("🗑 Удалить стол", f"Ptd:{pk}")])
-    rows.append([("↩️ Этажи", "Pt")] if delivery else [(f"↩️ {t['floor']} этаж", f"Ptf:{t['floor']}")])
-    await screen(event, state, head(note) + text, rows)
+    await tables(event, state, user, bid, number, note=f"✅ Добавлен: {esc(result.data['name'])}" if result.ok else f"❌ {result.error}")
 
 
 @code("Ptq")
@@ -772,7 +842,7 @@ async def table_bot_qr(event, state, user, bid, pk, note=""):
 @code("Ptp")
 async def tables_pdf(event, state, user, bid, note=""):
     result = await api(user, "get", "/admin/tables/qr-pdf/", bid=bid)
-    return await send_file(event, state, user, bid, result, "qr-codes.pdf", "Все QR одним файлом — для печати", "Pt")
+    return await send_file(event, state, user, bid, result, "qr-codes.pdf", "Все QR одним файлом — для печати", "Pt:1")
 
 
 @code("Ptr")
@@ -807,19 +877,21 @@ async def table_delete(event, state, user, bid, pk, note=""):
     got = await api(user, "get", f"/admin/tables/{pk}/", bid=bid)
     result = await api(user, "delete", f"/admin/tables/{pk}/", bid=bid)
     if result.ok and got.ok:
-        return await floor(event, state, user, bid, got.data["floor"], note="🗑 Стол удалён")
+        return await tables(event, state, user, bid, got.data["floor"], note="🗑 Стол удалён")
     await table(event, state, user, bid, pk, note=f"❌ {result.error}")
 
 
 @code("Pfa")
 async def floor_add(event, state, user, bid, note=""):
     result = await api(user, "post", "/admin/floors/", bid=bid)
-    await tables(event, state, user, bid, note=f"✅ Добавлен {result.data['number']} этаж" if result.ok else f"❌ {result.error}")
+    if result.ok:
+        return await tables(event, state, user, bid, result.data["number"], note=f"✅ Добавлен {result.data['number']} этаж")
+    await tables(event, state, user, bid, note=f"❌ {result.error}")
 
 
 @code("Pfd")
 async def floor_delete_ask(event, state, user, bid, pk, note=""):
-    await confirm(event, state, "Удалить последний этаж? (Только если на нём нет столов.)", f"Pfy:{pk}", "Pt")
+    await confirm(event, state, "Удалить этот этаж? (Только если на нём нет столов.)", f"Pfy:{pk}", "Pt:1")
 
 
 @code("Pfy")
@@ -829,7 +901,7 @@ async def floor_delete(event, state, user, bid, pk, note=""):
 
 
 # ===================================================================
-#  СОТРУДНИКИ И РОЛИ
+#  👥 ПОЛЬЗОВАТЕЛИ И РОЛИ
 # ===================================================================
 
 def person(u) -> str:
@@ -837,43 +909,56 @@ def person(u) -> str:
 
 
 @code("Pu")
-async def staff_list(event, state, user, bid, note=""):
+async def staff_list(event, state, user, bid, role="all", note=""):
+    """Сотрудники с вкладками ролей «Все · Админ · Повар …»."""
     got = await api(user, "get", "/admin/staff/", bid=bid)
     if not got.ok:
         return f"❌ {got.error}"
     people = list(got.data)
-    rows = [[(("🚫 " if not u["is_active"] else "") + f"{person(u)} · {u['role_display']}", f"Pu1:{u['id']}")] for u in people]
-    roles = await api(user, "get", "/admin/staff/roles/", bid=bid)
-    if roles.ok and roles.data:
-        rows.append([("➕ Сотрудник", "Pun")])
-    text = f"👥 <b>Сотрудники</b> · {await branch_title(bid)} · {len(people)}\n🚫 — заблокирован"
+    roles = list(dict.fromkeys((u["role"], u["role_display"]) for u in people))
+    tabs = [("• Все •" if role == "all" else "Все", "Pu:all")] + [(f"• {label} •" if value == role else label, f"Pu:{value}") for value, label in roles]
+    shown = [u for u in people if role == "all" or u["role"] == role]
+    rows = grid(tabs, 3) + [[(("🚫 " if not u["is_active"] else "") + f"{person(u)} · {u['role_display']}", f"Pu1:{u['id']}")] for u in shown]
+    can_add = await api(user, "get", "/admin/staff/roles/", bid=bid)
+    if can_add.ok and can_add.data:
+        rows.append([("➕ Добавить сотрудника", "Pun")])
+    text = f"👥 <b>Пользователи и роли</b> · {await branch_title(bid)} · {len(people)}\n<i>🚫 — заблокирован</i>"
     await screen(event, state, head(note) + text, rows + [[CAFE]])
 
 
 @code("Pu1")
 async def staff_card(event, state, user, bid, pk, note=""):
+    """Карточка сотрудника: данные + «✏️ Изменить» и «🗑 Удалить»."""
     got = await api(user, "get", f"/admin/staff/{pk}/", bid=bid)
     if not got.ok:
         return await staff_list(event, state, user, bid, note=f"❌ {got.error}")
     u = got.data
     text = (f"👤 <b>{esc(person(u))}</b> · {esc(u['role_display'])}\n"
-            f"Логин: <code>{esc(u['username'])}</code>\n"
-            f"Филиал: {esc(u.get('branch_name') or 'все филиалы')}\n"
+            f"Логин: <code>{esc(u['username'])}</code> · {esc(u.get('branch_name') or 'все филиалы')}\n"
             f"Телефон: {esc(u.get('phone') or '—')}\nEmail: {esc(u.get('email') or '—')}\n"
-            f"Telegram: {'привязан' if u.get('telegram_id') else 'не привязан'}\n"
-            f"{'✅ Может входить' if u['is_active'] else '🚫 Заблокирован'}")
-    rows = []
-    if u.get("can_edit"):
-        rows = [[("✏️ Имя", f"Pe:staff:{pk}:first_name"), ("✏️ Фамилия", f"Pe:staff:{pk}:last_name")],
-                [("👤 Логин", f"Pe:staff:{pk}:username"), ("📞 Телефон", f"Pe:staff:{pk}:phone")],
-                [("✉️ Email", f"Pe:staff:{pk}:email"), ("💬 Telegram ID", f"Pe:staff:{pk}:telegram_id")],
-                [("🎭 Роль", f"Pur:{pk}"), ("🔑 Пароль", f"Pup:{pk}")]]
-        if user.sees_all_branches() and u["role"] not in ("chef", "programmer"):
-            rows.append([("🏢 Перевести в другой филиал", f"Pub:{pk}")])
-        rows.append([("🚫 Заблокировать" if u["is_active"] else "✅ Разблокировать", f"Pua:{pk}"), ("🗑 Удалить", f"Pud:{pk}")])
-    else:
-        text += "\n\nМенять этого сотрудника вы не можете."
-    await screen(event, state, head(note) + text, rows + [[("↩️ Сотрудники", "Pu")]])
+            f"Telegram: {'привязан' if u.get('telegram_id') else 'не привязан'} · "
+            f"{'✅ может входить' if u['is_active'] else '🚫 заблокирован'}")
+    rows = [[("✏️ Изменить", f"Pue:{pk}"), ("🗑 Удалить", f"Pud:{pk}")]] if u.get("can_edit") else []
+    if not u.get("can_edit"):
+        text += "\n\n<i>Менять этого сотрудника вы не можете.</i>"
+    await screen(event, state, head(note) + text, rows + [[("↩️ Пользователи и роли", "Pu:all")]])
+
+
+@code("Pue")
+async def staff_edit(event, state, user, bid, pk, note=""):
+    """«✏️ Изменить» сотрудника: что именно."""
+    got = await api(user, "get", f"/admin/staff/{pk}/", bid=bid)
+    if not got.ok:
+        return f"❌ {got.error}"
+    u = got.data
+    rows = [[("👤 Имя", f"Pe:staff:{pk}:first_name"), ("👤 Фамилия", f"Pe:staff:{pk}:last_name")],
+            [("🔑 Логин", f"Pe:staff:{pk}:username"), ("🔒 Пароль", f"Pup:{pk}")],
+            [("📞 Телефон", f"Pe:staff:{pk}:phone"), ("✉️ Email", f"Pe:staff:{pk}:email")],
+            [("🎭 Роль", f"Pur:{pk}")] + ([("🏢 Филиал", f"Pub:{pk}")] if user.sees_all_branches() and u["role"] not in ("chef", "programmer") else []),
+            [("💬 Telegram ID", f"Pe:staff:{pk}:telegram_id")],
+            [("🚫 Заблокировать" if u["is_active"] else "✅ Разблокировать", f"Pua:{pk}")],
+            [("↩️ Сотрудник", f"Pu1:{pk}")]]
+    await screen(event, state, head(note) + f"✏️ <b>{esc(person(u))}</b> — что изменить?", rows)
 
 
 @code("Pur")
@@ -881,7 +966,7 @@ async def staff_role(event, state, user, bid, pk, note=""):
     roles = await api(user, "get", "/admin/staff/roles/", bid=bid)
     rows = [[(r["label"], f"Purs:{pk}:{r['value']}")] for r in (roles.data if roles.ok else [])]
     await screen(event, state, "🎭 Какую роль дать?\nПосле смены роли сотрудник выйдет из панели на всех устройствах.",
-                 rows + [[("↩️ Сотрудник", f"Pu1:{pk}")]])
+                 rows + [[("↩️ Изменить", f"Pue:{pk}")]])
 
 
 @code("Purs")
@@ -894,7 +979,7 @@ async def staff_role_set(event, state, user, bid, pk, role, note=""):
 async def staff_branch(event, state, user, bid, pk, note=""):
     from apps.cafe.models import Branch
     branches = await sync_to_async(lambda: list(Branch.objects.filter(is_active=True).values_list("id", "name")))()
-    rows = [[(f"🏢 {name}", f"Pubs:{pk}:{b}")] for b, name in branches] + [[("↩️ Сотрудник", f"Pu1:{pk}")]]
+    rows = [[(f"🏢 {name}", f"Pubs:{pk}:{b}")] for b, name in branches] + [[("↩️ Изменить", f"Pue:{pk}")]]
     await screen(event, state, "🏢 В какой филиал перевести сотрудника?", rows)
 
 
@@ -924,22 +1009,22 @@ async def staff_delete(event, state, user, bid, pk, note=""):
 
 @code("Pup")
 async def staff_password(event, state, user, bid, pk, note=""):
-    await ask(event, state, "🔑 <b>Новый пароль</b> (не короче 10 символов)\nНапишите пароль — сообщение сразу удалится.",
-              f"Pu1:{pk}", {"do": "password", "pk": pk})
+    await ask(event, state, "🔒 <b>Новый пароль</b> (не короче 10 символов)\nНапишите пароль — сообщение сразу удалится.",
+              f"Pue:{pk}", {"do": "password", "pk": pk})
 
 
 @answers("password")
 async def staff_password_save(message, state, user, bid, spec, value):
     """Пароль дважды (как на сайте): первый раз запоминаем, второй — сравниваем и сохраняем."""
     if "first" not in spec:
-        await ask(message, state, "🔑 Повторите пароль ещё раз:", f"Pu1:{spec['pk']}", {**spec, "first": value})
+        await ask(message, state, "🔒 Повторите пароль ещё раз:", f"Pue:{spec['pk']}", {**spec, "first": value})
         return ("ask",)
     if value != spec["first"]:
-        await ask(message, state, "❌ Пароли не совпали.\n\n🔑 Напишите новый пароль ещё раз:", f"Pu1:{spec['pk']}", {"do": "password", "pk": spec["pk"]})
+        await ask(message, state, "❌ Пароли не совпали.\n\n🔒 Напишите новый пароль ещё раз:", f"Pue:{spec['pk']}", {"do": "password", "pk": spec["pk"]})
         return ("ask",)
     result = await api(user, "post", f"/admin/staff/{spec['pk']}/set-password/", {"password": value}, bid)
     if not result.ok:
-        await ask(message, state, f"❌ {esc(result.error)}\n\n🔑 Напишите другой пароль:", f"Pu1:{spec['pk']}", {"do": "password", "pk": spec["pk"]})
+        await ask(message, state, f"❌ {esc(result.error)}\n\n🔒 Напишите другой пароль:", f"Pue:{spec['pk']}", {"do": "password", "pk": spec["pk"]})
         return ("ask",)
     return (f"Pu1:{spec['pk']}", "✅ Пароль изменён. Сотрудник вышел из панели на всех устройствах.")
 
@@ -949,22 +1034,22 @@ async def staff_new(event, state, user, bid, note=""):
     """Новый сотрудник: роль → имя → логин → пароль."""
     roles = await api(user, "get", "/admin/staff/roles/", bid=bid)
     rows = [[(r["label"], f"Punr:{r['value']}")] for r in (roles.data if roles.ok else [])]
-    await screen(event, state, f"➕ <b>Новый сотрудник</b> · {await branch_title(bid)}\nШаг 1 из 4. Какая роль?", rows + [[("✖️ Отмена", "Pu")]])
+    await screen(event, state, f"➕ <b>Новый сотрудник</b> · {await branch_title(bid)}\nШаг 1 из 4. Какая роль?", rows + [[("✖️ Отмена", "Pu:all")]])
 
 
 @code("Punr")
 async def staff_new_role(event, state, user, bid, role, note=""):
-    await ask(event, state, "➕ <b>Новый сотрудник</b>\nШаг 2 из 4. Имя:", "Pu", {"do": "new_staff", "role": role})
+    await ask(event, state, "➕ <b>Новый сотрудник</b>\nШаг 2 из 4. Имя:", "Pu:all", {"do": "new_staff", "role": role})
 
 
 @answers("new_staff")
 async def staff_new_step(message, state, user, bid, spec, value):
     if "first_name" not in spec:
-        await ask(message, state, "➕ <b>Новый сотрудник</b>\nШаг 3 из 4. Логин для входа (латиницей, без пробелов):", "Pu",
+        await ask(message, state, "➕ <b>Новый сотрудник</b>\nШаг 3 из 4. Логин для входа (латиницей, без пробелов):", "Pu:all",
                   {**spec, "first_name": value})
         return ("ask",)
     if "username" not in spec:
-        await ask(message, state, "➕ <b>Новый сотрудник</b>\nШаг 4 из 4. Пароль (не короче 10 символов) — сообщение сразу удалится:", "Pu",
+        await ask(message, state, "➕ <b>Новый сотрудник</b>\nШаг 4 из 4. Пароль (не короче 10 символов) — сообщение сразу удалится:", "Pu:all",
                   {**spec, "username": value})
         return ("ask",)
     body = {"role": spec["role"], "first_name": spec["first_name"], "username": spec["username"], "password": value}
@@ -976,40 +1061,47 @@ async def staff_new_step(message, state, user, bid, spec, value):
     prompt = "Шаг 3 из 4. Логин для входа:" if field == "username" else "Шаг 4 из 4. Пароль:"
     if field != "username":
         restart["username"] = spec["username"]
-    await ask(message, state, f"❌ {esc(result.error)}\n\n➕ <b>Новый сотрудник</b>\n{prompt}", "Pu", restart)
+    await ask(message, state, f"❌ {esc(result.error)}\n\n➕ <b>Новый сотрудник</b>\n{prompt}", "Pu:all", restart)
     return ("ask",)
 
 
 # ===================================================================
-#  НАСТРОЙКИ ФИЛИАЛА
+#  ⚙️ НАСТРОЙКИ ФИЛИАЛА (смотреть — админ, менять — шеф)
 # ===================================================================
 
-@code("Ps")
+@code("Pset")
 async def settings_screen(event, state, user, bid, note=""):
     got = await api(user, "get", "/admin/cafe/", bid=bid)
     if not got.ok:
         return f"❌ {got.error}"
     c = got.data
     text = (f"⚙️ <b>Настройки</b> · {esc(c.get('branch_name') or '')}\n"
-            f"Приём заказов: {'✅ вкл' if c['is_accepting_orders'] else '⛔ выкл'}\n"
-            f"Доставка: {'✅ вкл' if c['is_delivery_enabled'] else '⛔ выкл'}\n"
-            f"Часы работы: {str(c['opens_at'])[:5]}–{str(c['closes_at'])[:5]}\n"
-            f"Доставка: {money(c['delivery_fee'])} · от {money(c['delivery_min_sum'])}"
+            f"Приём заказов: {'✅' if c['is_accepting_orders'] else '⛔'} · Доставка: {'✅' if c['is_delivery_enabled'] else '⛔'}\n"
+            f"Часы: {str(c['opens_at'])[:5]}–{str(c['closes_at'])[:5]}\n"
+            f"Доставка {money(c['delivery_fee'])} · от {money(c['delivery_min_sum'])}"
             + (f" · бесплатно от {money(c['free_delivery_from'])}" if c.get("free_delivery_from") else "") + "\n"
             f"Время доставки: {esc(c.get('delivery_time') or '—')}\n"
             f"Адрес: {esc(c.get('address') or '—')}\nТелефон: {esc(c.get('phone') or '—')}")
     rows = []
     if user.is_chef:                                           # менять может шеф и программист (как на сайте)
-        rows = [[("⛔ Остановить приём" if c["is_accepting_orders"] else "✅ Принимать заказы", "Pst:is_accepting_orders"),
-                 ("⛔ Выключить доставку" if c["is_delivery_enabled"] else "✅ Включить доставку", "Pst:is_delivery_enabled")],
-                [("🕙 Открытие", "Pe:cafe:0:opens_at"), ("🕚 Закрытие", "Pe:cafe:0:closes_at")],
-                [("🚚 Цена доставки", "Pe:cafe:0:delivery_fee"), ("🧾 Мин. сумма", "Pe:cafe:0:delivery_min_sum")],
-                [("🎁 Бесплатно от", "Pe:cafe:0:free_delivery_from"), ("⏱ Время доставки", "Pe:cafe:0:delivery_time")],
-                [("📍 Адрес", "Pe:cafe:0:address"), ("📞 Телефон", "Pe:cafe:0:phone")],
-                [("🏷 Название филиала", "Pe:cafe:0:branch_name")]]
+        rows = [[("⛔ Остановить приём" if c["is_accepting_orders"] else "✅ Принимать заказы", "Pst:is_accepting_orders")],
+                [("⛔ Выключить доставку" if c["is_delivery_enabled"] else "✅ Включить доставку", "Pst:is_delivery_enabled")],
+                [("✏️ Изменить", "Psete")]]
     else:
-        text += "\n\nМенять настройки может шеф."
+        text += "\n\n<i>Менять настройки может шеф.</i>"
     await screen(event, state, head(note) + text, rows + [[CAFE]])
+
+
+@code("Psete")
+async def settings_edit(event, state, user, bid, note=""):
+    if not user.is_chef:
+        return "❌ Менять настройки может шеф."
+    rows = [[("🕙 Открытие", "Pe:cafe:0:opens_at"), ("🕚 Закрытие", "Pe:cafe:0:closes_at")],
+            [("🚚 Цена доставки", "Pe:cafe:0:delivery_fee"), ("🧾 Мин. сумма", "Pe:cafe:0:delivery_min_sum")],
+            [("🎁 Бесплатно от", "Pe:cafe:0:free_delivery_from"), ("⏱ Время доставки", "Pe:cafe:0:delivery_time")],
+            [("📍 Адрес", "Pe:cafe:0:address"), ("📞 Телефон", "Pe:cafe:0:phone")],
+            [("🏷 Название филиала", "Pe:cafe:0:branch_name")], [("↩️ Настройки", "Pset")]]
+    await screen(event, state, head(note) + "✏️ <b>Настройки</b> — что изменить?", rows)
 
 
 @code("Pst")
@@ -1020,13 +1112,13 @@ async def settings_toggle(event, state, user, bid, field, note=""):
 
 
 # ===================================================================
-#  ОТЧЁТЫ ЗА ПЕРИОД (шеф): текущие 45 дней и архив
+#  📊 ОТЧЁТЫ ЗА ПЕРИОД (шеф): текущие 45 дней и архив. «За сегодня» — в staff.py («rpm»)
 # ===================================================================
 
 @code("Prp")
 async def report_period(event, state, user, bid, note=""):
     result = await api(user, "get", "/admin/reports/period/pdf/", bid=bid)
-    return await send_file(event, state, user, bid, result, "otchet-45-dney.pdf", "Отчёт за текущие 45 дней", "rpm_back")
+    return await send_file(event, state, user, bid, result, "otchet-45-dney.pdf", "Отчёт за текущие 45 дней", "Prm")
 
 
 @code("Pra")
@@ -1045,10 +1137,10 @@ async def report_archive_pdf(event, state, user, bid, pk, note=""):
     return await send_file(event, state, user, bid, result, f"period-{pk}.pdf", "Отчёт за период", "Pra")
 
 
-@code("rpm_back")
-async def report_menu_again(event, state, user, bid, note=""):
-    """После PDF — снова экран «Отчёты» (он живёт в staff.py)."""
-    from .handlers import branch_title as title
-    rows = [[("📅 За сегодня", f"rp:{bid}")], [("🏢 Оба филиала — сегодня", "rp:all")],
-            [("🗓 Период 45 дней (PDF)", "Prp"), ("🗂 Архив периодов", "Pra")], [CAFE]]
-    await screen(event, state, head(note) + f"📊 <b>Отчёты</b> · {await title(bid)}", rows)
+@code("Prm")
+async def report_menu(event, state, user, bid, note=""):
+    """Экран «Отчёты» (тот же, что по кнопке «📊 Отчёты»)."""
+    rows = [[("📅 За сегодня", f"rp:{bid}")]]
+    if user.sees_all_branches():
+        rows += [[("🏢 Оба филиала — сегодня", "rp:all")], [("🗓 45 дней (PDF)", "Prp"), ("🗂 Архив", "Pra")]]
+    await screen(event, state, head(note) + f"📊 <b>Отчёты</b> · {await branch_title(bid)}", rows + [[CAFE]])

@@ -52,6 +52,7 @@ class OrderCreateSerializer(serializers.Serializer):
     change_from = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     comment = serializers.CharField(required=False, allow_blank=True)
     items = OrderItemInputSerializer(many=True)                             # список позиций
+    telegram_init_data = serializers.CharField(required=False, allow_blank=True, write_only=True)   # заказ из мини-приложения: статусы — в чат гостевого бота
 
     def validate(self, attrs):
         """Все проверки заказа перед созданием."""
@@ -148,9 +149,24 @@ class OrderCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         """serializer.save() → создаём заказ через сервис."""
+        init_data = validated_data.pop("telegram_init_data", "")
         order = create_order(validated_data)
         count_order(order.kind, client_ip(self.context.get("request")))   # +1 в лимит доставок с этого IP
+        chat_id = telegram_guest_chat(init_data)
+        if chat_id:                                                   # открыт из гостевого бота — бот пришлёт статусы в чат
+            Order.objects.filter(pk=order.pk).update(guest_chat_id=chat_id)
+            order.guest_chat_id = chat_id
         return order
+
+
+def telegram_guest_chat(init_data: str):
+    """id чата гостя, если заказ сделан в мини-приложении гостевого бота (подпись проверяется токеном бота)."""
+    if not init_data:
+        return None
+    from django.conf import settings
+    from core.telegram_webapp import check_init_data
+    data = check_init_data(init_data, settings.TELEGRAM_GUEST_BOT_TOKEN)
+    return data["user"]["id"] if data else None
 
 
 # ===================== ПОКАЗ ЗАКАЗА ГОСТЮ =====================

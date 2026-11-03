@@ -41,8 +41,7 @@ class Command(BaseCommand):
             from apps.bot.telegram.staff import staff_router
             from apps.bot.telegram.panel import panel_router
             dp.include_routers(panel_router, staff_router, router, group_router)   # панель и кнопки ролей — раньше «Не понял»
-            commands = [("start", "Главное меню"), ("login", "Войти как сотрудник"), ("menu", "Меню кафе"),
-                        ("me", "Мой профиль"), ("logout", "Выйти")]
+            commands = [("start", "Главное меню")]
             worker = run_notifier(bot)                       # события сайта → группа
         else:
             from apps.bot.telegram.guest import guest_router, run_guest_notifier
@@ -50,6 +49,7 @@ class Command(BaseCommand):
             commands = [("start", "Меню и заказ")]
             worker = run_guest_notifier(bot, storage=dp.storage)   # статусы заказов гостям и «стол освобождён»
         await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in commands])
+        await self.menu_button(bot, kind)
         me = await bot.get_me()
         self.stdout.write(self.style.SUCCESS(f"Бот @{me.username} запущен. Остановить — Ctrl+C."))
         self.stdout.flush()                                  # сразу в журнал (иначе systemd покажет строку только при остановке)
@@ -58,3 +58,16 @@ class Command(BaseCommand):
             await dp.start_polling(bot)                      # бот сам спрашивает Telegram о новых сообщениях
         finally:
             task.cancel()
+
+    async def menu_button(self, bot, kind):
+        """Кнопка слева от поля ввода в чате бота: открывает мини-приложение (панель персонала / меню гостя). Без https — обычное меню команд."""
+        from aiogram.types import MenuButtonCommands, MenuButtonWebApp, WebAppInfo
+        from apps.bot.telegram.screen import mini_app_url
+        url = mini_app_url("/admin" if kind == "staff" else "/")
+        try:
+            if url:
+                await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Панель" if kind == "staff" else "Меню", web_app=WebAppInfo(url=url)))
+            else:
+                await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        except Exception as error:                            # кнопка — удобство, бот работает и без неё
+            self.stderr.write(f"Кнопка мини-приложения не установлена: {error}")

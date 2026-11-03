@@ -22,7 +22,7 @@ from apps.bot import guest_services as gs                    # меню, кор�
 from django.utils import timezone                             # когда гость сел за стол (для «Освободить стол»)
 
 from apps.bot.texts import money
-from .screen import delete, drop_user_message, forget_screen, inline, show
+from .screen import delete, drop_user_message, forget_screen, inline, mini_app_url, show
 
 log = logging.getLogger(__name__)
 guest_router = Router()
@@ -61,17 +61,23 @@ async def home(event, state: FSMContext, note: str = "", here=True):
                                 [[(n, f"b:{i}")] for i, n in branches], here=here)
     name = dict(branches).get(data["branch"], "")
     count = gs.cart_count(data.get("cart"))
-    rows = [[("🍽 Меню", "m")], [(f"🛒 Корзина ({count})" if count else "🛒 Корзина", "c"), ("📦 Мои заказы", "o")]]
-    if data.get("table"):                                    # за столом — вызвать официанта и счёт прямо из бота
-        rows.insert(1, [("🔔 Позвать официанта", "tw"), ("🧾 Попросить счёт", "tb")])
-    if len(branches) > 1:
-        rows.append([("🏠 Сменить филиал", "b")])
     table = data.get("table")
     if table and not await sync_to_async(gs.table_active)(table["token"], table.get("since")):   # стол освободили (на сайте или в боте)
         table = None
         await state.update_data(table=None)
         note = (note + "\n\n" if note else "") + "🧹 Стол освобождён. Спасибо, что были у нас! Доставка и самовывоз — всегда здесь."
+    app = mini_app_url(f"/?token={table['token']}" if table else f"/?branch={data['branch']}")   # мини-приложение: наш сайт внутри Telegram
+    if app:                                                  # есть https-сайт — меню, корзина, оформление и счёт открываются в нём
+        rows = [[("🍽 Открыть меню", "web:" + app)], [("📦 Мои заказы", "o")]]
+    else:                                                    # без https (на своём компьютере) — бот на кнопках
+        rows = [[("🍽 Меню", "m")], [(f"🛒 Корзина ({count})" if count else "🛒 Корзина", "c"), ("📦 Мои заказы", "o")]]
+        if table:                                            # за столом — вызвать официанта и счёт прямо из бота
+            rows.insert(1, [("🔔 Позвать официанта", "tw"), ("🧾 Попросить счёт", "tb")])
+    if len(branches) > 1:
+        rows.append([("🏠 Сменить филиал", "b")])
     where = f"\n🍽 Вы за столом: <b>{table['label']}</b>" if table else "\nМеню с фото, доставка и самовывоз."
+    if app:
+        where += "\n\nНажмите «🍽 Открыть меню» 👇 Статус заказа бот пришлёт сюда."
     text = (note + "\n\n" if note else "") + f"Ассаляму алейкум! Кафе «Муслим» · <b>{name}</b>" + where
     await screen(event, state, text, rows, here=here)
 
@@ -104,7 +110,7 @@ async def start(message: Message, state: FSMContext):
         if bid:
             if keep.get("branch") != bid:
                 await state.update_data(branch=bid, cart=[])                # другой филиал — другое меню
-            return await categories(message, state)
+            return await (home(message, state) if mini_app_url() else categories(message, state))
         return await home(message, state, "Этот QR устарел. Выберите филиал ниже.")
     await home(message, state)
 
@@ -553,7 +559,8 @@ async def table_bill_people(cb: CallbackQuery, state: FSMContext):
 
 async def orders_screen(event, state: FSMContext, here=True):
     text = await sync_to_async(gs.my_orders)(event.message.chat.id if isinstance(event, CallbackQuery) else event.chat.id)
-    await screen(event, state, "📦 <b>Мои заказы</b>\n" + text, [[("🍽 Меню", "m"), ("↩️ Главная", "h")]], here=here)
+    rows = [[("↩️ Главная", "h")]] if mini_app_url() else [[("🍽 Меню", "m"), ("↩️ Главная", "h")]]   # мини-приложение — меню открывается с главной
+    await screen(event, state, "📦 <b>Мои заказы</b>\n" + text, rows, here=here)
 
 
 @guest_router.callback_query(F.data == "o")

@@ -129,6 +129,7 @@
     // Скрытые поля не участвуют в проверке и не включаются в список.
     [...form.elements].forEach(input => { if (input.name) input.disabled = input.name!=='payment' && (noContacts || (['address','apartment','entrance','floor','courierNote'].includes(input.name) && mode !== 'delivery')); });
     $('#checkout-summary').innerHTML = cart.map(item => `<div class="summary-line"><span>${escape(menu.dishes.find(d => d.id === item.id).name)} × ${item.qty}<br><small>${escape(itemNote(item))}</small></span><strong>${money(unitPrice(item) * item.qty)}</strong></div>`).join('') + (mode === 'delivery' ? `<div class="summary-line"><span>Стоимость доставки</span><span>${live?money(deliveryFee()):'Уточняется в кафе'}</span></div>` : '') + `<div class="summary-line summary-total"><strong>${live?'Итого':'Блюда на сумму'}</strong><strong>${money(total()+(live?deliveryFee():0))}</strong></div>`;
+    if(window.MuslimTG?.active&&!noContacts&&!form.elements.customer.value&&MuslimTG.user?.first_name)form.elements.customer.value=MuslimTG.user.first_name;   // мини-приложение: имя из Telegram
     $('#checkout-dialog').showModal();
   }
   document.addEventListener('click', async event => {
@@ -195,6 +196,7 @@
       $('#checkout-api-error')?.remove();
       try{
         const payload=API.orderPayload({menu,cart,tableToken,deviceKey:deviceKey(),mode,fields:Object.fromEntries(values),comment:$('#order-comment').value.trim()});
+        if(window.MuslimTG?.active)payload.telegram_init_data=MuslimTG.initData;   // из мини-приложения: статусы заказа придут в чат бота
         const order=await API.request('/orders/',{method:'POST',auth:false,body:payload});
         // Корзина очищается только после подтверждённого ответа сервера.
         cart=[];$('#order-comment').value='';saveCart();renderCart();$('#checkout-dialog').close();showOrder(order);   // корзина и комментарий очищены
@@ -214,6 +216,12 @@
     $('#checkout-dialog').close(); $('#saved-dialog').showModal();
   });
   $('#checkout-form').elements.phone.addEventListener('input', event => event.target.setCustomValidity(''));
+  if(window.MuslimTG?.active){                                        // мини-приложение: номер из Telegram одной кнопкой (с согласия гостя)
+    const phone=$('#checkout-form').elements.phone,take=document.createElement('button');
+    take.type='button';take.className='tg-phone';take.textContent='📱 Взять номер из Telegram';
+    phone.closest('label').after(take);
+    take.addEventListener('click',async()=>{take.disabled=true;const number=await MuslimTG.requestPhone();take.disabled=false;if(number){phone.value=number;phone.dispatchEvent(new Event('input'));}else toast('Номер не получен — впишите его вручную.');});
+  }
   $('#copy-order').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(lastOrder); $('#copy-order').textContent = 'Скопировано ✓'; setTimeout(() => $('#copy-order').textContent = 'Скопировать список', 2000); }
     catch { $('#copy-order').textContent = 'Скачайте список кнопкой ниже'; }

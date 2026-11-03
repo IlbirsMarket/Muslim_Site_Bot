@@ -11,7 +11,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 from apps.bot import staff_actions as sa                     # действия и права
 from apps.bot.notify import CANCEL_REASONS                   # причины отмены
 from apps.bot.texts import staff_by_telegram
-from .handlers import branch_title, chosen_branch, screen    # экран лички (одно сообщение) и выбранный филиал
+from .handlers import chosen_branch, screen                  # экран лички (одно сообщение) и выбранный филиал
 from .screen import add_trash
 
 staff_router = Router()                                      # кнопки работают и в группе, и в личке
@@ -151,15 +151,12 @@ async def send_report(cb: CallbackQuery, state: FSMContext, user, key: str = "")
 
 @staff_router.callback_query(F.data == "rpm")
 async def report(cb: CallbackQuery, state: FSMContext):
-    """«Отчёты» — как на сайте: за сегодня; шефу ещё оба филиала, период 45 дней и архив."""
+    """«📊 Отчёты» — как на сайте: за сегодня; шефу ещё оба филиала, период 45 дней и архив (экран — в panel.py)."""
+    from .panel import report_menu
     user = await staff(cb)
     if not sa.can_see_report(user):
         return await cb.answer(sa.NO_RIGHTS, show_alert=True)
-    bid = await chosen_branch(state, user)
-    rows = [[("📅 За сегодня", f"rp:{bid}")]]
-    if user.sees_all_branches():                             # шеф и программист
-        rows += [[("🏢 Оба филиала — сегодня", "rp:all")], [("🗓 Период 45 дней (PDF)", "Prp"), ("🗂 Архив периодов", "Pra")]]
-    await screen(cb, state, f"📊 <b>Отчёты</b> · {await branch_title(bid)}", rows + [[HOME]])
+    await report_menu(cb, state, user, await chosen_branch(state, user))
     await cb.answer()
 
 

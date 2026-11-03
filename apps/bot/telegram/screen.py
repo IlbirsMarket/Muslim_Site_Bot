@@ -12,10 +12,25 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMedia
 PHOTO_IDS = {}                                              # фото уже в Telegram: ключ → file_id (второй раз не загружаем)
 
 
+def button(text: str, data: str) -> InlineKeyboardButton:
+    """Кнопка: обычная (callback) или «web:https://…» — открывает мини-приложение (наш сайт внутри Telegram)."""
+    if data.startswith("web:"):
+        from aiogram.types import WebAppInfo
+        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=data[4:]))
+    return InlineKeyboardButton(text=text, callback_data=data)
+
+
 def inline(rows) -> InlineKeyboardMarkup:
     """[[(текст, данные)], …] → клавиатура. Пустые ряды пропускаются."""
-    rows = [[InlineKeyboardButton(text=t, callback_data=d) for t, d in row] for row in rows if row]
+    rows = [[button(t, d) for t, d in row] for row in rows if row]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def mini_app_url(path: str = "/") -> str:
+    """Адрес мини-приложения на нашем сайте. Telegram открывает только https — без него пусто (тогда бот работает кнопками)."""
+    from django.conf import settings
+    site = (settings.SITE_URL or "").rstrip("/")
+    return site + path if site.startswith("https://") else ""
 
 
 async def delete(bot, chat_id, message_id) -> None:

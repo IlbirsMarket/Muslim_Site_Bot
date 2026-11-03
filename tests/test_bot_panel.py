@@ -65,15 +65,15 @@ class PanelApiTests(BaseAPITest):
         self.assertTrue(result.content.startswith(b"%PDF"))
 
     def test_cafe_sections_by_role(self):
-        """Разделы «Кафе» — как меню панели на сайте."""
+        """Разделы «Кафе» — как меню панели на сайте (canAccess в admin.js)."""
         labels = lambda user: [t for row in cafe_rows(user) for t, _ in row]
-        self.assertIn("🍽 Блюда", labels(self.admin))
-        self.assertIn("👥 Сотрудники", labels(self.admin))
+        main = ["🧾 Заказы", "🍽 Блюда и категории", "🪑 Столы и QR", "👥 Пользователи и роли", "📊 Отчёты", "⚙️ Настройки"]
+        self.assertEqual(labels(self.admin)[:6], main)
         self.assertNotIn("⇄ Сменить филиал", labels(self.admin))
         self.assertIn("⇄ Сменить филиал", labels(self.chef))
-        self.assertNotIn("🍽 Блюда", labels(self.cook))
-        self.assertIn("🛑 Стоп-лист", labels(self.cook))
-        self.assertNotIn("🛑 Стоп-лист", labels(self.waiter))
+        self.assertEqual(labels(self.cook)[:2], ["🧾 Заказы", "🍽 Блюда и категории"])      # повар — стоп-лист
+        self.assertEqual(labels(self.waiter)[:2], ["🧾 Заказы", "🪑 Столы и QR"])          # официант — столы
+        self.assertNotIn("👥 Пользователи и роли", labels(self.waiter))
 
     def test_parsing(self):
         """Ответы сотрудника: числа, время, «название цена»."""

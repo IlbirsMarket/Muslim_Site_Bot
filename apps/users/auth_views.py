@@ -56,3 +56,51 @@ class LogoutView(APIView):
         except TokenError:                                        # уже отменён, истёк или испорчен
             pass                                                  # результат тот же — вход не действует
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TelegramLoginSerializer(serializers.Serializer):
+    """Вход в мини-приложении: initData от Telegram; если Telegram ещё не привязан — ещё логин и пароль (один раз)."""
+    init_data = serializers.CharField()
+    username = serializers.CharField(required=False, allow_blank=True)
+    password = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+
+
+class TelegramLoginView(APIView):
+    """
+    POST /api/auth/telegram/ — вход в панель, открытую как мини-приложение из бота сотрудников.
+      Telegram уже привязан к сотруднику → сразу токены (как «Запомнить меня»), пароль не нужен.
+      Не привязан → 404 {"detail": "not_linked"}; фронт показывает форму, присылает логин и пароль —
+      проверяем их (с той же защитой от подбора, что в боте), привязываем Telegram и выдаём токены.
+    Подпись initData проверяется токеном бота сотрудников (core/telegram_webapp.py).
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"                                     # тот же лимит, что у обычного входа
+
+    @extend_schema(request=TelegramLoginSerializer, responses={200: dict})
+    def post(self, request):
+        from django.conf import settings
+        from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import update_last_login
+        from core.telegram_webapp import check_init_data
+        from apps.bot.services import login_from_telegram
+
+        body = TelegramLoginSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = check_init_data(body.validated_data["init_data"], settings.TELEGRAM_STAFF_BOT_TOKEN)
+        if data is None:                                         # подпись не сошлась или данные устарели
+            return Response({"detail": "Откройте панель заново из бота сотрудников."}, status=status.HTTP_401_UNAUTHORIZED)
+        telegram_id = data["user"]["id"]
+        user = get_user_model().objects.filter(telegram_id=telegram_id, is_active=True).exclude(role="").first()
+        if user is None:
+            login, password = body.validated_data.get("username", ""), body.validated_data.get("password", "")
+            if not login or not password:                        # первый раз — нужен пароль
+                return Response({"detail": "not_linked"}, status=status.HTTP_404_NOT_FOUND)
+            user, error = login_from_telegram(login.strip(), password, telegram_id)   # проверка + привязка Telegram
+            if error:
+                return Response({"detail": error}, status=status.HTTP_401_UNAUTHORIZED)
+        refresh = RefreshToken.for_user(user)                    # ключ продления (попадает в список выданных)
+        refresh.set_exp(lifetime=settings.LOGIN_REMEMBER_LIFETIME)   # как «Запомнить меня»: телефон сотрудника
+        update_last_login(None, user)
+        return Response({"access": str(refresh.access_token), "refresh": str(refresh), "remember": True})

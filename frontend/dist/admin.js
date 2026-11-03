@@ -695,7 +695,7 @@
       if(form.id==='reason-form'){const reason=new FormData(form).get('reason').trim();if(!reason)throw new Error('Укажите причину отмены.');await cache.reasonHandler(reason);editor.close();}
     }catch(error){const target=form.querySelector('.error')||form.closest('dialog')?.querySelector('.error');if(target)target.textContent=error.message;else toast(error.message);}finally{if(submit)submit.disabled=false;}
   });
-  $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{if(!API.enabled)throw new Error('Запустите локальную версию сайта для подключения к API.');const data=new FormData(form),user=await API.login(String(data.get('username')).trim(),String(data.get('password')),data.has('remember'));form.reset();await enter(true,user);}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}});
+  $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{if(!API.enabled)throw new Error('Запустите локальную версию сайта для подключения к API.');const data=new FormData(form),tg=window.MuslimTG?.active,user=tg?await API.telegramLogin(MuslimTG.initData,String(data.get('username')).trim(),String(data.get('password'))):await API.login(String(data.get('username')).trim(),String(data.get('password')),data.has('remember'));/* в мини-приложении вход ещё и привязывает Telegram */form.reset();await enter(true,user);}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}});
   function logout(){API.logout();try{sessionStorage.removeItem('muslim-demo-open');}catch{/* Нет сохранённой демо-сессии. */}location.hash='';showLogin();}
   $('#logout').addEventListener('click',logout);
   $('#session-logout').addEventListener('click',logout);
@@ -717,5 +717,13 @@
   }
   paintControls(document);
   // Вход сохранён — не показываем форму входа, пока сервер проверяет сессию (иначе она мелькает)
-  if(API.enabled&&API.hasSession()){$('#login-screen').hidden=true;API.request('/auth/me/').then(user=>enter(true,user)).catch(error=>showLogin(error.message));}
+  // Мини-приложение Telegram: вход сам, по Telegram (пароль — только в первый раз, чтобы привязать Telegram к сотруднику)
+  if(API.enabled&&window.MuslimTG?.active&&!API.hasSession()){
+    $('#login-screen').hidden=true;
+    API.telegramLogin(MuslimTG.initData).then(user=>enter(true,user)).catch(error=>{
+      showLogin(error.data?.detail==='not_linked'?'Войдите один раз логином и паролем — дальше панель будет открываться сама, через Telegram.':error.message);
+      const remember=$('#login-form').elements.remember;if(remember)remember.closest('label').hidden=true;   // в Telegram вход и так запоминается
+    });
+  }
+  else if(API.enabled&&API.hasSession()){$('#login-screen').hidden=true;API.request('/auth/me/').then(user=>enter(true,user)).catch(error=>showLogin(error.message));}
 })();

@@ -114,3 +114,8 @@ body:has(.cart.is-open) .guest-fab,body:has(dialog[open]) .guest-fab{display:non
 /* Фото блюда во всю карточку: у кнопки по умолчанию есть отступы — убираем, картинка без зазоров */
 .product-art{padding:0;overflow:hidden}.product-art img{display:block}
 .dish-art{padding:0;overflow:hidden}.dish-art img{display:block;width:100%;height:100%;object-fit:cover}
+
+/* ===== Мини-приложение Telegram ===== */
+.tg-phone{display:none}
+.in-telegram .tg-phone{display:block;width:100%;margin:-4px 0 12px;padding:11px;border:1px dashed #9cc3e6;border-radius:12px;background:#eef6fd;color:#1f6fb2;font-weight:800;font-size:14px}
+.in-telegram .tg-phone:disabled{opacity:.6}

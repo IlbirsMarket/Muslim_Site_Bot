@@ -73,6 +73,8 @@
   }
   // Вход: username — это email или логин; remember — галочка «Запомнить меня».
   async function login(username,password,remember=false) { const data=await request('/auth/login/',{method:'POST',body:{username,password,remember:Boolean(remember)},auth:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},remember); try{return await request('/auth/me/');}catch(error){session(null);throw error;} }
+  // Вход в мини-приложении Telegram: initData (подписан Telegram); username/password — только в первый раз (привязать Telegram).
+  async function telegramLogin(initData,username='',password='') { const data=await request('/auth/telegram/',{method:'POST',body:{init_data:initData,username,password},auth:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},true);return request('/auth/me/'); }
   function normalizeMenu(rows) {
     if (!Array.isArray(rows)) throw new Error('В ответе меню ожидался список категорий.');
     const extras=new Map(),dishes=[];
@@ -109,5 +111,5 @@
     if(!['accept','reject','cook','ready','send','complete','cancel'].includes(action))throw new Error('Недопустимое действие с заказом.');
     return request(`/staff/orders/${id}/status/`,{method:'POST',body:{action,reason}});
   }
-  window.MuslimAPI={enabled:Boolean(base),request,login,logout,branch:()=>branch,setBranch,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
+  window.MuslimAPI={enabled:Boolean(base),request,login,telegramLogin,logout,branch:()=>branch,setBranch,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
 })();
