@@ -118,4 +118,10 @@ body:has(.cart.is-open) .guest-fab,body:has(dialog[open]) .guest-fab{display:non
 /* ===== Мини-приложение Telegram ===== */
 .tg-phone{display:none}
 .in-telegram .tg-phone{display:block;width:100%;margin:-4px 0 12px;padding:11px;border:1px dashed #9cc3e6;border-radius:12px;background:#eef6fd;color:#1f6fb2;font-weight:800;font-size:14px}
-.in-telegram .tg-phone:disabled{opacity:.6}
+.in-telegram .tg-phone{transition:background .25s,border-color .25s,color .25s}
+.in-telegram .tg-phone.waiting{opacity:.75;background:linear-gradient(90deg,#eef6fd 0%,#dbeaf8 50%,#eef6fd 100%);background-size:200% 100%;animation:tg-wait 1.2s linear infinite}
+.in-telegram .tg-phone.done{border-style:solid;border-color:#bfe0c8;background:#e7f3e9;color:#1f7a45}
+.tg-filled{animation:tg-fill 1.4s ease-out}
+@keyframes tg-wait{to{background-position:-200% 0}}
+@keyframes tg-fill{0%{box-shadow:0 0 0 0 #2a8a5066;border-color:#2a8a50;background:#eef8f0}35%{box-shadow:0 0 0 7px #2a8a5022;border-color:#2a8a50;background:#eef8f0}100%{box-shadow:0 0 0 0 #2a8a5000}}
+@media(prefers-reduced-motion:reduce){.tg-filled,.in-telegram .tg-phone.waiting{animation:none}}

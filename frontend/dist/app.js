@@ -220,7 +220,27 @@
     const phone=$('#checkout-form').elements.phone,take=document.createElement('button');
     take.type='button';take.className='tg-phone';take.textContent='📱 Взять номер из Telegram';
     phone.closest('label').after(take);
-    take.addEventListener('click',async()=>{take.disabled=true;const number=await MuslimTG.requestPhone();take.disabled=false;if(number){phone.value=number;phone.dispatchEvent(new Event('input'));}else toast('Номер не получен — впишите его вручную.');});
+    const label='📱 Взять номер из Telegram';
+    // Номер «впечатывается» в поле по одной цифре, поле мягко подсвечивается зелёным
+    async function typeNumber(number){
+      phone.scrollIntoView({behavior:'smooth',block:'center'});
+      phone.classList.remove('tg-filled');phone.value='';
+      const calm=matchMedia('(prefers-reduced-motion: reduce)').matches;      // кто отключил анимации — сразу целиком
+      for(let i=1;i<=number.length;i++){phone.value=number.slice(0,i);if(!calm)await new Promise(r=>setTimeout(r,45));}
+      void phone.offsetWidth;phone.classList.add('tg-filled');               // перезапуск подсветки
+      phone.dispatchEvent(new Event('input'));
+    }
+    take.addEventListener('click',async()=>{
+      take.disabled=true;take.classList.add('waiting');take.textContent='Ждём ответ Telegram…';
+      const number=await MuslimTG.requestPhone();
+      take.disabled=false;take.classList.remove('waiting');
+      if(!number){take.textContent=label;toast('Номер не получен — впишите его вручную.');return;}
+      take.textContent='Вписываем номер…';
+      const d=number.replace(/\D/g,'');                                   // +996700112233 → «+996 700 11 22 33»
+      await typeNumber(d.length===12&&d.startsWith('996')?`+996 ${d.slice(3,6)} ${d.slice(6,8)} ${d.slice(8,10)} ${d.slice(10)}`:number);
+      take.textContent='✅ Номер из Telegram добавлен';take.classList.add('done');
+      setTimeout(()=>{take.textContent=label;take.classList.remove('done');},4000);
+    });
   }
   $('#copy-order').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(lastOrder); $('#copy-order').textContent = 'Скопировано ✓'; setTimeout(() => $('#copy-order').textContent = 'Скопировать список', 2000); }
