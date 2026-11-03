@@ -11,7 +11,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 from apps.bot import staff_actions as sa                     # действия и права
 from apps.bot.notify import CANCEL_REASONS                   # причины отмены
 from apps.bot.texts import staff_by_telegram
-from .handlers import screen                                 # экран лички (одно сообщение)
+from .handlers import branch_title, chosen_branch, screen    # экран лички (одно сообщение) и выбранный филиал
 from .screen import add_trash
 
 staff_router = Router()                                      # кнопки работают и в группе, и в личке
@@ -70,7 +70,7 @@ async def call_button(cb: CallbackQuery):
 
 # ===== Личка: стоп-лист (всё в одном экране) =====
 
-HOME = ("↩️ Кафе", "cafe")                                   # разделы кафе возвращают в «Кафе»
+HOME = ("↩️ Кафе", "cf")                                     # разделы кафе возвращают в «Кафе» (того же филиала)
 
 
 async def staff(event):
@@ -79,14 +79,14 @@ async def staff(event):
 
 
 async def show_categories(cb: CallbackQuery, state: FSMContext, user):
-    cats = await sync_to_async(sa.stop_categories)(user)
+    cats = await sync_to_async(sa.stop_categories)(user, await chosen_branch(state, user))
     rows = [[(name, f"sc:{cid}")] for cid, name in cats] + [[HOME]]
     await screen(cb, state, "🛑 <b>Стоп-лист</b>\nВыберите категорию:" if cats else "Категорий пока нет.", rows)
 
 
 async def show_dishes(cb: CallbackQuery, state: FSMContext, user, category_id: int):
     """Блюда категории с переключателями ✅ / ⛔."""
-    dishes = await sync_to_async(sa.stop_dishes)(user, category_id)
+    dishes = await sync_to_async(sa.stop_dishes)(user, category_id, await chosen_branch(state, user))
     rows = [[(("✅ " if ok else "⛔ ") + name, f"st:{did}")] for did, name, ok in dishes] + [[("↩️ Категории", "sc:0"), HOME]]
     await screen(cb, state, "🛑 <b>Стоп-лист</b>\nНажмите на блюдо: ✅ есть · ⛔ нет в наличии", rows)
 
@@ -106,16 +106,18 @@ async def stop_category(cb: CallbackQuery, state: FSMContext):
 
 @staff_router.callback_query(F.data.startswith("st:"))
 async def stop_toggle(cb: CallbackQuery, state: FSMContext):
-    answer, category_id = await sync_to_async(sa.toggle_dish)(cb.from_user.id, int(cb.data[3:]))
+    user = await staff(cb)
+    bid = await chosen_branch(state, user) if user else None
+    answer, category_id = await sync_to_async(sa.toggle_dish)(cb.from_user.id, int(cb.data[3:]), bid)
     if category_id:
-        await show_dishes(cb, state, await staff(cb), category_id)   # перерисовать список в том же сообщении
+        await show_dishes(cb, state, user, category_id)      # перерисовать список в том же сообщении
     await cb.answer(answer, show_alert=category_id is None)
 
 
 # ===== Личка: занятые столы =====
 
 async def show_tables(cb: CallbackQuery, state: FSMContext, user):
-    tables = await sync_to_async(sa.busy_tables)(user)
+    tables = await sync_to_async(sa.busy_tables)(user, await chosen_branch(state, user))
     rows = [[(f"🧹 Освободить: {name}", f"ft:{tid}")] for tid, name in tables] + [[("🔄 Обновить", "tb"), HOME]]
     await screen(cb, state, "🍽 <b>Занятые столы</b>" if tables else "🍽 Все столы свободны.", rows)
 
@@ -142,25 +144,23 @@ async def free_table(cb: CallbackQuery, state: FSMContext):
 
 async def send_report(cb: CallbackQuery, state: FSMContext, user, key: str = ""):
     text, pdf, name = await sync_to_async(sa.day_report)(user, key)
-    back = [("↩️ Филиалы", "rpm")] if user.sees_all_branches() else []
-    await screen(cb, state, text + "\n\nPDF — ниже 👇", [back + [HOME]])
+    await screen(cb, state, text + "\n\nPDF — ниже 👇", [[("↩️ Отчёты", "rpm"), HOME]])
     doc = await cb.message.bot.send_document(cb.message.chat.id, BufferedInputFile(pdf, filename=name))
     await add_trash(state, doc.message_id)                   # PDF уберётся при следующей смене экрана
 
 
 @staff_router.callback_query(F.data == "rpm")
 async def report(cb: CallbackQuery, state: FSMContext):
+    """«Отчёты» — как на сайте: за сегодня; шефу ещё оба филиала, период 45 дней и архив."""
     user = await staff(cb)
     if not sa.can_see_report(user):
         return await cb.answer(sa.NO_RIGHTS, show_alert=True)
-    if user.sees_all_branches():                             # шеф выбирает филиал
-        from apps.cafe.models import Branch
-        branches = await sync_to_async(lambda: list(Branch.objects.filter(is_active=True).values_list("id", "name")))()
-        rows = [[(name, f"rp:{bid}")] for bid, name in branches] + [[("Оба филиала", "rp:all")], [HOME]]
-        await screen(cb, state, "📊 Отчёт за сегодня — какой филиал?", rows)
-        return await cb.answer()
-    await cb.answer("Готовлю отчёт…")
-    await send_report(cb, state, user)
+    bid = await chosen_branch(state, user)
+    rows = [[("📅 За сегодня", f"rp:{bid}")]]
+    if user.sees_all_branches():                             # шеф и программист
+        rows += [[("🏢 Оба филиала — сегодня", "rp:all")], [("🗓 Период 45 дней (PDF)", "Prp"), ("🗂 Архив периодов", "Pra")]]
+    await screen(cb, state, f"📊 <b>Отчёты</b> · {await branch_title(bid)}", rows + [[HOME]])
+    await cb.answer()
 
 
 @staff_router.callback_query(F.data.startswith("rp:"))

@@ -39,7 +39,8 @@ class Command(BaseCommand):
             from apps.bot.notify import run_notifier
             from apps.bot.telegram.handlers import group_router, router
             from apps.bot.telegram.staff import staff_router
-            dp.include_routers(staff_router, router, group_router)   # кнопки ролей — раньше «Не понял»
+            from apps.bot.telegram.panel import panel_router
+            dp.include_routers(panel_router, staff_router, router, group_router)   # панель и кнопки ролей — раньше «Не понял»
             commands = [("start", "Главное меню"), ("login", "Войти как сотрудник"), ("menu", "Меню кафе"),
                         ("me", "Мой профиль"), ("logout", "Выйти")]
             worker = run_notifier(bot)                       # события сайта → группа

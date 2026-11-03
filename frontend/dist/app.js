@@ -136,7 +136,12 @@
     if(branchButton){                                                   // гость смотрит меню другого филиала
       const id=Number(branchButton.dataset.guestBranch);if(id===(guestBranch||branches[0]?.id))return;
       rememberBranch(id);paintBranches();
-      if(plainMode){location.reload();return;}                          // главная: другой филиал — его меню и его доставка
+      if(plainMode){                                                    // главная: другой филиал — его меню и его доставка
+        const url=new URL(location.href);
+        if(url.searchParams.has('branch')){url.searchParams.set('branch',String(id));location.replace(url.href);}   // пришли по ссылке ?branch=1 из панели — меняем и её, иначе после перезагрузки снова откроется старый филиал
+        else location.reload();
+        return;
+      }
       try{[menu,cafe]=await Promise.all([MenuRepository.load(),API.request('/cafe/'+branchQuery(),{auth:false})]);}catch(error){toast(error.message);return;}
       category=menu.categories[0]?.id||'';renderMenu();renderCart();window.scrollTo({top:0,behavior:'smooth'});
       return;

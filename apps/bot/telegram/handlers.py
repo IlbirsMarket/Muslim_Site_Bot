@@ -38,15 +38,42 @@ def home_rows(user) -> list:
 
 
 def cafe_rows(user) -> list:
-    """Раздел «Кафе» в две колонки: Меню → Занятые столы → Стоп-лист → Отчёт (только то, что можно роли)."""
-    items = [("📋 Меню кафе", "smn")]
-    if user.is_waiter or user.is_cafe_admin:
-        items.append(("🍽 Занятые столы", "tb"))
+    """Раздел «Кафе» в две колонки — те же разделы, что в панели на сайте (только то, что можно роли)."""
+    items = [("🧾 Заказы", "Po"), ("📋 Меню кафе", "smn")]               # заказы видят все роли (каждая — свои)
+    if user.is_cafe_admin:
+        items += [("🍽 Блюда", "Pd"), ("🧩 Добавки", "Px")]               # редактор меню
     if user.is_cook or user.is_cafe_admin:
         items.append(("🛑 Стоп-лист", "sc:0"))
-    if user.is_cafe_admin or user.sees_all_branches():
-        items.append(("📊 Отчёт за день", "rpm"))
-    return [items[i:i + 2] for i in range(0, len(items), 2)] + [[("↩️ Главная", "sh")]]
+    if user.is_cafe_admin:
+        items.append(("🪑 Столы и QR", "Pt"))
+    if user.is_waiter or user.is_cafe_admin:
+        items.append(("🧹 Занятые столы", "tb"))
+    if user.is_cafe_admin:
+        items += [("👥 Сотрудники", "Pu"), ("⚙️ Настройки", "Ps"), ("📊 Отчёты", "rpm")]
+    rows = [items[i:i + 2] for i in range(0, len(items), 2)]
+    if user.sees_all_branches():                                         # шеф и программист — другой филиал
+        rows.append([("⇄ Сменить филиал", "cafe")])
+    return rows + [[("↩️ Главная", "sh")]]
+
+
+async def chosen_branch(state: FSMContext, user) -> int:
+    """
+    С каким филиалом работает сотрудник в боте (id).
+    Шеф и программист выбирают его в «Кафе» (как переключатель на сайте); остальные — всегда свой.
+    """
+    from apps.cafe.models import Branch
+    if user.sees_all_branches():
+        bid = (await state.get_data()).get("branch")
+        if bid and await sync_to_async(Branch.objects.filter(pk=bid, is_active=True).exists)():
+            return bid
+    return user.branch_id or (await sync_to_async(Branch.default)()).id
+
+
+async def branch_title(bid) -> str:
+    """Название филиала для заголовков: «Кара-Суу»."""
+    from apps.cafe.models import Branch
+    name = await sync_to_async(lambda: Branch.objects.filter(pk=bid).values_list("name", flat=True).first())()
+    return texts.escape(name or "")
 
 
 async def screen(event, state: FSMContext, text, rows=(), photo=None, key=None):
@@ -136,13 +163,46 @@ async def profile(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "cafe")
 async def cafe(cb: CallbackQuery, state: FSMContext):
-    """Раздел «Кафе»."""
+    """«Кафе»: шеф и программист сначала выбирают филиал, остальные сразу видят разделы своего филиала."""
+    from apps.cafe.models import Branch
     user = await current_staff(cb)
     if not user:
         return await show_home(cb, state, None, "Вы ещё не вошли.")
-    branch = f" · {texts.escape(user.branch.name)}" if user.branch_id else ""
-    await screen(cb, state, f"☕ <b>Кафе</b>{branch}\nВыберите раздел:", cafe_rows(user))
+    if user.sees_all_branches():
+        branches = await sync_to_async(lambda: list(Branch.objects.filter(is_active=True).order_by("position", "id").values_list("id", "name")))()
+        rows = [[(f"🏢 {name}", f"cb:{bid}") for bid, name in branches[i:i + 2]] for i in range(0, len(branches), 2)]
+        await screen(cb, state, "☕ <b>Кафе</b>\nКакой филиал открыть?", rows + [[("↩️ Главная", "sh")]])
+    else:
+        await show_cafe(cb, state, user)
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith("cb:"))
+async def cafe_branch(cb: CallbackQuery, state: FSMContext):
+    """Шеф выбрал филиал — дальше все разделы работают с ним (до «⇄ Сменить филиал»)."""
+    user = await current_staff(cb)
+    if not user:
+        return await show_home(cb, state, None, "Вы ещё не вошли.")
+    await state.update_data(branch=int(cb.data[3:]))
+    await show_cafe(cb, state, user)
+    await cb.answer()
+
+
+@router.callback_query(F.data == "cf")
+async def cafe_back(cb: CallbackQuery, state: FSMContext):
+    """«↩️ Кафе» из разделов — разделы того же филиала (без повторного выбора)."""
+    user = await current_staff(cb)
+    if not user:
+        return await show_home(cb, state, None, "Вы ещё не вошли.")
+    await state.set_state(None)                              # если ждали ввод — отменяем
+    await show_cafe(cb, state, user)
+    await cb.answer()
+
+
+async def show_cafe(event, state: FSMContext, user):
+    """Разделы «Кафе» выбранного филиала."""
+    bid = await chosen_branch(state, user)
+    await screen(event, state, f"☕ <b>Кафе</b> · {await branch_title(bid)}\nВыберите раздел:", cafe_rows(user))
 
 
 # ===== Меню кафе с картинками: категории → блюдо с фото (◀️ ▶️, списком) — в одном сообщении =====
@@ -150,22 +210,21 @@ async def cafe(cb: CallbackQuery, state: FSMContext):
 LIST_SIZE = 8                                                # блюд на странице «Списком»
 
 
-async def staff_branch_id(cb):
-    """Филиал сотрудника (шеф / программист — первый)."""
-    from apps.cafe.models import Branch
+async def staff_branch_id(cb, state: FSMContext):
+    """Филиал сотрудника (шеф / программист — выбранный в «Кафе»)."""
     user = await current_staff(cb)
     if user is None:
         return None
-    return user.branch_id or (await sync_to_async(Branch.default)()).id
+    return await chosen_branch(state, user)
 
 
 @router.callback_query(F.data == "smn")
 async def menu(cb: CallbackQuery, state: FSMContext):
-    bid = await staff_branch_id(cb)
+    bid = await staff_branch_id(cb, state)
     if not bid:
         return await show_home(cb, state, None, "Вы ещё не вошли.")
     cats = await sync_to_async(gs.categories)(bid, True)
-    rows = [[(n, f"smv:{i}:0") for i, n in cats[j:j + 2]] for j in range(0, len(cats), 2)] + [[("↩️ Кафе", "cafe")]]
+    rows = [[(n, f"smv:{i}:0") for i, n in cats[j:j + 2]] for j in range(0, len(cats), 2)] + [[("↩️ Кафе", "cf")]]
     await screen(cb, state, "📋 <b>Меню кафе</b>\nВыберите категорию:" if cats else "Меню пока пустое.", rows)
     await cb.answer()
 
@@ -175,7 +234,7 @@ async def menu_dish(cb: CallbackQuery, state: FSMContext):
     """Блюдо с фото; ◀️ ▶️ меняют его в том же сообщении."""
     _, cat, index = cb.data.split(":")
     cat = int(cat)
-    bid = await staff_branch_id(cb)
+    bid = await staff_branch_id(cb, state)
     page = await sync_to_async(gs.dish_page)(bid, cat, int(index), True) if bid else None
     if not page:
         return await cb.answer("В этой категории нет блюд.", show_alert=True)
@@ -198,7 +257,7 @@ async def menu_list(cb: CallbackQuery, state: FSMContext):
     """«📋 Списком»: меняются только кнопки под фото."""
     _, cat, page = cb.data.split(":")
     cat, page = int(cat), int(page)
-    bid = await staff_branch_id(cb)
+    bid = await staff_branch_id(cb, state)
     titles = await sync_to_async(gs.dish_titles)(bid, cat, True) if bid else []
     pages = max(1, -(-len(titles) // LIST_SIZE))
     page %= pages

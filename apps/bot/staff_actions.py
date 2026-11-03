@@ -79,30 +79,32 @@ def call_done(telegram_id: int, call_id: int) -> str:
 
 # ===== Меню по ролям (личка) =====
 
-def user_branch(user):
-    """Филиал сотрудника; у шефа / программиста — первый (для стоп-листа и столов)."""
+def user_branch(user, branch_id=None):
+    """Филиал сотрудника. Шеф / программист — тот, что выбрал в «Кафе» (branch_id), иначе первый."""
+    if user.sees_all_branches() and branch_id:
+        return Branch.objects.filter(pk=branch_id, is_active=True).first() or Branch.default()
     return user.branch or Branch.default()
 
 
-def stop_categories(user) -> list:
+def stop_categories(user, branch_id=None) -> list:
     """Повар: категории своего филиала [(id, название)]."""
-    return list(Category.objects.filter(branch=user_branch(user), is_active=True).values_list("id", "name"))
+    return list(Category.objects.filter(branch=user_branch(user, branch_id), is_active=True).values_list("id", "name"))
 
 
-def stop_dishes(user, category_id) -> list:
+def stop_dishes(user, category_id, branch_id=None) -> list:
     """Блюда категории [(id, название, в наличии)] — только своего филиала."""
-    return list(Dish.objects.filter(category_id=category_id, category__branch=user_branch(user), is_active=True)
+    return list(Dish.objects.filter(category_id=category_id, category__branch=user_branch(user, branch_id), is_active=True)
                 .values_list("id", "name", "is_available"))
 
 
-def toggle_dish(telegram_id: int, dish_id: int):
+def toggle_dish(telegram_id: int, dish_id: int, branch_id=None):
     """Включить / выключить блюдо в стоп-листе. Возвращает (ответ, id категории или None)."""
     user = staff_by_telegram(telegram_id)
     if user is None:
         return NO_LOGIN, None
     if not (user.is_cook or user.is_cafe_admin or user.sees_all_branches()):
         return NO_RIGHTS, None
-    dish = Dish.objects.filter(pk=dish_id, category__branch=user_branch(user)).first()
+    dish = Dish.objects.filter(pk=dish_id, category__branch=user_branch(user, branch_id)).first()
     if dish is None:
         return NO_RIGHTS, None
     dish.is_available = not dish.is_available                            # переключаем
@@ -110,9 +112,9 @@ def toggle_dish(telegram_id: int, dish_id: int):
     return ("Снова в наличии" if dish.is_available else "В стоп-листе"), dish.category_id
 
 
-def busy_tables(user) -> list:
+def busy_tables(user, branch_id=None) -> list:
     """Официант: занятые столы своего филиала [(id, название)]."""
-    tables = Table.objects.filter(branch=user_branch(user), kind=Table.Kind.HALL, occupied_since__isnull=False).order_by("floor", "number")
+    tables = Table.objects.filter(branch=user_branch(user, branch_id), kind=Table.Kind.HALL, occupied_since__isnull=False).order_by("floor", "number")
     return [(t.id, str(t)) for t in tables]
 
 
