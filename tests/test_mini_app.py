@@ -67,6 +67,25 @@ class MiniAppTests(BaseAPITest):
         self.assertEqual(response.status_code, 201)
         self.assertIsNone(Order.objects.latest("id").guest_chat_id)
 
+    def test_guest_contact_from_last_order(self):
+        """Телефон из прошлого заказа гостя в Telegram подставляется сам; чужие данные не видны."""
+        self.as_user(None)
+        response = self.client.post("/api/telegram/guest/", {"init_data": init_data(GUEST_TOKEN, 5151)}, format="json")
+        self.assertEqual(response.data, {"name": "Азамат", "phone": ""})              # первый раз — только имя из Telegram
+        self.hall_order(telegram_init_data=init_data(GUEST_TOKEN, 5151))                  # заказ со стола без телефона — не в счёт
+        cache.clear()
+        from apps.tables.models import Table
+        self.as_user(None)
+        body = {"table_token": Table.delivery_point().token, "order_type": "pickup", "customer_name": "Азамат Т.", "phone": "+996 700 11 22 33",
+                "items": [{"dish_id": self.burger.id, "quantity": 1}], "telegram_init_data": init_data(GUEST_TOKEN, 5151)}
+        self.assertEqual(self.client.post("/api/orders/", body, format="json").status_code, 201)
+        response = self.client.post("/api/telegram/guest/", {"init_data": init_data(GUEST_TOKEN, 5151)}, format="json")
+        self.assertEqual(response.data, {"name": "Азамат Т.", "phone": "+996 700 11 22 33"})
+        response = self.client.post("/api/telegram/guest/", {"init_data": init_data(GUEST_TOKEN, 6262)}, format="json")
+        self.assertEqual(response.data["phone"], "")                                      # другой гость — своего номера нет
+        response = self.client.post("/api/telegram/guest/", {"init_data": init_data(STAFF_TOKEN, 5151)}, format="json")
+        self.assertEqual(response.status_code, 401)                                        # подпись не гостевого бота
+
 
 class MiniAppButtonsTests(BaseAPITest):
 

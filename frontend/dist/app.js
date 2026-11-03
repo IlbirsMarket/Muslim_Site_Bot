@@ -129,7 +129,7 @@
     // Скрытые поля не участвуют в проверке и не включаются в список.
     [...form.elements].forEach(input => { if (input.name) input.disabled = input.name!=='payment' && (noContacts || (['address','apartment','entrance','floor','courierNote'].includes(input.name) && mode !== 'delivery')); });
     $('#checkout-summary').innerHTML = cart.map(item => `<div class="summary-line"><span>${escape(menu.dishes.find(d => d.id === item.id).name)} × ${item.qty}<br><small>${escape(itemNote(item))}</small></span><strong>${money(unitPrice(item) * item.qty)}</strong></div>`).join('') + (mode === 'delivery' ? `<div class="summary-line"><span>Стоимость доставки</span><span>${live?money(deliveryFee()):'Уточняется в кафе'}</span></div>` : '') + `<div class="summary-line summary-total"><strong>${live?'Итого':'Блюда на сумму'}</strong><strong>${money(total()+(live?deliveryFee():0))}</strong></div>`;
-    if(window.MuslimTG?.active&&!noContacts&&!form.elements.customer.value&&MuslimTG.user?.first_name)form.elements.customer.value=MuslimTG.user.first_name;   // мини-приложение: имя из Telegram
+    if(window.MuslimTG?.active&&!noContacts)fillFromTelegram(form);   // мини-приложение: имя и телефон — сами (поменять можно)
     $('#checkout-dialog').showModal();
   }
   document.addEventListener('click', async event => {
@@ -216,6 +216,23 @@
     $('#checkout-dialog').close(); $('#saved-dialog').showModal();
   });
   $('#checkout-form').elements.phone.addEventListener('input', event => event.target.setCustomValidity(''));
+  // Мини-приложение: имя — из Telegram, телефон — из прошлого заказа этого гостя в Telegram (Telegram сам номер не отдаёт).
+  // Подставляем, только если поле пустое: гость может всё поменять.
+  let telegramContact=null;
+  function fillFromTelegram(form){
+    if(!live)return;
+    telegramContact??=API.request('/telegram/guest/',{method:'POST',auth:false,body:{init_data:MuslimTG.initData}}).catch(()=>({name:MuslimTG.user?.first_name||'',phone:''}));
+    if(!form.elements.customer.value&&MuslimTG.user?.first_name)form.elements.customer.value=MuslimTG.user.first_name;   // имя — сразу
+    telegramContact.then(contact=>{
+      for(const [field,value] of [['customer',contact?.name],['phone',contact?.phone]]){
+        const input=form.elements[field];
+        if(!value||(input.value&&!(field==='customer'&&input.value===MuslimTG.user?.first_name)))continue;   // своё уже вписано — не трогаем
+        if(input.value===value)continue;
+        input.value=value;input.classList.remove('tg-filled');void input.offsetWidth;input.classList.add('tg-filled');   // мягкая зелёная вспышка
+        input.dispatchEvent(new Event('input'));
+      }
+    });
+  }
   if(window.MuslimTG?.active){                                        // мини-приложение: номер из Telegram одной кнопкой (с согласия гостя)
     const phone=$('#checkout-form').elements.phone,take=document.createElement('button');
     take.type='button';take.className='tg-phone';take.textContent='📱 Взять номер из Telegram';

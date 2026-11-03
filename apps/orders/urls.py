@@ -4,7 +4,7 @@ from django.urls import path                       # описание адрес
 from rest_framework.routers import DefaultRouter   # автоматические адреса для ViewSet
 
 from .staff_views import CloseTableVisitView, StaffOrderViewSet, StaffTableCallViewSet
-from .views import ChangesVersionView, OrderCreateView, OrderPublicDetailView, TableCallCreateView
+from .views import ChangesVersionView, OrderCreateView, OrderPublicDetailView, TableCallCreateView, TelegramGuestContactView
 
 router = DefaultRouter()
 router.register("staff/orders", StaffOrderViewSet, basename="staff-orders")             # /api/staff/orders/
@@ -16,6 +16,7 @@ urlpatterns = [
     path("orders/<uuid:public_id>/", OrderPublicDetailView.as_view(), name="order-public"),    # GET статус заказа
     path("table-calls/", TableCallCreateView.as_view(), name="table-call-create"),             # POST вызов официанта / счёта
     path("version/", ChangesVersionView.as_view(), name="changes-version"),                    # GET номер последнего изменения
+    path("telegram/guest/", TelegramGuestContactView.as_view(), name="telegram-guest"),        # POST мини-приложение: имя и телефон из прошлого заказа
     # ----- Сотрудники -----
     path("staff/tables/<int:table_id>/close-visit/", CloseTableVisitView.as_view(), name="close-visit"),  # закрыть стол
 ] + router.urls

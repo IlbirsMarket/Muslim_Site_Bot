@@ -41,6 +41,8 @@
   function receive(type,data){(listeners[type]||[]).slice().forEach(fn=>{try{fn(data||{});}catch{/* Ошибка одного слушателя не мешает остальным. */}});}
   window.Telegram=window.Telegram||{};
   window.Telegram.WebView=Object.assign(window.Telegram.WebView||{},{receiveEvent:receive});
+  window.TelegramGameProxy=Object.assign(window.TelegramGameProxy||{},{receiveEvent:receive});   // старые версии Telegram зовут так
+  window.TelegramGameProxy_receiveEvent=receive;
   window.addEventListener('message',event=>{
     if(event.origin!=='https://web.telegram.org')return;          // только веб-версия Telegram
     try { const message=JSON.parse(event.data); if(message?.eventType)receive(message.eventType,message.eventData); } catch { /* Не наше сообщение. */ }
@@ -54,12 +56,12 @@
   async function requestPhone(){
     if(!active||!atLeast('6.9'))return null;
     postEvent('web_app_request_phone');
-    const answer=await wait('phone_requested',()=>true,60000);     // гость нажимает «Поделиться» или «Отмена»
+    const answer=await wait('phone_requested',()=>true,30000);     // гость нажимает «Поделиться» или «Отмена» (полминуты на ответ)
     if(answer?.status!=='sent')return null;
-    for(let attempt=0;attempt<5;attempt++){                        // контакт приходит не сразу
+    for(let attempt=0;attempt<3;attempt++){                        // контакт приходит не сразу
       const id=String(Date.now())+attempt;
       postEvent('web_app_invoke_custom_method',{req_id:id,method:'getRequestedContact',params:{}});
-      const result=await wait('custom_method_invoked',data=>data?.req_id===id,4000);
+      const result=await wait('custom_method_invoked',data=>data?.req_id===id,2500);
       const text=typeof result?.result==='string'?result.result:'';
       if(text){try{const contact=JSON.parse(new URLSearchParams(text).get('contact')||'{}');if(contact.phone_number)return String(contact.phone_number).replace(/^(?!\+)/,'+');}catch{/* Попробуем ещё раз. */}}
       await new Promise(r=>setTimeout(r,700));

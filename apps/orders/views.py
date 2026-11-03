@@ -60,3 +60,28 @@ class ChangesVersionView(generics.GenericAPIView):
         response = Response({"v": last})
         response["Cache-Control"] = "no-store"                     # всегда свежий ответ
         return response
+
+
+class TelegramGuestContactView(generics.GenericAPIView):
+    """
+    POST /api/telegram/guest/ {"init_data": "…"} — мини-приложение гостевого бота: имя и телефон из прошлого заказа.
+    Telegram сам номер телефона не отдаёт (его можно только попросить у гостя). Поэтому номер, который гость
+    уже указывал в прошлом заказе из Telegram, подставляем сразу — как имя; поменять его можно.
+    Подпись initData проверяется токеном гостевого бота: видны только СВОИ прошлые данные.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "calls"
+
+    @extend_schema(request=None, responses={200: dict})
+    def post(self, request):
+        from django.conf import settings
+        from core.telegram_webapp import check_init_data
+        data = check_init_data(str(request.data.get("init_data") or ""), settings.TELEGRAM_GUEST_BOT_TOKEN)
+        if data is None:
+            return Response({"detail": "Откройте меню заново из бота."}, status=status.HTTP_401_UNAUTHORIZED)
+        last = (Order.objects.filter(guest_chat_id=data["user"]["id"]).exclude(phone="")
+                .order_by("-created_at").values("customer_name", "phone").first()) or {}
+        return Response({"name": last.get("customer_name") or data["user"].get("first_name", ""), "phone": last.get("phone", "")})
