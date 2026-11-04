@@ -351,3 +351,8 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 }
 @media(min-width:1001px){.environment{height:60px;min-height:60px;padding:0 24px 0 32px}.environment-actions{right:24px}}   /* компьютер: отступ как у страницы */
 @keyframes env-pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* Кнопка «Открыть демо-версию» на входе */
+.demo-open{display:flex;justify-content:center;align-items:center;min-height:44px;margin-top:12px;border:1px dashed var(--line);border-radius:12px;color:var(--green);font-weight:800;text-decoration:none;background:transparent}
+.demo-open:hover{border-color:var(--gold)}
+.demo-exit{display:flex;margin:16px 0 8px;color:var(--muted)}

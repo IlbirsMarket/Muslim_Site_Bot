@@ -130,6 +130,7 @@
     [...form.elements].forEach(input => { if (input.name) input.disabled = input.name!=='payment' && (noContacts || (['address','apartment','entrance','floor','courierNote'].includes(input.name) && mode !== 'delivery')); });
     $('#checkout-summary').innerHTML = cart.map(item => `<div class="summary-line"><span>${escape(menu.dishes.find(d => d.id === item.id).name)} × ${item.qty}<br><small>${escape(itemNote(item))}</small></span><strong>${money(unitPrice(item) * item.qty)}</strong></div>`).join('') + (mode === 'delivery' ? `<div class="summary-line"><span>Стоимость доставки</span><span>${live?money(deliveryFee()):'Уточняется в кафе'}</span></div>` : '') + `<div class="summary-line summary-total"><strong>${live?'Итого':'Блюда на сумму'}</strong><strong>${money(total()+(live?deliveryFee():0))}</strong></div>`;
     if(window.MuslimTG?.active&&!noContacts)fillFromTelegram(form);   // мини-приложение: имя и телефон — сами (поменять можно)
+    if(window.MUSLIM_CONFIG?.demo){$('#checkout-dialog .info').textContent='Демо: заказ сразу появится в панели персонала в этом браузере.';form.querySelector('[type=submit]').textContent='Отправить заказ';}
     $('#checkout-dialog').showModal();
   }
   document.addEventListener('click', async event => {
@@ -204,6 +205,7 @@
       }catch(error){const message=document.createElement('p');message.id='checkout-api-error';message.className='info';message.setAttribute('role','alert');message.textContent=error.message;button.before(message);}finally{button.disabled=false;}
       return;
     }
+    if(window.MUSLIM_CONFIG?.demo){demoOrder(values);return;}   // демо: заказ уходит в панель персонала в этом же браузере
     const lines = ['МУСЛИМ · СПИСОК ЗАКАЗА', 'Не отправлен в кафе', '', ({cafe:'В кафе',takeaway:'С собой',delivery:'Доставка',pickup:'Самовывоз'})[mode] + (mode === 'cafe' && tableNumber ? ` · Стол №${tableNumber}` : ''), ''];
     cart.forEach(item => { lines.push(`${menu.dishes.find(d => d.id === item.id).name} × ${item.qty} — ${money(unitPrice(item)*item.qty)}`); if (itemNote(item)) lines.push(`  ${itemNote(item)}`); });
     lines.push('', `Блюда на сумму: ${money(total())}`);
@@ -465,4 +467,46 @@
   document.addEventListener('error',event=>{if(event.target.tagName==='IMG'){event.target.hidden=true;}},true);
   function menuLoadError(error){$('#products').innerHTML='';$('#categories').innerHTML='';$('#empty').hidden=false;$('#empty').textContent=error.message;const retry=document.createElement('button');retry.className='secondary';retry.textContent='Повторить загрузку';retry.onclick=()=>{retry.disabled=true;start().then(()=>$('#empty').hidden=menu.dishes.length>0).catch(menuLoadError);};$('#empty').append(document.createElement('br'),retry);}
   start().catch(menuLoadError);
-})();
+
+  // ===== Демо без сервера: заказ гостя → панель персонала (общее хранилище браузера) → статус у гостя =====
+  function demoOrder(values){
+    const S=window.MuslimStore,state=S.load(),f=Object.fromEntries(values);
+    const type=mode==='delivery'?'delivery':mode==='cafe'?'cafe':'pickup';
+    const id=Math.max(128,...state.orders.map(o=>Number(o.id)||0),...state.history.map(o=>Number(o.id)||0))+1;
+    const note=[f.customer,f.phone,mode==='delivery'?f.address:'',$('#order-comment').value.trim()].filter(Boolean).join(' · ');
+    state.orders.unshift({id,type,...(type==='cafe'?{table:3}:{}),status:'new',minutes:0,date:S.today(),
+      items:cart.map(item=>{const d=menu.dishes.find(x=>x.id===item.id),extra=itemNote(item);return {name:d.name+(extra?` (${extra})`:''),qty:item.qty,price:unitPrice(item)};}),
+      ...(type==='delivery'?{fee:state.settings.deliveryFee}:{}),note});
+    S.save(state);
+    cart=[];$('#order-comment').value='';saveCart();renderCart();$('#checkout-dialog').close();
+    try{sessionStorage.setItem('demo-last',String(id));}catch{/* без хранилища — статус только сейчас */}
+    demoStatus(id);
+  }
+  function demoStatus(id){
+    let dialog=document.getElementById('demo-status');
+    if(!dialog){dialog=document.createElement('dialog');dialog.id='demo-status';document.body.append(dialog);}
+    const steps=[['new','Отправлен'],['cooking','Готовится'],['ready','Готов'],['completed','Выдан']];
+    const paint=()=>{
+      let state;try{state=window.MuslimStore.load();}catch{return;}
+      const order=state.orders.find(o=>o.id===id)||state.history.find(o=>o.id===id);const status=order?.status||'new';
+      const at=status==='cancelled'?-1:steps.findIndex(s=>s[0]===status);
+      dialog.innerHTML=`<button class="icon-button dialog-close" data-close aria-label="Закрыть">×</button><div class="checkout-body"><span class="eyebrow">Демо · заказ №${id}</span><h2>${status==='cancelled'?'Заказ отменён':at===3?'Заказ выдан. Приятного аппетита!':at===2?'Заказ готов':at===1?'Готовим ваш заказ':'Кафе получило ваш заказ'}</h2>
+        <ol class="demo-steps">${steps.map((s,i)=>`<li class="${i<at?'done':i===at?'now':''}">${s[1]}</li>`).join('')}</ol>
+        <p class="info">Откройте панель персонала, нажмите «Принять», затем «Готов» — статус здесь поменяется сам.</p>
+        <a class="primary demo-admin" href="admin?demo=1">Открыть панель персонала</a></div>`;
+      dialog.querySelector('[data-close]').onclick=()=>dialog.close();
+    };
+    paint();if(!dialog.open)dialog.showModal();
+    clearInterval(demoStatus.timer);demoStatus.timer=setInterval(()=>{if(dialog.open)paint();},1500);
+    window.addEventListener('storage',()=>{if(dialog.open)paint();});
+  }
+  if(window.MUSLIM_CONFIG?.demo){                                      // вернулись из панели — показываем статус последнего заказа
+    let last=0;try{last=Number(sessionStorage.getItem('demo-last'))||0;}catch{last=0;}
+    try{const st=window.MuslimStore.load();if(last&&st.orders.some(o=>o.id===last))setTimeout(()=>demoStatus(last),600);}catch{/* нет данных */}
+  }
+  if(window.MUSLIM_CONFIG?.demo){                                      // полоса сверху: это демо, заказы не уходят в кафе
+    const bar=document.createElement('div');bar.className='demo-bar';
+    bar.innerHTML='<span>Демо-версия · заказы не отправляются в кафе</span><a href="admin?demo=1">Панель персонала</a><a href="?demo=0">Выйти</a>';
+    document.body.prepend(bar);
+  }
+})();

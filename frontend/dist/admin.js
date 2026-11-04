@@ -70,7 +70,7 @@
       fab.hidden=!html;
       if(html&&next){fab.dataset.branch=next.id;fab.setAttribute('aria-label',`Сменить филиал: сейчас «${current?.name}», открыть «${next.name}»`);fab.innerHTML=`<span aria-hidden="true">⇄</span>Сменить<span class="fab-branch">${esc(current?.name||'')}</span>`;}}
     $('#environment-label').innerHTML=live?`<span class="env-app">Панель кафе «Муслим»</span>${branchName()?`<span class="env-sep"> · </span><b class="env-branch">${esc(branchName())}</b>`:''}`:'Демо · изменения только в этом браузере · Telegram не подключён';   // на телефоне филиал — крупно, «Панель…» — мелко под ним
-    const guestLink=$('.environment-actions a');if(guestLink)guestLink.href=live&&currentBranch()?`./?branch=${currentBranch().id}`:'./';   // «Меню гостей» — меню этого филиала
+    const guestLink=$('.environment-actions a');if(guestLink)guestLink.href=live&&currentBranch()?`./?branch=${currentBranch().id}`:window.MUSLIM_CONFIG?.demo?'./?demo=1':'./';   // «Меню гостей» — меню этого филиала
   }
   function canManageMenu(){return !live||['programmer','chef','admin'].includes(me?.role);}
   function canAccess(id){
@@ -696,7 +696,7 @@
     }catch(error){const target=form.querySelector('.error')||form.closest('dialog')?.querySelector('.error');if(target)target.textContent=error.message;else toast(error.message);}finally{if(submit)submit.disabled=false;}
   });
   $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{if(!API.enabled)throw new Error('Запустите локальную версию сайта для подключения к API.');const data=new FormData(form),tg=window.MuslimTG?.active,user=tg?await API.telegramLogin(MuslimTG.initData,String(data.get('username')).trim(),String(data.get('password'))):await API.login(String(data.get('username')).trim(),String(data.get('password')),data.has('remember'));/* в мини-приложении вход ещё и привязывает Telegram */form.reset();await enter(true,user);}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}});
-  function logout(){API.logout();try{sessionStorage.removeItem('muslim-demo-open');}catch{/* Нет сохранённой демо-сессии. */}location.hash='';showLogin();}
+  function logout(){API.logout();try{sessionStorage.removeItem('muslim-demo-open');}catch{/* Нет сохранённой демо-сессии. */}if(window.MUSLIM_CONFIG?.demo){location.href='?demo=0';return;}location.hash='';showLogin();}   // из демо «Выйти» — обратно к настоящему входу
   $('#logout').addEventListener('click',logout);
   $('#session-logout').addEventListener('click',logout);
   // ===== Телефон: меню «⋯» в верхней полосе (Telegram, звук, Push, меню гостей, выход) =====
@@ -709,11 +709,19 @@
   window.addEventListener('muslim-session-expired',()=>{if(live)showLogin('Сессия истекла. Войдите повторно.');});
   window.addEventListener('muslim-api-result',()=>{if(view==='api'&&$('#api-results'))$('#api-results').innerHTML=resultRows();});
   $('#login-description').textContent=API.enabled?'Войдите по email или логину, который выдал администратор.':'Панель без базы данных. Вы можете проверить все разделы на демонстрационных данных.';
-  if(!API.enabled){
+  if(!API.enabled){                                                   // демо-версия (?demo=1): вход одной кнопкой, данные-пример только в этом браузере
     $('#login-form').hidden=true;
-    $('#login-description').textContent='Сервер не подключён. Откройте панель с запущенным сервером, чтобы войти.';
-    const localUrl=window.MUSLIM_CONFIG?.localAppUrl;
-    if(localUrl){const link=document.createElement('a');link.className='primary local-api-link';link.href=new URL('/admin',localUrl).href;link.textContent='Открыть с API';$('#login-description').after(link);}
+    $('#login-description').textContent='Демо-версия панели: все разделы на примере данных. Изменения видны только в этом браузере и никуда не уходят.';
+    const go=document.createElement('button');go.type='button';go.className='primary local-api-link';go.textContent='Войти в демо-панель';
+    go.addEventListener('click',()=>enter(false));$('#login-description').after(go);
+    const exit=document.createElement('a');exit.className='back-link demo-exit';exit.href='?demo=0';exit.textContent='Выйти из демо-версии';go.after(exit);
+    document.querySelectorAll('a[href="./"]').forEach(link=>link.href='./?demo=1');   // «Меню для гостей» — тоже демо
+    let again=false;try{again=sessionStorage.getItem('muslim-demo-open')==='1';}catch{again=false;}
+    if(again)enter(false);                                             // обновили страницу — остаёмся в демо-панели
+  }
+  else if(window.MUSLIM_CONFIG?.allowDemo&&!window.MuslimTG?.active){ // кнопка «Открыть демо-версию» — только на своём компьютере (на сервере allowDemo нет)
+    const demo=document.createElement('a');demo.className='secondary demo-open';demo.href='?demo=1';demo.textContent='Открыть демо-версию';
+    $('#login-form').after(demo);
   }
   paintControls(document);
   // Вход сохранён — не показываем форму входа, пока сервер проверяет сессию (иначе она мелькает)

@@ -1,6 +1,12 @@
 (() => {
   'use strict';
-  const base = window.MUSLIM_CONFIG?.apiBase;
+  // Демо-версия: ?demo=1 включает её в этой вкладке (данные-пример, без сервера), ?demo=0 — выключает.
+  // Только там, где конфигурация разрешает (allowDemo — на своём компьютере). На сервере её нет: nginx отдаёт конфигурацию без allowDemo.
+  const demoParam=window.MUSLIM_CONFIG?.allowDemo?new URLSearchParams(location.search).get('demo'):'0';
+  try { if(demoParam==='1')sessionStorage.setItem('muslim-demo','1'); if(demoParam==='0')sessionStorage.removeItem('muslim-demo'); } catch { /* Без хранилища — демо только по ссылке. */ }
+  let demo=demoParam==='1'; try { demo=demo||(demoParam!=='0'&&sessionStorage.getItem('muslim-demo')==='1'); } catch { /* Хранилище недоступно. */ }
+  if(demo)window.MUSLIM_CONFIG=Object.assign(window.MUSLIM_CONFIG||{},{demo:true});
+  const base = demo?null:window.MUSLIM_CONFIG?.apiBase;   // в демо сервер не трогаем совсем
   const sessionKey='muslim-api-session:'+String(window.MUSLIM_CONFIG?.apiOrigin||base||'offline');
   let tokens = null, refreshPromise = null;
   // Где храним вход: localStorage — «Запомнить меня» (переживает закрытие браузера), sessionStorage — до закрытия вкладки.
