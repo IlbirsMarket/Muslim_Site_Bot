@@ -78,3 +78,56 @@ class CashierTests(BaseAPITest):
         for user, action in [(self.admin, "accept"), (self.cook, "cook"), (self.cook, "ready")]:
             self.act(user, number, action)
         self.assertEqual(self.act(self.cashier, number, "complete").status_code, 200)   # «Выдан»
+
+
+class HistoryAndFreeTableTests(BaseAPITest):
+
+    def setUp(self):
+        super().setUp()
+        self.cashier = User.objects.create_user("cashier", password=PASSWORD, role=User.Role.CASHIER)
+        self.as_user(self.cashier)
+        self.client.post("/api/staff/cash/open/", {"cash": 0}, format="json")
+
+    def serve(self, number):
+        """Подтвердить, приготовить и подать на стол."""
+        for user, action in [(self.waiter, "accept"), (self.cook, "cook"), (self.cook, "ready"), (self.waiter, "complete")]:
+            self.act(user, number, action)
+
+    def pay(self, numbers):
+        self.as_user(self.cashier)
+        return self.client.post("/api/staff/bills/pay/", {"orders": numbers, "method": "cash"}, format="json")
+
+    def test_paid_and_served_table_is_freed(self):
+        number = self.hall_order(device_key="p").data["number"]
+        self.serve(number)
+        self.table.refresh_from_db()
+        self.assertIsNotNone(self.table.occupied_since)                       # гости сидят
+        self.assertTrue(self.pay([number]).data["table_freed"])
+        self.table.refresh_from_db()
+        self.assertIsNone(self.table.occupied_since)                          # стол свободен
+        self.assertIsNotNone(self.table.freed_at)
+        from apps.bot.models import BotEvent
+        self.assertTrue(BotEvent.objects.filter(kind="table_freed", table=self.table).exists())   # гостю в Telegram — «стол освобождён»
+
+    def test_prepaid_table_freed_after_last_order_served(self):
+        number = self.hall_order(device_key="p").data["number"]
+        self.act(self.waiter, number, "accept")
+        self.assertFalse(self.pay([number]).data["table_freed"])             # заплатили заранее, еду ещё не подали
+        self.table.refresh_from_db()
+        self.assertIsNotNone(self.table.occupied_since)
+        for user, action in [(self.cook, "cook"), (self.cook, "ready"), (self.waiter, "complete")]:
+            self.act(user, number, action)
+        self.table.refresh_from_db()
+        self.assertIsNone(self.table.occupied_since)                          # подали — стол свободен
+
+    def test_history_and_receipt_copy(self):
+        a = self.hall_order().data["number"]
+        self.act(self.waiter, a, "accept")
+        self.pay([a])
+        self.as_user(self.cashier)
+        rows = self.client.get("/api/staff/cash/").data["history"]
+        self.assertEqual((rows[0]["orders"], rows[0]["total"], rows[0]["method"], rows[0]["by"]), ([a], 730, "Наличные", "cashier"))
+        self.assertEqual(self.client.post("/api/staff/cash/receipt-copy/", {"orders": [a]}, format="json").status_code, 200)
+        copy = PrintJob.objects.filter(kind="receipt").last().payload
+        self.assertEqual(copy["title"], "СЧЕТ (КОПИЯ)")
+        self.assertEqual(copy["payment"]["cash"], 730)

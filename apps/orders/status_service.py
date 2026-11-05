@@ -219,5 +219,8 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
         print_order(order)                                          # подтвердили — чек «ЗАКАЗ» на кассовый аппарат
     if action == "complete" and order.kind == K.DELIVERY:
         pay_on_delivery(order, user)                                # доставлен — курьер взял деньги, чек об оплате
+    if action == "complete" and at_table(order) and order.paid_at:
+        from .billing import free_if_settled
+        free_if_settled(order.table, user)                          # заплатили заранее, подали последнее — стол свободен
     add_event(BotKind.ORDER_CHANGED, order=order, action=action, user_id=user.id)    # бот обновит сообщения о заказе
     return order

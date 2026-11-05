@@ -168,6 +168,37 @@ def _bill_key(order):
     return ("order", order.id)
 
 
+def bill_title(orders) -> str:
+    """«Стол 3 · 1 этаж», «С собой · Стол 4», «Доставка №12», «Самовывоз №15»."""
+    first = min(orders, key=lambda o: o.created_at)
+    if first.kind == Order.Kind.DELIVERY:
+        return f"Доставка №{first.id}"
+    if first.kind == Order.Kind.PICKUP:
+        return f"Самовывоз №{first.id}"
+    if all(o.kind == Order.Kind.TAKEAWAY for o in orders):
+        return f"С собой · {first.table}"
+    return str(first.table)
+
+
+def free_if_settled(table, user) -> bool:
+    """
+    Все заказы гостей за столом поданы и оплачены — стол освобождается сам (как «Освободить стол»):
+    сайт гостя и Telegram-бот увидят, что стол свободен.
+    """
+    from .status_service import close_visits
+    if not table or table.kind != "hall":
+        return False
+    orders = Order.objects.filter(table=table).exclude(status=Order.Status.CANCELLED)
+    if table.freed_at:
+        orders = orders.filter(created_at__gt=table.freed_at)
+    if not orders.exists():
+        return False
+    if orders.filter(paid_at__isnull=True).exists() or orders.exclude(status=Order.Status.COMPLETED).exists():
+        return False                                                  # кто-то ещё не заплатил или ещё не подали
+    close_visits(table, user)
+    return True
+
+
 def bills(branch, user) -> list:
     """Список счетов для вкладки «К оплате»."""
     groups = {}
@@ -183,11 +214,7 @@ def bills(branch, user) -> list:
         first = orders[0]
         waiter = next((o.claimed_by for o in orders if o.claimed_by_id), None)
         ask = asks.get(first.table_id) if key[0] == "table" else None
-        title = {                                                                  # заголовок карточки
-            Order.Kind.DELIVERY: f"Доставка №{first.id}", Order.Kind.PICKUP: f"Самовывоз №{first.id}",
-        }.get(first.kind) or str(first.table)
-        if key[0] == "table" and all(o.kind == Order.Kind.TAKEAWAY for o in orders):
-            title = f"С собой · {first.table}"
+        title = bill_title(orders)                                                 # заголовок карточки
         result.append({
             "key": "-".join(str(x) for x in key),
             "kind": first.kind,
@@ -281,7 +308,24 @@ def pay(branch, user, order_ids, method, cash=None, received=None) -> dict:
     }
     add_job(branch, PrintJob.Kind.RECEIPT, bill_payload(orders, payment))   # чек об оплате
     add_event(BotKind.ORDER_CHANGED, order=first, action="pay", user_id=user.id)   # панели обновятся у всех
-    return {"orders": [o.id for o in orders], "total": total, **payment}
+    freed = at_table(first) and free_if_settled(first.table, user)   # всё подано и оплачено — стол свободен
+    return {"orders": [o.id for o in orders], "total": total, "table_freed": bool(freed), **payment}
+
+
+def receipt_copy(branch, order_ids) -> PrintJob:
+    """«🖨 Чек» в истории оплат: копия чека об оплате."""
+    ids = sorted({int(x) for x in order_ids or []})
+    orders = list(Order.objects.filter(pk__in=ids, branch=branch, paid_at__isnull=False).select_related("table", "claimed_by", "branch"))
+    if not orders or len(orders) != len(ids):
+        raise ValidationError("Оплата не найдена.")
+    payment = {
+        "method": Order.PaidMethod(orders[0].paid_method).label if orders[0].paid_method else "",
+        "cash": sum(o.paid_cash for o in orders), "card": sum(o.paid_card for o in orders), "received": None, "change": None,
+    }
+    data = bill_payload(orders, payment)
+    data["closed"] = f"{timezone.localtime(orders[0].paid_at):%H:%M}"   # время оплаты, а не печати копии
+    data["title"] = "СЧЕТ (КОПИЯ)"
+    return add_job(branch, PrintJob.Kind.RECEIPT, data)
 
 
 def pay_on_delivery(order, user) -> None:

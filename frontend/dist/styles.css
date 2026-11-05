@@ -148,3 +148,6 @@ body:has(.cart.is-open) .guest-fab,body:has(dialog[open]) .guest-fab{display:non
 .status-services .secondary{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:46px;font-weight:800}
 .status-services svg{width:18px;height:18px}
 .status-services .secondary{font-size:13px;line-height:1.25;padding:10px 8px}
+/* Кнопка-колокольчик на телефоне: салатовый круг, тёмно-зелёный колокольчик */
+.fab-main{background:var(--green);color:var(--on-green);box-shadow:0 8px 24px #1E4D1340}
+.guest-fab.open .fab-main{background:#fff;color:var(--on-green)}

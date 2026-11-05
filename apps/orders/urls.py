@@ -4,7 +4,7 @@ from django.urls import path                       # описание адрес
 from rest_framework.routers import DefaultRouter   # автоматические адреса для ViewSet
 
 from .staff_views import (
-    BillListView, BillPayView, BillPrintView, CashCloseView, CashMoveView, CashOpenView, CashView, CloseTableVisitView, OrderReprintView, PrintJobClaimView,
+    BillListView, BillPayView, BillPrintView, CashCloseView, CashMoveView, CashOpenView, CashView, CloseTableVisitView, ReceiptCopyView, OrderReprintView, PrintJobClaimView,
     StaffOrderViewSet, StaffTableCallViewSet,
 )
 from .views import ChangesVersionView, OrderCreateView, OrderPublicDetailView, TableCallCreateView, TelegramGuestContactView
@@ -28,6 +28,7 @@ urlpatterns = [
     path("staff/cash/open/", CashOpenView.as_view(), name="cash-open"),                          # POST открыть смену
     path("staff/cash/move/", CashMoveView.as_view(), name="cash-move"),                          # POST внесение / изъятие
     path("staff/cash/close/", CashCloseView.as_view(), name="cash-close"),                       # POST закрыть смену
+    path("staff/cash/receipt-copy/", ReceiptCopyView.as_view(), name="receipt-copy"),            # POST копия чека
     path("staff/print-jobs/claim/", PrintJobClaimView.as_view(), name="print-claim"),            # POST чеки на печать
     path("staff/orders/<int:pk>/print/", OrderReprintView.as_view(), name="order-reprint"),      # POST повторить чек заказа
     path("staff/tables/<int:table_id>/close-visit/", CloseTableVisitView.as_view(), name="close-visit"),  # закрыть стол

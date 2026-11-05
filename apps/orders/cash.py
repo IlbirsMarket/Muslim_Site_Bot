@@ -128,3 +128,30 @@ def shifts_report(start, end, branch=None) -> list:
             "expected": r.get("expected", 0), "counted": shift.counted_cash, "difference": r.get("difference", 0),
         })
     return result
+
+
+def history(branch, shift=None, limit=60) -> list:
+    """
+    «История оплат» внизу «Кассы»: оплаты за смену (без смены — за сегодня), новые сверху.
+    Заказы, оплаченные одним нажатием «Оплачено», — одна строка.
+    """
+    from .billing import bill_title
+    if shift:
+        start = shift.opened_at
+    else:
+        start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    paid = (Order.objects.filter(branch=branch, paid_at__gte=start)
+            .select_related("table", "paid_by").order_by("-paid_at"))
+    groups = {}
+    for order in paid[:limit * 3]:
+        groups.setdefault((order.paid_at, order.paid_by_id), []).append(order)
+    rows = []
+    for (paid_at, _), orders in list(groups.items())[:limit]:
+        first = orders[0]
+        rows.append({
+            "orders": sorted(o.id for o in orders), "title": bill_title(orders), "kind": first.kind,
+            "paid_at": paid_at, "method": first.get_paid_method_display(),
+            "cash": sum(o.paid_cash for o in orders), "card": sum(o.paid_card for o in orders),
+            "total": sum(o.total for o in orders), "by": _person(first.paid_by),
+        })
+    return rows

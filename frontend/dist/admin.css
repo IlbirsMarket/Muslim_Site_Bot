@@ -447,3 +447,17 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 .shifts-panel{display:flex;flex-direction:column;gap:8px}
 .shift-row{display:grid;grid-template-columns:1.6fr repeat(3,1fr) 1.2fr;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:10px;font-size:13px}
 @media(max-width:1000px){.shift-row{grid-template-columns:1fr 1fr}.shift-row>div{grid-column:1/-1}}
+/* Переключатель филиала в меню: выбранный — тёмно-зелёная кнопка с салатовым текстом, остальные — тёмно-зелёный текст */
+.sidebar .branch-pill button[aria-pressed=true]{background:var(--on-green);color:var(--green)}
+.sidebar .branch-pill button:not([aria-pressed=true]):hover{background:#1E4D1314}
+.branch-fab .fab-branch{background:var(--on-green);color:var(--green)}
+.pay-quick button[aria-pressed=true]{background:var(--on-green);color:var(--green)}   /* выбранная быстрая сумма */
+/* «История оплат» внизу «Кассы» */
+.cash-history{display:flex;flex-direction:column;padding-top:6px;padding-bottom:6px}
+.history-row{display:grid;grid-template-columns:52px 1fr auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.history-row:last-child{border-bottom:0}
+.history-time{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.history-main{display:flex;flex-direction:column;min-width:0}.history-main strong{font-size:14px}
+.history-sum{font-size:15px;white-space:nowrap}
+.history-row .secondary{padding:8px 12px;font-size:12px;min-height:0}
+@media(max-width:550px){.history-row{grid-template-columns:44px 1fr auto}.history-row .secondary{grid-column:2/-1;justify-self:start}}
