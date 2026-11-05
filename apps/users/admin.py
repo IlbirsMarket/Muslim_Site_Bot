@@ -28,3 +28,14 @@ class RoleChangeLogAdmin(admin.ModelAdmin):
     list_display = ("user", "old_role", "new_role", "changed_by", "created_at")
     list_filter = ("new_role",)
     readonly_fields = ("user", "changed_by", "old_role", "new_role", "created_at")   # журнал не редактируется
+
+from .models import TrustedDevice  # noqa: E402  запомненные устройства для входа по коду
+
+
+@admin.register(TrustedDevice)
+class TrustedDeviceAdmin(admin.ModelAdmin):
+    """Где сотрудник может входить по коду. Удалить строку — на этом устройстве снова нужен пароль."""
+    list_display = ("user", "created_at", "last_used_at")
+    list_filter = ("user__role",)
+    search_fields = ("user__username", "user__first_name")
+    readonly_fields = ("user", "key_hash", "password_mark", "created_at", "last_used_at")

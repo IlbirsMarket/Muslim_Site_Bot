@@ -5,6 +5,7 @@
 """
 
 from asgiref.sync import sync_to_async                       # вызывать Django (база) из асинхронного бота
+from django.conf import settings                                 # адрес панели персонала
 from aiogram import F, Router                                # фильтры и набор обработчиков
 from aiogram.enums import ChatType                           # личка или группа
 from aiogram.exceptions import TelegramBadRequest            # ошибка Telegram (например, нельзя удалить)
@@ -35,7 +36,7 @@ def home_rows(user) -> list:
     Главная. Есть https-сайт — главная кнопка «📱 Открыть панель» (мини-приложение: та же панель, что на сайте).
     Без https (на своём компьютере) — бот на кнопках: «Войти» / «Кафе» и «Профиль».
     """
-    app = mini_app_url("/admin")
+    app = mini_app_url(settings.STAFF_PANEL_PATH)       # секретный адрес панели
     if app:
         rows = [[("📱 Открыть панель кафе", "web:" + app)]]
         return rows + ([[("👤 Профиль", "sp")]] if user else [])

@@ -528,3 +528,29 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
   .shifts-table .num{text-align:left}
 }
 .print-groups{border-left:3px solid var(--green);padding:2px 0 2px 12px;margin:0 0 12px}.print-groups .check-line{margin:6px 0;font-weight:600}
+/* Программа печати: статус, IP аппаратов */
+.agent-status{margin:4px 0 12px;padding:9px 12px;border-radius:10px;font-weight:700;font-size:13px;background:#f1efe8}
+.agent-status.on{background:#E6F5C4;color:var(--on-green)}.agent-status.off{background:#FDE7E7;color:#C62828}
+.printer-ips{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:end;margin-bottom:10px}
+.printer-ips .field{margin:0}.print-page{max-width:320px;margin-bottom:6px}
+.print-mode-box{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:6px 0 12px}
+@media(max-width:550px){.printer-ips{grid-template-columns:1fr}}
+
+/* ===== Вход по коду из 2 цифр (как в 1С) ===== */
+.pin-login{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px}
+.pin-login h2{margin:0}
+.pin-dots{display:flex;gap:14px;margin:6px 0 4px}
+.pin-dots i{width:20px;height:20px;border-radius:50%;border:3px solid var(--on-green,#1E4D13)}
+.pin-dots i.on{background:var(--on-green,#1E4D13)}
+.pin-dots.shake{animation:pin-shake .35s}
+@keyframes pin-shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.pin-pad{display:grid;grid-template-columns:repeat(3,84px);gap:10px}
+.pin-pad button{height:68px;border-radius:16px;border:1px solid #e3e0d6;background:#fff;color:#1d1d1d;font-size:28px;font-weight:700;cursor:pointer;box-shadow:0 2px 0 #ddd;touch-action:manipulation}
+.pin-pad button:active{transform:translateY(2px);box-shadow:none}
+.pin-pad .pin-ok{background:var(--green,#92CF16);color:var(--on-green,#1E4D13);font-size:18px;border-color:transparent}
+.pin-pad .pin-del{color:#E53935;font-size:22px}
+.pin-switch{background:none;border:0;color:#2E6A0C;text-decoration:underline;font-size:14px;cursor:pointer;padding:8px;margin-top:4px}
+#password-login .pin-switch{display:block;margin:10px auto 0}
+.pin-switch[hidden]{display:none!important}
+.sidebar footer .my-pin{background:none;border:0;color:inherit;font-size:13px;padding:6px 0;cursor:pointer;text-align:left}
+@media (prefers-color-scheme:dark){.pin-pad button{background:#1f2a1a;color:#fff;border-color:#2f3d28;box-shadow:0 2px 0 #111}.pin-dots i{border-color:#92CF16}.pin-dots i.on{background:#92CF16}.pin-switch{color:#92CF16}}

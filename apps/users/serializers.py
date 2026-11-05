@@ -22,6 +22,21 @@ class UniqueEmailMixin:
         return value
 
 
+def check_pin(value, user=None):
+    """Код входа: ровно 2 цифры и ни у кого другого такого нет. Пусто — кода нет (None)."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if len(value) != 2 or not value.isdigit():
+        raise serializers.ValidationError("Код — ровно 2 цифры, например 66.")
+    same = User.objects.filter(pin=value)
+    if user is not None and user.pk:
+        same = same.exclude(pk=user.pk)                                # себя не считаем
+    if same.exists():
+        raise serializers.ValidationError("Этот код уже занят другим сотрудником.")
+    return value
+
+
 class MeSerializer(serializers.ModelSerializer):
     """Данные о сотруднике, который сейчас вошёл в систему."""
 
@@ -33,7 +48,7 @@ class MeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User  # с какой моделью работаем
         fields = ["id", "username", "email", "first_name", "last_name", "role", "role_display", "phone", "telegram_id",
-                  "branch", "branch_name", "branches"]  # какие поля отдаём
+                  "branch", "branch_name", "branches", "pin"]  # какие поля отдаём (свой код входа — тоже)
 
     def get_branches(self, obj) -> list:
         """Шеф и программист — все работающие филиалы (для переключателя), остальные — только свой."""
@@ -55,7 +70,7 @@ class StaffSerializer(UniqueEmailMixin, serializers.ModelSerializer):
         model = User
         fields = [
             "id", "username", "email", "first_name", "last_name", "role", "role_display",
-            "phone", "telegram_id", "is_active", "last_login", "date_joined", "can_edit", "branch", "branch_name",
+            "phone", "telegram_id", "is_active", "last_login", "date_joined", "can_edit", "branch", "branch_name", "pin",
         ]
         read_only_fields = ["role", "last_login", "date_joined"]  # роль меняется через set-role, пароль — через set-password
 
@@ -91,6 +106,18 @@ class StaffSerializer(UniqueEmailMixin, serializers.ModelSerializer):
             raise serializers.ValidationError("Выберите филиал.")
         return branch
 
+    pin = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=2)   # код входа из 2 цифр
+
+    def validate_pin(self, value):
+        return check_pin(value, self.instance)
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        user = self.context["request"].user
+        if obj.pk != user.pk and not user.can_manage(obj):              # чужой код видит только тот, кто управляет сотрудником
+            data["pin"] = None
+        return data
+
     def get_can_edit(self, obj) -> bool:
         return self.context["request"].user.can_manage(obj)
 
@@ -103,7 +130,11 @@ class StaffCreateSerializer(UniqueEmailMixin, serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["username", "email", "password", "first_name", "last_name", "phone", "telegram_id", "role"]
+        fields = ["username", "email", "password", "first_name", "last_name", "phone", "telegram_id", "role", "pin"]
+        extra_kwargs = {"pin": {"required": False, "allow_null": True, "allow_blank": True, "validators": []}}
+
+    def validate_pin(self, value):
+        return check_pin(value)
 
     def validate_role(self, value):
         """Создатель может дать только ту роль, которую ему разрешено назначать."""
@@ -172,4 +203,4 @@ class RoleChangeLogSerializer(serializers.ModelSerializer):
         return self._role_label(obj.old_role)
 
     def get_new_role_display(self, obj):
-        return self._role_label(obj.new_role)
+        return self._role_label(obj.new_role)

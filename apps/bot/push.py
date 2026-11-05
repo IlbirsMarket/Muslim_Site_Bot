@@ -80,6 +80,8 @@ def _staff(branch_id, roles):
     """Подписки сотрудников филиала с этими ролями (шеф и программист — во всех филиалах получают новые заказы)."""
     from django.db.models import Q
     from .models import PushSubscription
+    if "admin" in roles:
+        roles = list(roles) + ["cashier"]                        # кассир получает всё, что админ
     query = Q(user__role__in=roles, user__branch_id=branch_id)
     if "admin" in roles:
         query |= Q(user__role__in=["chef", "programmer"])
@@ -91,6 +93,8 @@ def recipients(event) -> list:
     from apps.orders.models import Order
     from apps.orders.status_service import at_table
     from .models import BotEvent, PushSubscription
+    from django.conf import settings
+    PANEL = settings.STAFF_PANEL_PATH                               # секретный адрес панели персонала
     K, S, out = BotEvent.Kind, Order.Status, []
     if event.order_id:
         order = Order.objects.select_related("table", "claimed_by").get(pk=event.order_id)
@@ -103,12 +107,12 @@ def recipients(event) -> list:
                 subs = _staff(order.branch_id, who)
                 if at_table(order) and order.table and order.table.waiter_id:   # стол ведёт официант — только ему из официантов
                     subs = [x for x in subs if x.user.role != "waiter"] + list(PushSubscription.objects.filter(user_id=order.table.waiter_id))
-                out.append((subs, "🆕 Новый заказ", head, "/admin"))
+                out.append((subs, "🆕 Новый заказ", head, PANEL))
             elif order.status == S.ACCEPTED:                             # доверенный стол — сразу на кухню
-                out.append((_staff(order.branch_id, ["cook"]), "🍳 На кухню", head, "/admin"))
+                out.append((_staff(order.branch_id, ["cook"]), "🍳 На кухню", head, PANEL))
         elif event.kind == K.ORDER_CHANGED and action not in ("claim", "pay"):   # оплата — не новость для push
             if action == "accept":
-                out.append((_staff(order.branch_id, ["cook"]), "🍳 На кухню", head, "/admin"))
+                out.append((_staff(order.branch_id, ["cook"]), "🍳 На кухню", head, PANEL))
             if action == "ready":
                 if order.claimed_by_id:
                     subs = PushSubscription.objects.filter(user_id=order.claimed_by_id)
@@ -116,7 +120,7 @@ def recipients(event) -> list:
                     subs = _staff(order.branch_id, ["courier"])
                 else:
                     subs = _staff(order.branch_id, ["waiter" if at_table(order) else "admin"])
-                out.append((subs, "✅ Готов", head, "/admin"))
+                out.append((subs, "✅ Готов", head, PANEL))
             if order.device_key:                                         # гостю — его статус
                 out.append((PushSubscription.objects.filter(user__isnull=True, device_key=order.device_key),
                             f"Заказ №{order.id}", f"Статус: {order.status_label}", "/"))
@@ -129,7 +133,7 @@ def recipients(event) -> list:
         else:
             subs = _staff(call.table.branch_id, ["waiter", "admin"])
         body = call.get_kind_display() + (f" · {call.people} чел." if call.people else "")   # «Попросить счёт · 3 чел.»
-        out.append((subs, f"🔔 {call.table}", body, "/admin"))
+        out.append((subs, f"🔔 {call.table}", body, PANEL))
     return out
 
 

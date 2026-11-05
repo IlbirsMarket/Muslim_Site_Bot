@@ -10,6 +10,8 @@ from rest_framework_simplejwt.exceptions import TokenError       # испорч�
 from rest_framework_simplejwt.tokens import RefreshToken         # ключ продления
 from rest_framework_simplejwt.views import TokenViewBase         # готовая основа для выдачи токенов
 
+from core.permissions import IsStaffMember                       # только сотрудники
+
 from .auth_serializers import LoginSerializer, RefreshSerializer  # проверка входа и продления
 
 
@@ -104,3 +106,74 @@ class TelegramLoginView(APIView):
         refresh.set_exp(lifetime=settings.LOGIN_REMEMBER_LIFETIME)   # как «Запомнить меня»: телефон сотрудника
         update_last_login(None, user)
         return Response({"access": str(refresh.access_token), "refresh": str(refresh), "remember": True})
+
+
+class PinLoginSerializer(serializers.Serializer):
+    """Тело запроса: {"device": "ключ устройства из браузера", "pin": "66"}."""
+    device = serializers.CharField(max_length=128)
+    pin = serializers.CharField(max_length=2)
+
+
+class PinLoginView(APIView):
+    """
+    POST /api/auth/pin/ — быстрый вход по коду из 2 цифр (как в 1С). Работает только на устройстве,
+    где этот сотрудник уже входил по логину и паролю (apps/users/pin_login.py).
+    Вход — на одну смену (12 часов), как без «Запомнить меня». 5 неверных кодов с устройства → пауза 15 минут.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"                                     # тот же лимит, что у входа по паролю
+
+    @extend_schema(request=PinLoginSerializer, responses={200: dict})
+    def post(self, request):
+        from django.conf import settings
+        from django.contrib.auth.models import update_last_login
+        from core import login_guard
+        from core.client_ip import client_ip
+        from . import pin_login
+
+        body = PinLoginSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        device, pin = body.validated_data["device"], body.validated_data["pin"]
+        if not pin_login.valid_device(device) or not pin_login.known_device(device):   # здесь ещё никто не входил по паролю
+            return Response({"detail": "Вход по коду на этом устройстве ещё не включён. Войдите один раз по логину и паролю."},
+                            status=status.HTTP_403_FORBIDDEN)
+        guard = "pin:" + pin_login.device_hash(device)[:16]      # счётчик ошибок — на устройство
+        source = "ip:" + client_ip(request)
+        minutes = login_guard.wait_minutes(guard, source)
+        if minutes:
+            return Response({"detail": f"Слишком много неверных кодов. Попробуйте через {minutes} минут."},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        user, error = pin_login.find_user(device, pin) if pin_login.PIN_RE.match(pin) else (None, "wrong")
+        if error == "not_here":                                   # код верный, но на этом устройстве не было входа по паролю
+            return Response({"detail": "На этом устройстве войдите один раз по логину и паролю — потом хватит кода."},
+                            status=status.HTTP_403_FORBIDDEN)
+        if user is None:
+            left = login_guard.record_failure(guard, source)
+            return Response({"detail": "Неверный код." + (f" Осталось попыток: {left}." if left else " Вход по коду закрыт на 15 минут.")},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        login_guard.record_success(guard, source)
+        refresh = RefreshToken.for_user(user)
+        refresh.set_exp(lifetime=settings.LOGIN_SESSION_LIFETIME)  # одна смена
+        update_last_login(None, user)
+        return Response({"access": str(refresh.access_token), "refresh": str(refresh), "remember": False})
+
+
+class MyPinSerializer(serializers.Serializer):
+    """{"pin": "66"} — свой код; пустая строка — убрать код."""
+    pin = serializers.CharField(max_length=2, allow_blank=True)
+
+
+class MyPinView(APIView):
+    """POST /api/auth/me/pin/ — сотрудник сам ставит себе код входа (шефу его больше никто не поставит)."""
+    permission_classes = [IsStaffMember]
+
+    @extend_schema(request=MyPinSerializer, responses={200: dict})
+    def post(self, request):
+        from .serializers import check_pin
+        body = MyPinSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        request.user.pin = check_pin(body.validated_data["pin"], request.user)
+        request.user.save(update_fields=["pin"])
+        return Response({"pin": request.user.pin})

@@ -61,9 +61,12 @@ class CashierTests(BaseAPITest):
         self.as_user(self.cashier)
         orders = self.client.get("/api/staff/orders/?active=true").data
         self.assertIn(number, [o["number"] for o in orders])                 # видит заказы
-        self.assertNotIn("accept", [a["action"] for o in orders for a in o["available_actions"]])   # но не подтверждает
-        self.assertEqual(self.client.get("/api/admin/reports/day/").status_code, 403)   # отчёты — админу
-        self.assertEqual(self.client.get("/api/admin/cafe/").status_code, 403)          # настройки кафе — админу
+        self.assertIn("accept", [a["action"] for o in orders for a in o["available_actions"]])      # подтверждает, как админ
+        self.assertEqual(self.client.get("/api/admin/reports/day/").status_code, 200)   # отчёты — как у админа
+        self.assertEqual(self.client.get("/api/admin/reports/period/").status_code, 200)  # и 45 дней
+        self.assertEqual(self.client.patch("/api/admin/cafe/", {"delivery_fee": 150}, format="json").status_code, 200)   # настройки своего филиала
+        self.assertEqual(self.cashier.assignable_roles(), self.admin.assignable_roles())   # сотрудников — как админ
+        self.assertNotIn(User.Role.CHEF, self.cashier.assignable_roles())                  # шефа — нет
         self.as_user(self.waiter)
         self.assertEqual(self.client.get("/api/staff/cash/").status_code, 403)          # «Касса» официанту не видна
         self.assertIn(User.Role.CASHIER, self.admin.assignable_roles())                 # админ может назначить кассира

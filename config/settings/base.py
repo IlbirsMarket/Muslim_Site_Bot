@@ -29,6 +29,10 @@ SITE_URL = os.getenv("SITE_URL", "http://localhost:5173")
 # потому что /admin занят нашей панелью кафе
 DJANGO_ADMIN_URL = os.getenv("DJANGO_ADMIN_URL", "admin/")
 
+# Адрес панели персонала на сайте. На сервере — секретный (например /p-Xk3…): по нему не догадаться, где вход.
+# Тот же адрес прописан в nginx; бот и уведомления ведут сотрудников туда
+STAFF_PANEL_PATH = "/" + os.getenv("STAFF_PANEL_PATH", "admin").strip("/")
+
 # ---------- ПРИЛОЖЕНИЯ ----------
 
 # Встроенные приложения Django

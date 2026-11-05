@@ -73,11 +73,11 @@
     $('#environment-label').innerHTML=live?`<span class="env-app">Панель кафе «Муслим»</span>${branchName()?`<span class="env-sep"> · </span><b class="env-branch">${esc(branchName())}</b>`:''}`:'Демо · изменения только в этом браузере · Telegram не подключён';   // на телефоне филиал — крупно, «Панель…» — мелко под ним
     const guestLink=$('.environment-actions a');if(guestLink)guestLink.href=live&&currentBranch()?`./?branch=${currentBranch().id}`:'./';   // «Меню гостей» — меню этого филиала
   }
-  function canManageMenu(){return !live||['programmer','chef','admin'].includes(me?.role);}
+  function canManageMenu(){return !live||['programmer','chef','admin','cashier'].includes(me?.role);}   // кассир — как админ
   function canAccess(id){
     if(id==='api')return live&&['programmer','owner'].includes(me?.role);
     if(id==='cash')return live&&['programmer','chef','admin','cashier'].includes(me?.role);                       // «Касса» — кассиру и администрации
-    return !live||['programmer','chef','admin'].includes(me?.role)||['orders',...(me?.role==='cook'?['menu']:[]),...(me?.role==='waiter'?['tables']:[]),...(me?.role==='cashier'?['settings']:[])].includes(id);   // официант видит столы, повар — блюда (стоп-лист)
+    return !live||['programmer','chef','admin','cashier'].includes(me?.role)||['orders',...(me?.role==='cook'?['menu']:[]),...(me?.role==='waiter'?['tables']:[])].includes(id);   // официант видит столы, повар — блюда (стоп-лист)
   }
   function showLogin(message=''){
     stopWatch();   // вышли — уведомления больше не нужны
@@ -85,12 +85,31 @@
     document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
     $('#admin-shell').hidden=true;$('#login-screen').hidden=false;$('#content').innerHTML='';
     $('#login-form').elements.password.value='';$('#login-error').textContent=message;
+    pinMode(API.enabled&&API.pinReady()&&!window.MuslimTG?.active,message);   // здесь уже входили по паролю — сразу цифры
+  }
+  // ===== Вход по коду из 2 цифр (как в 1С): «66» — и сразу в панели. Только на устройстве, где хоть раз вошли по паролю =====
+  let pinValue='',pinBusy=false;
+  function pinMode(on,message=''){
+    $('#pin-login').hidden=!on;$('#password-login').hidden=on;                                     // цифры или логин+пароль
+    $('#pin-switch').hidden=on||!API.enabled||!API.pinReady()||Boolean(window.MuslimTG?.active);   // «Войти по коду» — только где он работает
+    pinValue='';paintPin();$('#pin-error').textContent=on?message:'';
+  }
+  function paintPin(){$('#pin-dots').querySelectorAll('i').forEach((dot,i)=>dot.classList.toggle('on',i<pinValue.length));}   // закрашенные кружки
+  async function pinKey(key){
+    if(pinBusy)return;
+    if(key==='del'){pinValue=pinValue.slice(0,-1);paintPin();return;}
+    if(/^\d$/.test(key)&&pinValue.length<2){pinValue+=key;paintPin();$('#pin-error').textContent='';}
+    if(pinValue.length<2||(key!=='ok'&&!/^\d$/.test(key)))return;                               // ждём вторую цифру; на 2-й входим сразу
+    pinBusy=true;
+    try{const user=await API.pinLogin(pinValue);pinValue='';paintPin();await enter(true,user);}
+    catch(error){pinValue='';paintPin();$('#pin-error').textContent=error.message;$('#pin-dots').classList.remove('shake');void $('#pin-dots').offsetWidth;$('#pin-dots').classList.add('shake');}
+    finally{pinBusy=false;}
   }
   function nav(){
     $('#navigation').innerHTML=views.filter(([id])=>canAccess(id)).map(([id,icon,name])=>`<button class="nav-button" data-view="${id}" ${view===id?'aria-current="page"':''}><span class="nav-icon" aria-hidden="true">${window.MuslimIcons.render(icon)}</span><span class="nav-label">${name}</span><span class="nav-label-short">${id==='users'?'Роли':id==='tables'?'Столы':id==='menu'?'Блюда':name}</span>${id==='orders'&&cache.newCount?`<b class="nav-badge">${cache.newCount}</b>`:''}</button>`).join('');
   }
   async function enter(useAPI,user){
-    live=useAPI;me=user;state=useAPI?null:Store.load();if(live&&me.role==='admin')reportPeriod='day';
+    live=useAPI;me=user;state=useAPI?null:Store.load();
     if(!live){try{sessionStorage.setItem('muslim-demo-open','1');}catch{/* Вход работает без сохранения сессии. */}}
     $('#login-screen').hidden=true;$('#admin-shell').hidden=false;
     $('#staff-name').textContent=live?(me.first_name||me.username):'Администратор';
@@ -248,25 +267,75 @@
       localStorage.setItem('muslim-printer-lock',JSON.stringify({id:printTab,t:Date.now()}));}catch{/* одна вкладка — и так одна */}
     return true;
   }
+  // ===== Программа печати: одно окно панели → три аппарата по IP (порт 9100). Программа — muslim-print.bat на этом компьютере =====
+  const AGENT='http://127.0.0.1:18080';
+  const DEFAULT_IPS={hall:'192.168.10.21',kitchen1:'192.168.10.22',kitchen2:'192.168.10.20'};   // Бар, Кухня-9, Фаст фуд
+  const PRINTERS=[['hall','Зал (Бар): счёт, оплата, смена'],['kitchen1','Кухонный аппарат 1 (горячее)'],['kitchen2','Кухонный аппарат 2 (фастфуд)']];
+  const agentQueue=[];let agentOk=null;                                    // чеки, которые ещё не дошли до аппарата; работает ли программа
+  function printerIp(kind,config){const ips={...DEFAULT_IPS,...(config.ips||{})};return kind==='kitchen1'?ips.kitchen1:kind==='kitchen2'?ips.kitchen2:ips.hall;}
+  async function agentAlive(){
+    const stop=new AbortController(),timer=setTimeout(()=>stop.abort(),2000);
+    try{const r=await fetch(AGENT+'/ping',{signal:stop.signal,cache:'no-store'});agentOk=r.ok;}catch{agentOk=false;}finally{clearTimeout(timer);}
+    paintAgent();return agentOk;
+  }
+  function paintAgent(note=''){
+    const el=$('#agent-status');if(!el)return;
+    el.className='agent-status '+(agentOk?'on':agentOk===false?'off':'');
+    el.textContent=agentOk?`Программа печати работает${agentQueue.length?` · ждут печати: ${agentQueue.length}`:''}${note?' · '+note:''}`:agentOk===false?'Программа печати не найдена — запустите muslim-print.bat на этом компьютере':'Проверяем программу печати…';
+  }
+  async function agentSend(job,config){
+    const ip=printerIp(job.kind,config);if(!ip)return;
+    const body=MuslimEscpos.toBase64(MuslimEscpos.build(job,Number(config.page||17)));
+    const r=await fetch(`${AGENT}/print?ip=${encodeURIComponent(ip)}`,{method:'POST',headers:{'Content-Type':'text/plain'},body});
+    if(!r.ok)throw new Error((await r.text())||`аппарат ${ip} не ответил`);
+  }
   async function printTick(){
     const config=Printer.get();
-    if(!live||!config?.on||printBusy||!API.hasSession()||!window.MuslimReceipt||!printLock())return;
+    if(!live||!config?.on||printBusy||!API.hasSession()||!printLock())return;
+    const kinds=printKinds(config);if(!kinds.length)return;
     printBusy=true;
-    const kinds=printKinds(config);if(!kinds.length){printBusy=false;return;}
-    try{for(const job of list(await API.request('/staff/print-jobs/claim/',{method:'POST',body:{kinds},branch:config.branch||undefined})))await MuslimReceipt.print(job);}
-    catch{/* нет связи — попробуем через 3 секунды */}
+    try{
+      if(config.mode==='agent'){                                            // через программу печати
+        if(!window.MuslimEscpos||!await agentAlive())return;              // программа не запущена — чеки ждут на сервере
+        if(agentQueue.length<50)for(const job of list(await API.request('/staff/print-jobs/claim/',{method:'POST',body:{kinds},branch:config.branch||undefined})))agentQueue.push(job);
+        while(agentQueue.length){await agentSend(agentQueue[0],config);agentQueue.shift();}
+        paintAgent();
+      }else if(window.MuslimReceipt){                                        // через Chrome (один принтер на окно)
+        for(const job of list(await API.request('/staff/print-jobs/claim/',{method:'POST',body:{kinds},branch:config.branch||undefined})))await MuslimReceipt.print(job);
+      }
+    }catch(error){if(config.mode==='agent')paintAgent(error.message);}      // аппарат не ответил — повторим через 3 секунды
     finally{printBusy=false;}
   }
   setInterval(printTick,3000);
-  // Что печатает этот компьютер (у каждого аппарата — своё окно Chrome со своим ярлыком)
+  // Что печатает этот компьютер
   const PRINT_GROUPS=[['cash','Зал: счёт, чек об оплате, отчёт смены',['bill','receipt','shift']],['kitchen1','Кухонный аппарат 1 (горячее)',['kitchen1']],['kitchen2','Кухонный аппарат 2 (фастфуд)',['kitchen2']],['order','Полный чек заказа после подтверждения (если нужен)',['order']]];
   const CAT_PRINTERS=[['kitchen1','Кухонный аппарат 1'],['kitchen2','Кухонный аппарат 2'],['none','Не печатать (только в чеке оплаты)']];   // куда идут блюда категории
   function printKinds(config){const groups=config?.groups||['cash'];return PRINT_GROUPS.filter(([id])=>groups.includes(id)).flatMap(([, ,k])=>k);}
+  function printSample(target){                                             // пробный чек для аппарата
+    const now=new Date(),date=now.toLocaleDateString('ru-RU'),time=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+    if(target==='kitchen1'||target==='kitchen2')return {kind:target,payload:{number:0,place:'ПРОБНЫЙ ЧЕК',staff_role:target==='kitchen1'?'Кухня 1':'Кухня 2',waiter:'',date,time,items:[{name:'Мясо по-казахски',extras:[],qty:2},{name:'Чай чёрный',extras:[],qty:1}],comment:''}};
+    return MuslimReceipt.sample(branchName());
+  }
   function printerPanel(){
     if(!live)return '';
-    const config=Printer.get(),groups=config?.groups||['cash'];
-    return `<section class="panel printer-panel"><h2>🖨 Чековый аппарат</h2><p class="fine">Включите на компьютере, через который печатает аппарат. Для каждого аппарата — своё окно со своим ярлыком: зал — <b>kassa-chrome.bat</b>, кухня 1 — <b>kitchen1-chrome.bat</b>, кухня 2 — <b>kitchen2-chrome.bat</b>. Какие блюда на какую кухню — в «Блюдах и категориях» → карандаш у категории.</p><label class="check-line"><input type="checkbox" id="printer-on" ${config?.on?'checked':''}> Этот компьютер печатает чеки филиала «${esc(branchName())}»</label><div class="print-groups" ${config?.on?'':'hidden'}><p class="fine">Что печатать в этом окне:</p>${PRINT_GROUPS.map(([id,label])=>`<label class="check-line"><input type="checkbox" data-print-group="${id}" ${groups.includes(id)?'checked':''}> ${label}</label>`).join('')}</div><div class="actions"><button type="button" class="secondary" data-print-test>Пробный чек</button><button type="button" class="secondary" data-print-test-kitchen>Пробный кухонный чек</button></div><p class="fine">Чтобы чек выходил без окна печати, Chrome запускают ярлыком с флагом <b>--kiosk-printing</b>.</p></section>`;
+    const config=Printer.get()||{},on=Boolean(config.on),mode=config.mode||(on?'browser':'agent'),groups=config.groups||['cash','kitchen1','kitchen2'],ips={...DEFAULT_IPS,...(config.ips||{})};
+    const agentBlock=`<div class="print-mode-box" ${mode==='agent'?'':'hidden'}><p id="agent-status" class="agent-status">Проверяем программу печати…</p>
+      <div class="printer-ips">${PRINTERS.map(([id,label])=>`<label class="field">${label}<input data-printer-ip="${id}" value="${esc(ips[id])}" inputmode="decimal" placeholder="192.168.10.21"></label><button type="button" class="secondary" data-agent-test="${id}">Пробный чек</button>`).join('')}</div>
+      <label class="field print-page">Кодировка кириллицы<select id="print-page"><option value="17" ${String(config.page||17)==='17'?'selected':''}>CP866 (обычно у Xprinter)</option><option value="46" ${String(config.page)==='46'?'selected':''}>Windows-1251</option></select></label>
+      <p class="fine">Программа печати — файл <b>muslim-print.bat</b>: скачайте, положите на этот компьютер и запустите (для автозапуска — в папку Win+R → <b>shell:startup</b>). Если в пробном чеке вместо букв «кракозябры», смените кодировку.</p>
+      <div class="actions"><button type="button" class="primary" data-agent-download>Скачать программу печати</button></div></div>`;
+    const browserBlock=`<div class="print-mode-box" ${mode==='browser'?'':'hidden'}><p class="fine">Каждое окно Chrome печатает на свой принтер: зал — <b>kassa-chrome.bat</b>, кухня 1 — <b>kitchen1-chrome.bat</b>, кухня 2 — <b>kitchen2-chrome.bat</b>.</p><div class="actions"><button type="button" class="secondary" data-print-test>Пробный чек</button><button type="button" class="secondary" data-print-test-kitchen>Пробный кухонный чек</button></div></div>`;
+    return `<section class="panel printer-panel"><h2>🖨 Чековые аппараты</h2><p class="fine">Включите на одном компьютере в кафе. Какие блюда на какую кухню — в «Блюдах и категориях» → карандаш у категории.</p>
+      <label class="check-line"><input type="checkbox" id="printer-on" ${on?'checked':''}> Этот компьютер печатает чеки филиала «${esc(branchName())}»</label>
+      <div class="print-groups" ${on?'':'hidden'}>
+        <p class="fine">Как печатать:</p>
+        <label class="check-line"><input type="radio" name="print-mode" value="agent" ${mode==='agent'?'checked':''}> Программа печати — одно окно, все три аппарата по IP (рекомендуется)</label>
+        <label class="check-line"><input type="radio" name="print-mode" value="browser" ${mode==='browser'?'checked':''}> Через Chrome — один принтер на окно</label>
+        ${agentBlock}${browserBlock}
+        <p class="fine">Что печатать с этого компьютера:</p>${PRINT_GROUPS.map(([id,label])=>`<label class="check-line"><input type="checkbox" data-print-group="${id}" ${groups.includes(id)?'checked':''}> ${label}</label>`).join('')}
+      </div></section>`;
   }
+
 
 
   // Четыре типа заказа: в кафе (зелёный), с собой (жёлтый), доставка (красный), самовывоз (оранжевый)
@@ -274,7 +343,7 @@
   const KIND_NAME={hall:'В кафе',takeaway:'С собой',delivery:'Доставка',pickup:'Самовывоз'};
   function kindOf(o){return live?o.kind:o.type==='cafe'?'hall':o.type;}
   // Вызовы со столов видят официант и администрация (повару и курьеру они не нужны)
-  function seesCalls(){return ['programmer','chef','admin','waiter'].includes(me?.role);}
+  function seesCalls(){return ['programmer','chef','admin','cashier','waiter'].includes(me?.role);}
   function canPay(){return ['programmer','chef','admin','waiter','cashier','courier'].includes(me?.role);}            // «К оплате» и «Оплатить»
   function homeView(){return me?.role==='cashier'?'cash':'orders';}                                         // кассир начинает с «Кассы»
   // Сколько заказов ждут реакции этого сотрудника (цифра в меню и во вкладке)
@@ -447,7 +516,7 @@
     const users=cache.users.filter(u=>userFilter==='all'||u.role===userFilter);   // поиск фильтрует строки на месте (filterRows)
     const filters=['all',...new Set(cache.users.map(u=>u.role))];
     const addButton=live&&cache.roles.length?'<button class="primary" data-add-staff>Добавить сотрудника</button>':'';   // кнопка есть у программиста, шефа и админа
-    return heading('Пользователи и роли',live?'Права проверяются сервером':'Демо-роли не предоставляют настоящий доступ',addButton)+`<div class="toolbar"><div class="pills">${filters.map(r=>pill(r==='all'?`Все · ${cache.users.length}`:roles[r],r,userFilter===r,'user-filter')).join('')}</div><input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя или логин" value="${esc(query)}"></div><div class="users-layout"><div class="data-wrap"><table class="data-table"><thead><tr><th>Пользователь</th><th>Роль</th><th class="category-col">Статус</th><th aria-label="Действия"></th></tr></thead><tbody>${users.map(u=>{const name=u.name||u.first_name||u.username,roleOptions=cache.roles.some(r=>r.value===u.role)?cache.roles:[{value:u.role,label:roles[u.role]},...cache.roles];return `<tr data-search="${esc(`${name} ${u.username||u.handle||''} ${u.email||''}`.toLowerCase())}"><td><div class="user-cell"><span class="avatar">${esc(name[0])}</span><div><strong>${esc(name)}</strong><small>@${esc(u.handle||u.username)}${u.email?' · '+esc(u.email):''}</small></div></div></td><td><select class="role-select" data-role-user="${u.id}" aria-label="Роль: ${esc(name)}" ${(live?!u.can_edit||u.id===me.id:u.role==='owner')?'disabled':''}>${roleOptions.map(r=>`<option value="${r.value}" ${r.value===u.role?'selected':''}>${esc(r.label)}</option>`).join('')}</select></td><td class="category-col">${live?u.is_active?'Активен':'Отключён':u.role==='blocked'?'Отключён':'Активен'}</td><td>${live&&u.can_edit&&u.id!==me.id?`<div class="row-actions"><button class="icon-button" data-edit-staff="${u.id}" aria-label="Изменить: ${esc(name)}" title="Изменить сотрудника"></button><button class="icon-button danger" data-delete-staff="${u.id}" aria-label="Удалить: ${esc(name)}" title="Удалить сотрудника"></button></div>`:''}</td></tr>`;}).join('')||'<tr><td colspan="4" class="empty">Пользователи не найдены</td></tr>'}</tbody></table></div><aside class="panel"><h2>История смены ролей</h2>${cache.audit.slice().reverse().slice(0,20).map(a=>`<div class="audit-row"><strong>${esc(a.user_name||a.name)}</strong><br>${esc(a.old_role_display||roles[a.from])} → ${esc(a.new_role_display||roles[a.to])}<small>${esc(a.created_at||a.at)}</small></div>`).join('')||'<p class="fine">Пока нет изменений ролей</p>'}</aside></div>`;
+    return heading('Пользователи и роли',live?'Права проверяются сервером':'Демо-роли не предоставляют настоящий доступ',addButton)+`<div class="toolbar"><div class="pills">${filters.map(r=>pill(r==='all'?`Все · ${cache.users.length}`:roles[r],r,userFilter===r,'user-filter')).join('')}</div><input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя или логин" value="${esc(query)}"></div><div class="users-layout"><div class="data-wrap"><table class="data-table"><thead><tr><th>Пользователь</th><th>Роль</th><th class="category-col">Статус</th><th aria-label="Действия"></th></tr></thead><tbody>${users.map(u=>{const name=u.name||u.first_name||u.username,roleOptions=cache.roles.some(r=>r.value===u.role)?cache.roles:[{value:u.role,label:roles[u.role]},...cache.roles];return `<tr data-search="${esc(`${name} ${u.username||u.handle||''} ${u.email||''}`.toLowerCase())}"><td><div class="user-cell"><span class="avatar">${esc(name[0])}</span><div><strong>${esc(name)}</strong><small>@${esc(u.handle||u.username)}${u.email?' · '+esc(u.email):''}${u.pin?` · код <b>${esc(u.pin)}</b>`:''}</small></div></div></td><td><select class="role-select" data-role-user="${u.id}" aria-label="Роль: ${esc(name)}" ${(live?!u.can_edit||u.id===me.id:u.role==='owner')?'disabled':''}>${roleOptions.map(r=>`<option value="${r.value}" ${r.value===u.role?'selected':''}>${esc(r.label)}</option>`).join('')}</select></td><td class="category-col">${live?u.is_active?'Активен':'Отключён':u.role==='blocked'?'Отключён':'Активен'}</td><td>${live&&u.can_edit&&u.id!==me.id?`<div class="row-actions"><button class="icon-button" data-edit-staff="${u.id}" aria-label="Изменить: ${esc(name)}" title="Изменить сотрудника"></button><button class="icon-button danger" data-delete-staff="${u.id}" aria-label="Удалить: ${esc(name)}" title="Удалить сотрудника"></button></div>`:''}</td></tr>`;}).join('')||'<tr><td colspan="4" class="empty">Пользователи не найдены</td></tr>'}</tbody></table></div><aside class="panel"><h2>История смены ролей</h2>${cache.audit.slice().reverse().slice(0,20).map(a=>`<div class="audit-row"><strong>${esc(a.user_name||a.name)}</strong><br>${esc(a.old_role_display||roles[a.from])} → ${esc(a.new_role_display||roles[a.to])}<small>${esc(a.created_at||a.at)}</small></div>`).join('')||'<p class="fine">Пока нет изменений ролей</p>'}</aside></div>`;
   }
   // Окно «Изменить сотрудника»: старший меняет данные младшего (права ещё раз проверяет сервер)
   function editStaff(id){
@@ -460,6 +529,7 @@
       ${field('Логин','username',u.username||'','text','maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false"')}
       ${field('Email','email',u.email||'','email','maxlength="254" autocomplete="off" placeholder="Можно оставить пустым"')}
       <div class="two-fields">${field('Телефон','phone',u.phone||'','tel','maxlength="20" placeholder="+996"')}${field('Telegram ID','telegram_id',u.telegram_id||'','number','min="1" placeholder="Для бота"')}</div>
+      ${field('Код входа (2 цифры)','pin',u.pin||'','text','inputmode="numeric" pattern="\\d{2}" maxlength="2" autocomplete="off" placeholder="Например, 66 · пусто — без кода"')}
       <div class="setting-line">Активен (может входить)${toggle('Активен',u.is_active!==false,'name="is_active"')}</div>
       <div class="two-fields">${field('Новый пароль','password','','password','minlength="10" autocomplete="new-password" placeholder="Не менять"')}${field('Повторите пароль','password2','','password','minlength="10" autocomplete="new-password"')}</div>
       <p class="fine">Новый пароль, другая роль или блокировка сразу выводят сотрудника из панели на всех устройствах (и из Telegram-бота — при новом пароле или блокировке). Имя, телефон и email можно менять спокойно.</p>
@@ -476,11 +546,22 @@
     const tg=text('telegram_id');
     await API.request(`/admin/staff/${editingId}/`,{method:'PATCH',body:{
       first_name:text('first_name'),last_name:text('last_name'),username:text('username'),email:text('email').toLowerCase(),
-      phone:text('phone'),telegram_id:tg?Number(tg):null,is_active:v.has('is_active'),
+      phone:text('phone'),telegram_id:tg?Number(tg):null,is_active:v.has('is_active'),pin:text('pin'),
     }});
     if(text('role')&&text('role')!==u?.role)await API.request(`/admin/staff/${editingId}/set-role/`,{method:'POST',body:{role:text('role')}});
     if(password)await API.request(`/admin/staff/${editingId}/set-password/`,{method:'POST',body:{password}});
     editor.close();toast(`Сотрудник «${text('first_name')||text('username')}» сохранён`);await render();
+  }
+  // Окно «Мой код входа»: каждый сам ставит себе 2 цифры (шефу код больше никто не поставит)
+  function myPin(){
+    $('#editor-title').textContent='Мой код входа';
+    $('#editor-content').innerHTML=`<form id="pin-form">
+      ${field('Код из 2 цифр','pin',me?.pin||'','text','inputmode="numeric" pattern="\\d{2}" maxlength="2" autocomplete="off" placeholder="Например, 66"')}
+      <p class="fine">Код работает только на устройствах, где вы хоть раз вошли по логину и паролю. Чтобы убрать код, оставьте поле пустым.</p>
+      <p id="editor-error" class="error"></p>
+      <footer class="form-footer"><button class="primary" type="submit">Сохранить</button></footer>
+    </form>`;
+    paintControls(editor);editor.showModal();
   }
   // Окно «Новый сотрудник». Роли в списке — только те, что сервер разрешает назначать
   function addStaff(){
@@ -491,6 +572,7 @@
       ${field('Логин','username','','text','maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9@.+_\\-]+" title="Латинские буквы, цифры и символы @ . + - _"')}
       ${field('Email','email','','email','maxlength="254" autocomplete="off" placeholder="Можно оставить пустым"')}
       <div class="two-fields">${field('Телефон','phone','','tel','maxlength="20" placeholder="+996"')}${field('Telegram ID','telegram_id','','number','min="1" placeholder="Для бота"')}</div>
+      ${field('Код входа (2 цифры)','pin','','text','inputmode="numeric" pattern="\\d{2}" maxlength="2" autocomplete="off" placeholder="Например, 66 · можно потом"')}
       <div class="two-fields">${field('Пароль','password','','password','minlength="10" required autocomplete="new-password"')}${field('Повторите пароль','password2','','password','minlength="10" required autocomplete="new-password"')}</div>
       <p class="fine">${multiBranch()?`Сотрудник будет работать в филиале «${esc(branchName())}» (шеф — во всех). `:''}Логин или email и пароль передайте сотруднику лично. Он сможет войти сразу.</p>
       <p id="editor-error" class="error"></p>
@@ -506,7 +588,7 @@
     await API.request('/admin/staff/',{method:'POST',body:{
       first_name:text('first_name'),last_name:text('last_name'),role:text('role'),
       username:text('username'),email:text('email').toLowerCase(),phone:text('phone'),
-      telegram_id:tg?Number(tg):null,password:String(v.get('password'))
+      telegram_id:tg?Number(tg):null,password:String(v.get('password')),pin:text('pin')
     }});
     editor.close();toast(`Сотрудник ${text('first_name')} добавлен`);await render();
   }
@@ -530,7 +612,7 @@
   function typing(){const el=document.activeElement;return Boolean(el&&$('#content').contains(el)&&/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));}
   async function watch(){
     if(!live)return;
-    const role=me.role,isCook=role==='cook',isCourier=role==='courier',isBoss=['programmer','chef','admin'].includes(role);
+    const role=me.role,isCook=role==='cook',isCourier=role==='courier',isBoss=['programmer','chef','admin','cashier'].includes(role);
     let orders,calls;
     try{const data=await Promise.all([API.request('/staff/orders/?active=true'),seesCalls()?API.request('/staff/table-calls/'):[]]);orders=list(data[0]);calls=list(data[1]);}
     catch{return;}                                              // нет связи — попробуем через 10 секунд
@@ -590,7 +672,7 @@
   function reportBranch(){return multiBranch()&&reportScope==='all'?'all':undefined;}   // «Оба филиала» — только у шефа
   async function reportsView(){
     const actions=`<button class="secondary" data-export-report>${live?'Скачать PDF':'Печать / PDF'}</button><button class="secondary" data-export-csv>${live?'JSON':'CSV'}</button>`;
-    const top=heading('Отчёты',live?'':'Демонстрационные данные',actions)+`<div class="toolbar"><div class="pills">${pill('За день','day',reportPeriod==='day','report-period')}${!live||['chef','programmer'].includes(me?.role)?pill('За 45 дней','period',reportPeriod==='period','report-period'):''}</div>${multiBranch()?`<div class="pills">${pill('Оба филиала',reportScope==='all'?'branch':'all',reportScope==='all','report-scope')}</div>`:''}${reportPeriod==='day'?`<input class="report-date" type="date" id="report-date" value="${reportDate}" max="${Store.today()}" aria-label="Дата отчёта">`:'<span class="fine">%RANGE%</span>'}</div>`;
+    const top=heading('Отчёты',live?'':'Демонстрационные данные',actions)+`<div class="toolbar"><div class="pills">${pill('За день','day',reportPeriod==='day','report-period')}${!live||['chef','programmer','admin','cashier'].includes(me?.role)?pill('За 45 дней','period',reportPeriod==='period','report-period'):''}</div>${multiBranch()?`<div class="pills">${pill('Оба филиала',reportScope==='all'?'branch':'all',reportScope==='all','report-scope')}</div>`:''}${reportPeriod==='day'?`<input class="report-date" type="date" id="report-date" value="${reportDate}" max="${Store.today()}" aria-label="Дата отчёта">`:'<span class="fine">%RANGE%</span>'}</div>`;
     if(live){
       try{cache.report=await API.request(reportPeriod==='day'?`/admin/reports/day/?date=${reportDate}`:'/admin/reports/period/',{branch:reportBranch()});
         const p=cache.report.period;                                    // настоящие даты текущего периода с сервера
@@ -669,7 +751,7 @@
     return `<div class="report">${banner}${stats}${chart}<div class="report-cards cards-${cards.length}">${cards.join('')}</div>${topBlock}${waitersBlock}${shiftsBlock}${archiveBlock}</div>`;
   }
   async function settingsView(){
-    if(live&&me.role==='cashier')return heading('Настройки')+printerPanel();      // кассиру — только чековый аппарат
+    if(live)setTimeout(()=>{if(Printer.get()?.mode==='agent'||!Printer.get()?.on)agentAlive();},0);    // показать, запущена ли программа печати
     const s=live?await API.request('/admin/cafe/'):state.settings;cache.settings=s;
     const get=(remote,local)=>live?s[remote]:s[local];
     return heading('Настройки','',`<button class="primary" type="submit" form="settings-form">Сохранить</button>`)+printerPanel()+`<form id="settings-form"><div class="settings-grid"><section class="panel"><h2>Приём заказов</h2><div class="setting-line">Принимать заказы с сайта${toggle('Принимать заказы',get('is_accepting_orders','acceptOrders'),'name="acceptOrders"')}</div><div class="setting-line">Принимать доставку${toggle('Принимать доставку',get('is_delivery_enabled','acceptDelivery'),'name="acceptDelivery"')}</div><div class="two-fields">${field('Открываемся','opens',get('opens_at','opens')?.slice(0,5),'time','required')}${field('Закрываемся','closes',get('closes_at','closes')?.slice(0,5),'time','required')}</div></section><section class="panel"><h2>Доставка</h2><div class="three-fields">${field('Мин. сумма, сом','deliveryMin',get('delivery_min_sum','deliveryMin'),'number','min="0" max="1000000" required')}${field('Стоимость, сом','deliveryFee',get('delivery_fee','deliveryFee'),'number','min="0" max="1000000" required')}${field('Время, мин','deliveryTime',get('delivery_time','deliveryTime'),'text','maxlength="50" required')}</div>${field('Бесплатная доставка от, сом (0 — нет)','freeFrom',get('free_delivery_from','freeFrom'),'number','min="0" max="1000000" required')}</section><section class="panel"><h2>${multiBranch()?'Филиал и контакты':'Контакты кафе'}</h2>${multiBranch()?field('Название филиала','branchName',s.branch_name,'text','maxlength="60" required'):''}${field('Адрес','address',s.address,'text','maxlength="200"')}${field('Телефон','phone',s.phone,'tel','maxlength="30"')}</section><section class="panel"><h2>Telegram</h2><p class="fine">Telegram пока не подключён. Уведомления и отправка отчётов в группу будут доступны после подключения бота.</p><div class="setting-line">Отчёт в группу${toggle('Отчёт в Telegram',false,'disabled')}</div><p class="fine">Время работы и параметры доставки сохраняются ${live?'на сервере':'только в этом браузере'}.</p></section>${live?'':`<section class="panel"><h2>Ссылка меню для QR</h2>${field('Адрес гостевого меню','menuUrl',s.menuUrl,'url','required maxlength="400"')}<p class="fine">Для печати QR укажите опубликованный адрес сайта, доступный гостям.</p></section>`}</div><p id="settings-error" class="error" role="alert"></p></form>`;
@@ -729,6 +811,8 @@
       const cashPart=payState.method==='mixed'?Number(payState.cash||0):payState.bill.total;              // сколько нужно наличными
       input.value=button.dataset.payQuick==='exact'?cashPart:button.dataset.payQuick;input.dispatchEvent(new Event('input',{bubbles:true}));
       document.querySelectorAll('[data-pay-quick]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));return;}
+    if(button.dataset.agentTest){const config=Printer.get()||{};try{await agentSend(printSample(button.dataset.agentTest),{...config,mode:'agent'});toast('Пробный чек отправлен');}catch(error){toast(error.message==='Failed to fetch'?'Программа печати не запущена на этом компьютере':error.message);}agentAlive();return;}
+    if(button.hasAttribute('data-agent-download')){const text=await (await fetch('muslim-print.bat',{cache:'no-store'})).text();download('muslim-print.bat',text.replace(/\r?\n/g,'\r\n'),'application/octet-stream');return;}   // CRLF — как любит Windows
     if(button.hasAttribute('data-print-test-kitchen')){await MuslimReceipt.print({kind:'kitchen1',payload:{number:0,place:'ПРОБНЫЙ ЧЕК',staff_role:'Кухня',waiter:'',date:new Date().toLocaleDateString('ru-RU'),time:new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),items:[{name:'Плов',extras:[],qty:2},{name:'Чай чёрный',extras:[],qty:1}],comment:''}});return;}
     if(button.hasAttribute('data-print-test')){await MuslimReceipt.print(MuslimReceipt.sample(branchName()));return;}   // пробный чек
     if(button.dataset.menuFilter){menuFilter=button.dataset.menuFilter;if($('.menu-layout')){menuTab='dishes';$('.menu-layout').className='menu-layout tab-dishes';document.querySelectorAll('[data-menu-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.menuTab==='dishes')));applyMenuFilter();}else await render();return;}
@@ -744,7 +828,7 @@
     // Кнопка «PDF» в архиве прошлых периодов
     if(button.dataset.archivePdf){download(`Муслим-период-${button.dataset.archivePdf}.pdf`,await API.request(`/admin/reports/periods/${button.dataset.archivePdf}/pdf/`,{binary:true,branch:reportBranch()}));return;}
     if(button.dataset.editDish){if(!canManageMenu())throw new Error('Для этой роли доступно только изменение наличия.');editDish(button.dataset.editDish);syncBasePrice();return;}
-    if(button.id==='add-size'){if($('#size-rows').children.length>=3){toast('Максимум три варианта размера');return;}$('#size-rows').insertAdjacentHTML('beforeend',sizeRow());syncBasePrice();return;}
+    if(button.id==='add-size'){if($('#size-rows').children.length>=4){toast('Максимум четыре варианта размера');return;}$('#size-rows').insertAdjacentHTML('beforeend',sizeRow());syncBasePrice();return;}
     if(button.hasAttribute('data-remove-size')){button.closest('.sizes-row').remove();syncBasePrice();return;}
     if(button.dataset.deleteDish){const id=button.dataset.deleteDish,d=cache.dishes.find(d=>String(d.id)===id);confirm('Удалить блюдо?',`«${d.name}» будет удалено ${live?'с сервера':'из локального меню'}.`,async()=>{if(live){await API.request(`/admin/dishes/${id}/`,{method:'DELETE'});toast(`«${d.name}» удалено`);}else await localChange(s=>{s.menu.dishes=s.menu.dishes.filter(d=>d.id!==id);},'Блюдо удалено');editor.close();await render();});return;}
     if(button.dataset.order){const id=Number(button.dataset.order),action=button.dataset.action,label=button.textContent.trim(),number=button.dataset.number||id;
@@ -862,8 +946,11 @@
   document.addEventListener('change',async event=>{const input=event.target;
     try{
       if(input.id==='report-date'){reportDate=input.value||Store.today();await render();}
-      if(input.dataset.printGroup){const c=Printer.get()||{on:true,branch:API.branch()};const g=new Set(c.groups||['cash']);input.checked?g.add(input.dataset.printGroup):g.delete(input.dataset.printGroup);c.groups=[...g];Printer.set(c);toast('Сохранено для этого окна');}
-      if(input.id==='printer-on'){$('.print-groups')?.toggleAttribute('hidden',!input.checked);Printer.set(input.checked?{on:true,branch:API.branch(),groups:Printer.get()?.groups||['cash']}:null);toast(input.checked?'Чеки будут печататься на этом компьютере':'Печать чеков на этом компьютере выключена');}
+      if(input.dataset.printerIp){const c=Printer.get()||{on:true,branch:API.branch()};c.ips={...(c.ips||{}),[input.dataset.printerIp]:input.value.trim()};Printer.set(c);toast('IP сохранён');}
+      if(input.id==='print-page'){const c=Printer.get()||{on:true,branch:API.branch()};c.page=Number(input.value);Printer.set(c);toast('Кодировка сохранена');}
+      if(input.name==='print-mode'){const c=Printer.get()||{on:true,branch:API.branch()};c.mode=input.value;Printer.set(c);await render(true);return;}
+      if(input.dataset.printGroup){const c=Printer.get()||{on:true,branch:API.branch()};const g=new Set(c.groups||['cash','kitchen1','kitchen2']);input.checked?g.add(input.dataset.printGroup):g.delete(input.dataset.printGroup);c.groups=[...g];Printer.set(c);toast('Сохранено для этого окна');}
+      if(input.id==='printer-on'){$('.print-groups')?.toggleAttribute('hidden',!input.checked);Printer.set(input.checked?{mode:'agent',ips:{...DEFAULT_IPS},page:17,...(Printer.get()||{}),on:true,branch:API.branch(),groups:Printer.get()?.groups||['cash','kitchen1','kitchen2']}:null);if(input.checked)agentAlive();toast(input.checked?'Чеки будут печататься на этом компьютере':'Печать чеков на этом компьютере выключена');}
       if(input.dataset.catVisible){input.disabled=true;await API.request(`/admin/categories/${input.dataset.catVisible}/`,{method:'PATCH',body:{is_active:input.checked}});toast(input.checked?'Категория снова видна гостям':'Категория скрыта от гостей');await render(true);return;}
       if(input.dataset.availability){const id=input.dataset.availability;input.disabled=true;if(live)await API.request(me.role==='cook'?`/admin/dishes/${id}/toggle-available/`:`/admin/dishes/${id}/`,{method:me.role==='cook'?'POST':'PATCH',body:me.role==='cook'?{}:{is_available:input.checked}});if(live){const d=cache.dishes.find(d=>String(d.id)===String(id));toast(`«${d?.name||'Блюдо'}» ${input.checked?'снова в наличии':'— нет в наличии'}`);}else await localChange(s=>{s.menu.dishes.find(d=>d.id===id).available=input.checked;},'Наличие обновлено');await render();}
       if(input.dataset.roleUser){const id=input.dataset.roleUser,role=input.value,u=cache.users.find(u=>String(u.id)===id);confirm('Изменить роль?',`${u.name||u.first_name||u.username}: ${roles[u.role]} → ${roles[role]}. ${live?'Права изменятся на сервере.':'Это локальный пример.'}`,async()=>{if(live)await API.request(`/admin/staff/${id}/set-role/`,{method:'POST',body:{role}});else await localChange(s=>{const u=s.users.find(u=>u.id===id);s.audit.push({name:u.name,from:u.role,to:role,at:new Date().toLocaleString('ru-RU')});u.role=role;},'Роль изменена');await render();});input.value=u.role;}
@@ -871,11 +958,12 @@
     }catch(error){toast(error.message);if(input.dataset.availability)await render();if(input.id==='dish-photo'){input.value='';uploadFile=null;if($('#photo-status')){$('#photo-status').textContent=error.message;$('#photo-status').classList.add('error');}}}finally{input.disabled=false;if(input.id==='dish-photo')input.closest('.upload-button')?.removeAttribute('aria-busy');}
   });
   document.addEventListener('submit',async event=>{
-    const form=event.target;if(!['dish-form','table-form','settings-form','reason-form','staff-form','staff-edit-form'].includes(form.id)&&!['new-category','category-form'].includes(form.id))return;event.preventDefault();const submit=form.querySelector('[type=submit]')||form.querySelector('.primary');if(submit)submit.disabled=true;
+    const form=event.target;if(!['dish-form','table-form','settings-form','reason-form','staff-form','staff-edit-form','pin-form'].includes(form.id)&&!['new-category','category-form'].includes(form.id))return;event.preventDefault();const submit=form.querySelector('[type=submit]')||form.querySelector('.primary');if(submit)submit.disabled=true;
     try{
       if(form.id==='dish-form')await saveDish(form);
       if(form.id==='staff-form')await saveStaff(form);   // новый сотрудник
       if(form.id==='staff-edit-form')await saveStaffEdit(form);   // «Изменить сотрудника»
+      if(form.id==='pin-form'){const pin=String(new FormData(form).get('pin')||'').trim();const saved=await API.request('/auth/me/pin/',{method:'POST',body:{pin}});me.pin=saved.pin;editor.close();toast(saved.pin?`Ваш код: ${saved.pin}`:'Код входа убран');}
       if(form.id==='new-category'){const name=String(new FormData(form).get('name')).trim();await API.request('/admin/categories/',{method:'POST',body:{name}});toast(`Категория «${name}» добавлена`);await render(true);}   // новая категория — в конец списка
       if(form.id==='category-form'){const v=new FormData(form);await API.request(`/admin/categories/${editingId}/`,{method:'PATCH',body:{name:String(v.get('name')).trim(),is_active:v.has('is_active'),printer:v.get('printer')||'kitchen1'}});editor.close();toast('Категория сохранена');await render(true);}
       if(form.id==='table-form'&&!live){const values=new FormData(form),payload={name:String(values.get('name')).trim(),number:Number(values.get('number'))};if(!payload.name)throw new Error('Укажите название стола.');await localChange(s=>{if(s.tables.some(t=>t.number===payload.number&&t.number!==editingId))throw new Error('Стол с таким номером уже существует.');s.orders.forEach(o=>{if(o.table===editingId)o.table=payload.number;});s.tables=s.tables.filter(t=>t.number!==editingId);s.tables.push(payload);s.tables.sort((a,b)=>a.number-b.number);},'Стол сохранён');editor.close();await render();}
@@ -886,6 +974,14 @@
   $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{if(!API.enabled)throw new Error('Запустите локальную версию сайта для подключения к API.');const data=new FormData(form),tg=window.MuslimTG?.active,user=tg?await API.telegramLogin(MuslimTG.initData,String(data.get('username')).trim(),String(data.get('password'))):await API.login(String(data.get('username')).trim(),String(data.get('password')),data.has('remember'));/* в мини-приложении вход ещё и привязывает Telegram */form.reset();await enter(true,user);}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}});
   function logout(){API.logout();try{sessionStorage.removeItem('muslim-demo-open');}catch{/* Нет сохранённой демо-сессии. */}location.hash='';showLogin();}
   $('#logout').addEventListener('click',logout);
+  $('#my-pin').addEventListener('click',()=>{if(live)myPin();});
+  $('#session-pin').addEventListener('click',()=>{if(live)myPin();});
+  $('#pin-login').addEventListener('click',event=>{const key=event.target.closest('[data-pin]')?.dataset.pin;if(key)pinKey(key);});
+  document.querySelectorAll('[data-pin-mode]').forEach(button=>button.addEventListener('click',()=>pinMode(button.dataset.pinMode==='pin')));
+  document.addEventListener('keydown',event=>{                                                   // цифры с клавиатуры кассы тоже работают
+    if($('#pin-login').hidden||$('#login-screen').hidden)return;
+    if(/^\d$/.test(event.key))pinKey(event.key);else if(event.key==='Backspace')pinKey('del');else if(event.key==='Enter')pinKey('ok');
+  });
   $('#session-logout').addEventListener('click',logout);
   // ===== Телефон: меню «⋯» в верхней полосе (Telegram, звук, Push, меню гостей, выход) =====
   const envBar=$('.environment'),envMore=$('#env-more');

@@ -71,8 +71,21 @@
     if (!data&&text) throw new Error('API вернул неожиданный формат ответа.');
     return data;
   }
-  // Вход: username — это email или логин; remember — галочка «Запомнить меня».
-  async function login(username,password,remember=false) { const data=await request('/auth/login/',{method:'POST',body:{username,password,remember:Boolean(remember)},auth:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},remember); try{return await request('/auth/me/');}catch(error){session(null);throw error;} }
+  // Ключ этого устройства: случайная строка, живёт в браузере. После входа по паролю сервер запоминает «сотрудник + устройство»,
+  // и дальше здесь хватает кода из 2 цифр. На чужом телефоне ключа нет — код там не сработает.
+  const deviceStoreKey='muslim-device',pinReadyKey='muslim-pin-ready';
+  function deviceKey(){
+    try { let key=localStorage.getItem(deviceStoreKey); if(key&&/^[A-Za-z0-9_-]{32,128}$/.test(key))return key;
+      const bytes=crypto.getRandomValues(new Uint8Array(32));                                      // 32 случайных байта
+      key=btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');   // → 43 знака без «+ / =»
+      localStorage.setItem(deviceStoreKey,key); return key; } catch { return ''; }                // хранилище закрыто — вход по коду недоступен
+  }
+  function pinReady(){ try { return localStorage.getItem(pinReadyKey)==='1'&&Boolean(localStorage.getItem(deviceStoreKey)); } catch { return false; } }   // здесь уже входили по паролю
+  function setPinReady(on){ try { if(on)localStorage.setItem(pinReadyKey,'1'); else localStorage.removeItem(pinReadyKey); } catch { /* Без хранилища — только пароль. */ } }
+  // Вход по коду из 2 цифр (только на запомненном устройстве). Вход — на одну смену, как без «Запомнить меня».
+  async function pinLogin(pin) { const data=await request('/auth/pin/',{method:'POST',body:{device:deviceKey(),pin:String(pin)},auth:false,retry:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},false); try{return await request('/auth/me/');}catch(error){session(null);throw error;} }
+  // Вход: username — это email или логин; remember — галочка «Запомнить меня»; device — чтобы потом входить здесь по коду.
+  async function login(username,password,remember=false) { const data=await request('/auth/login/',{method:'POST',body:{username,password,remember:Boolean(remember),device:deviceKey()},auth:false});if(deviceKey())setPinReady(true);if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},remember); try{return await request('/auth/me/');}catch(error){session(null);throw error;} }
   // Вход в мини-приложении Telegram: initData (подписан Telegram); username/password — только в первый раз (привязать Telegram).
   async function telegramLogin(initData,username='',password='') { const data=await request('/auth/telegram/',{method:'POST',body:{init_data:initData,username,password},auth:false});if(typeof data?.access!=='string'||typeof data?.refresh!=='string')throw new Error('API не вернул токены входа.');session({access:data.access,refresh:data.refresh},true);return request('/auth/me/'); }
   function normalizeMenu(rows) {
@@ -111,5 +124,5 @@
     if(!['accept','reject','cook','ready','send','complete','cancel'].includes(action))throw new Error('Недопустимое действие с заказом.');
     return request(`/staff/orders/${id}/status/`,{method:'POST',body:{action,reason}});
   }
-  window.MuslimAPI={enabled:Boolean(base),request,login,telegramLogin,logout,branch:()=>branch,setBranch,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
+  window.MuslimAPI={enabled:Boolean(base),request,login,pinLogin,pinReady,setPinReady,telegramLogin,logout,branch:()=>branch,setBranch,hasSession:()=>Boolean(tokens?.access),normalizeMenu,orderPayload,orderAction,results};
 })();

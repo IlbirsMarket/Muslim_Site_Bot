@@ -4,7 +4,7 @@ from rest_framework import generics               # готовые views
 from rest_framework.permissions import AllowAny   # доступ для всех
 
 from core.branches import guest_branch, staff_branch   # филиал гостя / сотрудника
-from core.permissions import IsCafeAdmin, IsChef  # наши права
+from core.permissions import IsCafeAdmin  # наши права
 from .models import Branch, CafeSettings
 from .serializers import BranchPublicSerializer, CafeAdminSerializer, CafePublicSerializer
 
@@ -29,14 +29,11 @@ class PublicCafeView(generics.RetrieveAPIView):
 class CafeAdminView(generics.RetrieveUpdateAPIView):
     """
     GET / PATCH /api/admin/cafe/ — настройки текущего филиала (и его название).
-    Смотреть может админ, менять — только шеф и программист.
+    Смотреть и менять: шеф и программист — любой филиал, админ и кассир — свой.
     """
     serializer_class = CafeAdminSerializer
 
     def get_object(self):
         return CafeSettings.load(staff_branch(self.request))
 
-    def get_permissions(self):
-        if self.request.method == "GET":   # просмотр
-            return [IsCafeAdmin()]
-        return [IsChef()]                  # изменение
+    permission_classes = [IsCafeAdmin]     # смотреть и менять: шеф, программист, админ и кассир своего филиала

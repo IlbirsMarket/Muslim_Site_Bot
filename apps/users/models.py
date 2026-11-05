@@ -32,6 +32,10 @@ class User(AbstractUser):
     # Номер телефона сотрудника
     phone = models.CharField("Телефон", max_length=20, blank=True)
 
+    # Код быстрого входа из 2 цифр (как в 1С): «66» — и сразу в панели. Работает только на устройстве,
+    # где сотрудник хоть раз вошёл по логину и паролю (см. TrustedDevice). Пусто — кода нет
+    pin = models.CharField("Код входа", max_length=2, null=True, blank=True, unique=True)
+
     # Филиал сотрудника. У шефа и программиста пусто — они видят все филиалы
     branch = models.ForeignKey(
         "cafe.Branch", on_delete=models.PROTECT, null=True, blank=True,
@@ -78,8 +82,8 @@ class User(AbstractUser):
 
     @property
     def is_cafe_admin(self) -> bool:
-        """Админ, шеф или программист: заказы, меню, столы, отчёты."""
-        return self.role in (self.Role.ADMIN, self.Role.CHEF, self.Role.PROGRAMMER)
+        """Админ, кассир, шеф или программист: всё в филиале — заказы, меню, столы, отчёты, настройки."""
+        return self.role in (self.Role.ADMIN, self.Role.CASHIER, self.Role.CHEF, self.Role.PROGRAMMER)
 
     @property
     def is_cook(self) -> bool:
@@ -110,9 +114,9 @@ class User(AbstractUser):
             return [R.CHEF, R.ADMIN, R.CASHIER, R.COOK, R.WAITER, R.COURIER]
         if self.role == R.CHEF:
             return [R.ADMIN, R.CASHIER, R.COOK, R.WAITER, R.COURIER]
-        if self.role == R.ADMIN:
-            return [R.CASHIER, R.COOK, R.WAITER, R.COURIER]    
-        return []                                        # повар, официант и курьер никому роли не назначают                           # повар и официант никому роли не назначают
+        if self.role in (R.ADMIN, R.CASHIER):            # админ и кассир: кассир, повар, официант, курьер своего филиала
+            return [R.CASHIER, R.COOK, R.WAITER, R.COURIER]
+        return []                                        # повар, официант и курьер никому роли не назначают
 
     def can_manage(self, target: "User") -> bool:
         """
@@ -155,3 +159,25 @@ class RoleChangeLog(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.old_role or '—'} → {self.new_role}"
+
+
+class TrustedDevice(models.Model):
+    """
+    «Запомненное устройство»: здесь сотрудник вошёл по логину и паролю, значит дальше ему хватит кода из 2 цифр.
+    Браузер хранит случайный ключ устройства, в базе — только его отпечаток (sha256), сам ключ не хранится.
+    Сменили сотруднику пароль — все его запомненные устройства перестают действовать (сверяем отпечаток пароля).
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trusted_devices", verbose_name="Сотрудник")
+    key_hash = models.CharField("Отпечаток ключа устройства", max_length=64, db_index=True)
+    password_mark = models.CharField("Отпечаток пароля при входе", max_length=64)
+    created_at = models.DateTimeField("Запомнено", auto_now_add=True)
+    last_used_at = models.DateTimeField("Последний вход по коду", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Запомненное устройство"
+        verbose_name_plural = "Запомненные устройства"
+        constraints = [models.UniqueConstraint(fields=["user", "key_hash"], name="unique_trusted_device")]
+
+    def __str__(self) -> str:
+        return f"{self.user} · {self.created_at:%d.%m.%Y}"

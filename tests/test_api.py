@@ -394,7 +394,7 @@ class CafeTests(BaseAPITest):
         self.assertTrue(self.client.get("/api/cafe/").data["is_open"])
         self.as_user(self.admin)
         self.assertEqual(self.client.get("/api/admin/cafe/").status_code, 200)
-        self.assertEqual(self.client.patch("/api/admin/cafe/", {"delivery_fee": 200}, format="json").status_code, 403)
+        self.assertEqual(self.client.patch("/api/admin/cafe/", {"delivery_fee": 200}, format="json").status_code, 200)   # админ меняет свой филиал
         self.as_user(self.chef)
         self.assertEqual(self.client.patch("/api/admin/cafe/", {"delivery_fee": 200}, format="json").data["delivery_fee"], 200)
 
@@ -426,7 +426,7 @@ class ReportTests(BaseAPITest):
     def test_period_report_rollover_and_archive(self):
         self.complete_one_order()
         self.as_user(self.admin)
-        self.assertEqual(self.client.get("/api/admin/reports/period/").status_code, 403)   # 45 дней — только шеф
+        self.assertEqual(self.client.get("/api/admin/reports/period/").status_code, 200)   # 45 дней — и админу (свой филиал)
 
         self.as_user(self.chef)
         current = self.client.get("/api/admin/reports/period/").data

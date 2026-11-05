@@ -1083,19 +1083,19 @@ async def settings_screen(event, state, user, bid, note=""):
             f"Время доставки: {esc(c.get('delivery_time') or '—')}\n"
             f"Адрес: {esc(c.get('address') or '—')}\nТелефон: {esc(c.get('phone') or '—')}")
     rows = []
-    if user.is_chef:                                           # менять может шеф и программист (как на сайте)
+    if user.is_cafe_admin:                                     # менять могут шеф, программист, админ и кассир (как на сайте)
         rows = [[("⛔ Остановить приём" if c["is_accepting_orders"] else "✅ Принимать заказы", "Pst:is_accepting_orders")],
                 [("⛔ Выключить доставку" if c["is_delivery_enabled"] else "✅ Включить доставку", "Pst:is_delivery_enabled")],
                 [("✏️ Изменить", "Psete")]]
     else:
-        text += "\n\n<i>Менять настройки может шеф.</i>"
+        text += "\n\n<i>Менять настройки может администратор.</i>"
     await screen(event, state, head(note) + text, rows + [[CAFE]])
 
 
 @code("Psete")
 async def settings_edit(event, state, user, bid, note=""):
-    if not user.is_chef:
-        return "❌ Менять настройки может шеф."
+    if not user.is_cafe_admin:
+        return "❌ Менять настройки может администратор."
     rows = [[("🕙 Открытие", "Pe:cafe:0:opens_at"), ("🕚 Закрытие", "Pe:cafe:0:closes_at")],
             [("🚚 Цена доставки", "Pe:cafe:0:delivery_fee"), ("🧾 Мин. сумма", "Pe:cafe:0:delivery_min_sum")],
             [("🎁 Бесплатно от", "Pe:cafe:0:free_delivery_from"), ("⏱ Время доставки", "Pe:cafe:0:delivery_time")],

@@ -63,7 +63,7 @@ class Command(BaseCommand):
         """Кнопка слева от поля ввода в чате бота: открывает мини-приложение (панель персонала / меню гостя). Без https — обычное меню команд."""
         from aiogram.types import MenuButtonCommands, MenuButtonWebApp, WebAppInfo
         from apps.bot.telegram.screen import mini_app_url
-        url = mini_app_url("/admin" if kind == "staff" else "/")
+        url = mini_app_url(settings.STAFF_PANEL_PATH if kind == "staff" else "/")
         try:
             if url:
                 await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Панель" if kind == "staff" else "Меню", web_app=WebAppInfo(url=url)))
