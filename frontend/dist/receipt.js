@@ -53,14 +53,17 @@
   function html(job){
     return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Чек</title><style>
       @page{size:80mm auto;margin:0}
-      *{box-sizing:border-box}
-      body{margin:0;padding:4mm 3mm 8mm;width:80mm;font:13px/1.4 "Courier New",Courier,monospace;color:#000}
+      *{box-sizing:border-box;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      /* Печатная область 80-мм аппарата — около 72 мм: ширину чека берём 70 мм, чтобы правый край не обрезался.
+         Жирный шрифт и чистый чёрный — на термобумаге тонкие серые буквы выходят бледными */
+      body{margin:0;padding:3mm 0 8mm 1mm;width:70mm;font:700 13px/1.4 "Lucida Console","Consolas","Courier New",monospace;
+        -webkit-font-smoothing:none;text-rendering:geometricPrecision;letter-spacing:0}
       .row,.qty{display:flex;justify-content:space-between;gap:6px}.c{text-align:center}.b{font-weight:700}
-      .title{font-size:16px;margin:2px 0 4px}
+      .title{font-size:17px;margin:2px 0 4px}
       .fields .f{display:grid;grid-template-columns:42% 58%;gap:0 6px}.fields .f span:first-child{text-align:right}
       .item{margin:6px 0}.qty{padding-left:30%}.sub{padding-left:16px}
-      .r{text-align:right}.total{font-size:17px;font-weight:700;margin:3px 0}
-      .line{border-top:1px dashed #000;margin:6px 0}.note{margin-top:6px}
+      .r{text-align:right}.total{font-size:16px;font-weight:900;margin:3px 0}
+      .line{border-top:2px dashed #000;margin:6px 0}.note{margin-top:6px}
       .pay{margin-top:4px}.pay .row{padding-left:22%}
       .thanks{margin-top:6px;font-size:13px}.big{font-size:15px;font-weight:700;margin:2px 0}
     </style></head><body>${body(job)}</body></html>`;
