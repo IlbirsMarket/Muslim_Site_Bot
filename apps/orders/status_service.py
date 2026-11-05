@@ -17,6 +17,7 @@ S = Order.Status   # короткие имена, чтобы правила ни
 K = Order.Kind
 
 VISIT_HOURS = 4    # сколько часов телефон остаётся доверенным, если стол не закрыли вручную
+TABLE_AUTO_FREE_HOURS = 4   # стол занят дольше — освобождается сам (гости ушли, а «Освободить стол» забыли)
 # Причина по умолчанию, если отклонили без своей причины
 REJECT_REASON_TABLE = "Официант не подтвердил заказ со стола"
 REJECT_REASON_SITE = "Кафе не смогло принять заказ"
@@ -52,8 +53,18 @@ def close_visits(table, user) -> int:
     closed = TableVisit.objects.filter(table=table, closed_at__isnull=True).update(
         closed_at=timezone.now(), closed_by=user,
     )
-    add_event(BotKind.TABLE_FREED, table=table, user_id=user.id)          # бот напишет в «Зал»: стол свободен
+    add_event(BotKind.TABLE_FREED, table=table, user_id=user.id if user else None)   # бот напишет гостю: стол свободен (user=None — освободился сам)
     return closed
+
+
+def free_stale_tables() -> int:
+    """Столы, занятые дольше TABLE_AUTO_FREE_HOURS часов, освобождаются сами. Возвращает, сколько освободили."""
+    since = timezone.now() - timedelta(hours=TABLE_AUTO_FREE_HOURS)
+    stale = list(Table.objects.filter(kind=Table.Kind.HALL, occupied_since__lt=since))
+    for table in stale:
+        with transaction.atomic():
+            close_visits(table, None)
+    return len(stale)
 
 
 # ===================== КТО ЧТО МОЖЕТ =====================

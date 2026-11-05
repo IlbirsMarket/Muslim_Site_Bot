@@ -58,12 +58,12 @@ class IsWaiterOrAdmin(BasePermission):
         return bool(user and (user.is_cafe_admin or user.is_waiter))
 
 class CanTakePayment(BasePermission):
-    """Оплата и чеки: кассир, официант, админ, шеф, программист."""
-    message = "Доступно кассиру, официантам и администрации."
+    """Оплата и чеки: кассир, официант, курьер (свои доставки), админ, шеф, программист."""
+    message = "Доступно кассиру, официантам, курьерам и администрации."
 
     def has_permission(self, request, view):
         user = _get_user(request)
-        return bool(user and (user.is_cafe_admin or user.is_waiter or user.is_cashier))
+        return bool(user and (user.is_cafe_admin or user.is_waiter or user.is_cashier or user.is_courier))
 
 
 class IsCashierOrAdmin(BasePermission):

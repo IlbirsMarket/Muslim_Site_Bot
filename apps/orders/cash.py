@@ -135,13 +135,13 @@ def history(branch, shift=None, limit=60) -> list:
     «История оплат» внизу «Кассы»: оплаты за смену (без смены — за сегодня), новые сверху.
     Заказы, оплаченные одним нажатием «Оплачено», — одна строка.
     """
-    from .billing import bill_title
+    from .billing import bill_title, paid_receipt
     if shift:
         start = shift.opened_at
     else:
         start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     paid = (Order.objects.filter(branch=branch, paid_at__gte=start)
-            .select_related("table", "paid_by").order_by("-paid_at"))
+            .select_related("table", "paid_by", "claimed_by", "branch").prefetch_related("items").order_by("-paid_at"))
     groups = {}
     for order in paid[:limit * 3]:
         groups.setdefault((order.paid_at, order.paid_by_id), []).append(order)
@@ -153,5 +153,6 @@ def history(branch, shift=None, limit=60) -> list:
             "paid_at": paid_at, "method": first.get_paid_method_display(),
             "cash": sum(o.paid_cash for o in orders), "card": sum(o.paid_card for o in orders),
             "total": sum(o.total for o in orders), "by": _person(first.paid_by),
+            "receipt": paid_receipt(orders),                                       # чек — показать по нажатию на строку
         })
     return rows

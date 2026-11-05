@@ -56,6 +56,10 @@ class ChangesVersionView(generics.GenericAPIView):
     @extend_schema(responses={200: {"type": "object", "properties": {"v": {"type": "integer"}}}})
     def get(self, request):
         from apps.bot.models import BotEvent                       # каждое изменение записывается событием для бота
+        from django.core.cache import cache
+        if cache.add("free-stale-tables", 1, 60):                  # раз в минуту: столы, занятые 4+ часа, освобождаются сами
+            from .status_service import free_stale_tables
+            free_stale_tables()
         last = BotEvent.objects.order_by("-id").values_list("id", flat=True).first() or 0
         response = Response({"v": last})
         response["Cache-Control"] = "no-store"                     # всегда свежий ответ

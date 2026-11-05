@@ -154,7 +154,10 @@ def unpaid_orders(branch, user):
         .exclude(status__in=[Order.Status.CANCELLED, Order.Status.NEW])            # неподтверждённые ещё могут отклонить
         .select_related("table", "claimed_by", "branch").prefetch_related("items")
     )
-    if not (user.is_cafe_admin or user.is_cashier):                 # кассир и админ видят все счета филиала
+    if user.is_courier:                                               # курьер — свои доставки (и ещё не взятые)
+        from django.db.models import Q
+        orders = orders.filter(Q(claimed_by=user) | Q(claimed_by__isnull=True), kind=Order.Kind.DELIVERY)
+    elif not (user.is_cafe_admin or user.is_cashier):               # кассир и админ видят все счета филиала
         orders = orders.filter(table__kind="hall", kind__in=[Order.Kind.HALL, Order.Kind.TAKEAWAY])
     return list(orders)
 
@@ -249,8 +252,10 @@ def _load(branch, user, order_ids) -> list:
     for order in orders:
         if user.is_cafe_admin or user.is_cashier:                     # кассир закрывает любой счёт филиала
             continue
+        if user.is_courier and order.kind == Order.Kind.DELIVERY and order.claimed_by_id in (None, user.id):
+            continue                                                  # курьер — оплату своей доставки
         if not (user.is_waiter and at_table(order) and owns_table(user, order.table)):
-            raise PermissionDenied("Этот счёт закрывает админ или официант этого стола.")
+            raise PermissionDenied("Этот счёт закрывает админ, кассир, официант этого стола или курьер доставки.")
     return orders
 
 
@@ -318,14 +323,20 @@ def receipt_copy(branch, order_ids) -> PrintJob:
     orders = list(Order.objects.filter(pk__in=ids, branch=branch, paid_at__isnull=False).select_related("table", "claimed_by", "branch"))
     if not orders or len(orders) != len(ids):
         raise ValidationError("Оплата не найдена.")
+    data = paid_receipt(orders)
+    data["title"] = "СЧЕТ (КОПИЯ)"
+    return add_job(branch, PrintJob.Kind.RECEIPT, data)
+
+
+def paid_receipt(orders) -> dict:
+    """Чек об оплате уже оплаченных заказов (для просмотра в «Истории оплат» и копии)."""
     payment = {
         "method": Order.PaidMethod(orders[0].paid_method).label if orders[0].paid_method else "",
         "cash": sum(o.paid_cash for o in orders), "card": sum(o.paid_card for o in orders), "received": None, "change": None,
     }
     data = bill_payload(orders, payment)
-    data["closed"] = f"{timezone.localtime(orders[0].paid_at):%H:%M}"   # время оплаты, а не печати копии
-    data["title"] = "СЧЕТ (КОПИЯ)"
-    return add_job(branch, PrintJob.Kind.RECEIPT, data)
+    data["closed"] = f"{timezone.localtime(orders[0].paid_at):%H:%M}"   # время оплаты, а не печати
+    return data
 
 
 def pay_on_delivery(order, user) -> None:

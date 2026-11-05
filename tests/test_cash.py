@@ -131,3 +131,37 @@ class HistoryAndFreeTableTests(BaseAPITest):
         copy = PrintJob.objects.filter(kind="receipt").last().payload
         self.assertEqual(copy["title"], "СЧЕТ (КОПИЯ)")
         self.assertEqual(copy["payment"]["cash"], 730)
+
+
+class CourierAndAutoFreeTests(BaseAPITest):
+
+    def test_courier_sees_and_pays_own_delivery(self):
+        courier = User.objects.create_user("courier", password=PASSWORD, role=User.Role.COURIER)
+        self.as_user(None)
+        body = {"table_token": self.delivery.token, "items": [{"dish_id": self.burger.id, "quantity": 3}], "order_type": "delivery",
+                "customer_name": "Бекзат", "phone": "+996700000000", "address": "Чуй 1"}
+        number = self.client.post("/api/orders/", body, format="json").data["number"]
+        self.act(self.admin, number, "accept")
+        self.as_user(courier)
+        self.assertEqual([b["orders"] for b in self.client.get("/api/staff/bills/").data], [[number]])   # курьер видит доставку в «К оплате»
+        hall = self.hall_order().data["number"]
+        self.act(self.waiter, hall, "accept")
+        self.as_user(courier)
+        self.assertEqual(len(self.client.get("/api/staff/bills/").data), 1)                              # зал курьеру не виден
+        self.assertEqual(self.client.post("/api/staff/bills/pay/", {"orders": [hall], "method": "cash"}, format="json").status_code, 403)
+        self.assertEqual(self.client.post("/api/staff/bills/pay/", {"orders": [number], "method": "cash"}, format="json").status_code, 200)
+
+    def test_table_freed_after_4_hours(self):
+        from datetime import timedelta
+        from django.core.cache import cache
+        from django.utils import timezone
+        from apps.tables.models import Table
+        number = self.hall_order(device_key="p").data["number"]
+        self.act(self.waiter, number, "accept")
+        Table.objects.filter(pk=self.table.pk).update(occupied_since=timezone.now() - timedelta(hours=4, minutes=5))
+        cache.delete("free-stale-tables")
+        self.as_user(None)
+        self.client.get("/api/version/")                                       # панели спрашивают каждые 1–2 секунды
+        self.table.refresh_from_db()
+        self.assertIsNone(self.table.occupied_since)                          # стол освободился сам
+        self.assertIsNotNone(self.table.freed_at)

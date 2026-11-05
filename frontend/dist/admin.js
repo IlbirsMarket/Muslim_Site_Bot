@@ -146,7 +146,7 @@
   const billTime=iso=>new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
   function billMeta(b){
     return [b.orders.length>1?`${b.orders.length} ${ordersWord(b.orders.length)}`:`№${b.orders[0]}`,`открыт ${billTime(b.opened_at)}`,
-      b.waiter&&`официант ${esc(b.waiter)}`,b.customer&&esc(b.customer),b.phone&&esc(b.phone)].filter(Boolean).join(' · ');
+      b.waiter&&`${b.kind==='delivery'?'курьер':'официант'} ${esc(b.waiter)}`,b.customer&&esc(b.customer),b.phone&&esc(b.phone)].filter(Boolean).join(' · ');
   }
   // «К оплате»: счета столов (все заказы стола — один счёт), доставки и самовывозы
   async function billsView(){
@@ -162,11 +162,11 @@
   async function cashView(){
     const [data,bills]=await Promise.all([API.request('/staff/cash/'),API.request('/staff/bills/')]);
     const shift=data.shift;cache.shift=shift;cache.bills=list(bills);cache.billCount=cache.bills.length;cache.history=data.history||[];
-    const historyBlock=`<h2 class="cash-h">История оплат${shift?' за смену':' за сегодня'}</h2>`+(cache.history.length?`<section class="panel cash-history">${cache.history.map((h,i)=>`<div class="history-row"><span class="history-time">${billTime(h.paid_at)}</span><span class="history-main"><strong>${esc(h.title)}</strong><small class="fine">${esc(h.method)}${h.by?` · ${esc(h.by)}`:''}${h.orders.length>1?` · ${h.orders.length} ${ordersWord(h.orders.length)}`:''}</small></span><strong class="history-sum">${money(h.total)}</strong><button type="button" class="secondary" data-receipt-copy="${i}" title="Напечатать копию чека">🖨 Чек</button></div>`).join('')}</section>`:'<section class="panel"><p class="empty">Оплат пока нет</p></section>');
+    const historyBlock=`<h2 class="cash-h">История оплат${shift?' за смену':' за сегодня'}</h2>`+(cache.history.length?`<section class="panel cash-history">${cache.history.map((h,i)=>`<div class="history-row"><button type="button" class="history-open" data-history-open="${i}" title="Показать чек"><span class="history-time">${billTime(h.paid_at)}</span><span class="history-main"><strong>${esc(h.title)}</strong><small class="fine">${esc(h.method)}${h.by?` · ${esc(h.by)}`:''}${h.orders.length>1?` · ${h.orders.length} ${ordersWord(h.orders.length)}`:''}</small></span><strong class="history-sum">${money(h.total)}</strong></button><button type="button" class="secondary" data-receipt-copy="${i}" title="Напечатать копию чека">🖨 Чек</button></div>`).join('')}</section>`:'<section class="panel"><p class="empty">Оплат пока нет</p></section>');
     if(!shift)return heading('Касса',esc(branchName()))+`<section class="panel cash-open"><h2>Открыть смену</h2><p class="fine">Посчитайте наличные в кассе перед началом работы. Без открытой смены кассир не принимает оплату.</p><label class="field">В кассе наличных, сом<input id="cash-start" type="number" min="0" inputmode="numeric" value="0"></label><p class="error" id="cash-error"></p><button type="button" class="primary" data-cash-open>Открыть смену</button></section>`
       +`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills)+historyBlock;
     const tile=(name,value)=>`<article class="stat"><span>${name}</span><strong>${value}</strong></article>`;
-    const moves=shift.moves.length?`<section class="panel cash-moves"><h2>Внесения и изъятия</h2>${shift.moves.map(m=>`<div class="split-line list-line"><span>${billTime(m.at)} · ${esc(m.label)}${m.comment?` · ${esc(m.comment)}`:''} <small class="fine">${esc(m.by)}</small></span><strong>${m.kind==='out'?'−':'+'} ${money(m.amount)}</strong></div>`).join('')}</section>`:'';
+    const moves=shift.moves.length?`<section class="panel cash-moves"><h2>Внесения и изъятия</h2><table class="moves-table"><thead><tr><th>Время</th><th>Операция</th><th>Причина</th><th>Кто</th><th class="num">Сумма</th></tr></thead><tbody>${shift.moves.map(m=>`<tr class="move-${m.kind}"><td>${billTime(m.at)}</td><td><b>${esc(m.label)}</b></td><td>${m.comment?esc(m.comment):'<span class="fine">—</span>'}</td><td>${esc(m.by)}</td><td class="num"><b>${m.kind==='out'?'−':'+'} ${money(m.amount)}</b></td></tr>`).join('')}</tbody></table></section>`:'';
     return heading('Касса',`${esc(branchName())} · сегодня`)
       +`<section class="cash-shift"><div><b><i class="cash-dot"></i>Смена открыта с ${billTime(shift.opened_at)}</b><small>Кассир ${esc(shift.opened_by)} · в кассе на начало ${money(shift.opening_cash)}</small></div><div class="cash-buttons"><button type="button" class="secondary" data-cash-move="in">＋ Внесение</button><button type="button" class="secondary" data-cash-move="out">− Изъятие</button><button type="button" class="primary" data-cash-close>Закрыть смену</button></div></section>`
       +`<div class="stats cash-stats">${tile('Наличные',money(shift.cash))}${tile('Карта',money(shift.card))}${tile('Счетов оплачено',shift.orders)}${tile('В кассе сейчас',money(shift.expected))}</div>`
@@ -258,7 +258,7 @@
   function kindOf(o){return live?o.kind:o.type==='cafe'?'hall':o.type;}
   // Вызовы со столов видят официант и администрация (повару и курьеру они не нужны)
   function seesCalls(){return ['programmer','chef','admin','waiter'].includes(me?.role);}
-  function canPay(){return ['programmer','chef','admin','waiter','cashier'].includes(me?.role);}            // «К оплате» и «Оплатить»
+  function canPay(){return ['programmer','chef','admin','waiter','cashier','courier'].includes(me?.role);}            // «К оплате» и «Оплатить»
   function homeView(){return me?.role==='cashier'?'cash':'orders';}                                         // кассир начинает с «Кассы»
   // Сколько заказов ждут реакции этого сотрудника (цифра в меню и во вкладке)
   function waitingCount(orders){
@@ -690,6 +690,11 @@
     if(button.dataset.cashMove){cashMoveDialog(button.dataset.cashMove);return;}
     if(button.dataset.cashMoveSave){const amount=Number($('#cash-amount').value||0);if(await cashAction('/staff/cash/move/',{kind:button.dataset.cashMoveSave,amount,comment:$('#cash-comment').value})){editor.close();toast(button.dataset.cashMoveSave==='in'?'Внесение записано':'Изъятие записано');await render(true);}return;}
     if(button.hasAttribute('data-cash-close')){cashCloseDialog();return;}
+    if(button.dataset.historyOpen){const h=cache.history?.[Number(button.dataset.historyOpen)];if(!h)return;                 // чек из «Истории оплат»
+      $('#editor-title').textContent=`Чек · ${h.title}`;
+      $('#editor-content').innerHTML=`<div class="receipt-view"><p class="fine">${billTime(h.paid_at)} · ${esc(h.method)}${h.by?` · принял(а) ${esc(h.by)}`:''}</p><iframe class="receipt-frame" title="Чек"></iframe><button type="button" class="primary" data-receipt-copy="${button.dataset.historyOpen}">🖨 Напечатать копию</button></div>`;
+      const frame=$('.receipt-frame');frame.srcdoc=MuslimReceipt.html({kind:'receipt',payload:h.receipt});frame.onload=()=>{frame.style.height=frame.contentDocument.body.scrollHeight+20+'px';};
+      editor.showModal();return;}
     if(button.dataset.receiptCopy){const h=cache.history?.[Number(button.dataset.receiptCopy)];if(!h)return;await API.request('/staff/cash/receipt-copy/',{method:'POST',body:{orders:h.orders}});toast('Копия чека отправлена на чековый аппарат');return;}
     if(button.hasAttribute('data-cash-close-save')){const v=$('#cash-counted').value;if(v===''){$('#cash-error').textContent='Посчитайте наличные и введите сумму.';return;}const r=await cashAction('/staff/cash/close/',{counted:Number(v)});if(r){editor.close();toast(`Смена закрыта · разница ${r.difference>=0?'+':'−'}${money(Math.abs(r.difference))}`);await render(true);}return;}
     if(button.dataset.billPrint){const bill=cache.bills?.[Number(button.dataset.billPrint)];if(!bill)return;await API.request('/staff/bills/print/',{method:'POST',body:{orders:bill.orders}});toast('Счёт отправлен на чековый аппарат');return;}
