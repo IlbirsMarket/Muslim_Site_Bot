@@ -4,7 +4,7 @@ from django.urls import path                       # описание адрес
 from rest_framework.routers import DefaultRouter   # автоматические адреса для ViewSet
 
 from .staff_views import (
-    BillListView, BillPayView, BillPrintView, CashCloseView, CashMoveView, CashOpenView, CashView, CloseTableVisitView, OrderTicketView, ReceiptCopyView, OrderReprintView, PrintJobClaimView,
+    BillListView, BillPayView, BillPreviewView, BillPrintView, CashCloseView, CashMoveView, CashOpenView, CashView, CloseTableVisitView, OrderTicketView, ReceiptCopyView, OrderReprintView, PrintJobClaimView,
     StaffOrderViewSet, StaffTableCallViewSet,
 )
 from .views import ChangesVersionView, OrderCreateView, OrderPublicDetailView, TableCallCreateView, TelegramGuestContactView
@@ -22,6 +22,7 @@ urlpatterns = [
     path("telegram/guest/", TelegramGuestContactView.as_view(), name="telegram-guest"),        # POST мини-приложение: имя и телефон из прошлого заказа
     # ----- Сотрудники -----
     path("staff/bills/", BillListView.as_view(), name="bills"),                                  # GET «К оплате»
+    path("staff/bills/preview/", BillPreviewView.as_view(), name="bill-preview"),                # POST счёт — посмотреть
     path("staff/bills/print/", BillPrintView.as_view(), name="bill-print"),                      # POST счёт без оплаты
     path("staff/bills/pay/", BillPayView.as_view(), name="bill-pay"),                            # POST «Оплачено»
     path("staff/cash/", CashView.as_view(), name="cash"),                                        # GET «Касса»: смена

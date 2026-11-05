@@ -128,3 +128,10 @@ class BillingTests(BaseAPITest):
         self.assertEqual((waiter["name"], waiter["orders"], waiter["revenue"]), ("waiter", 1, 730))
         self.assertEqual(report["by_payment"]["cash"]["revenue"], 730)
         self.assertEqual(self.client.get("/api/admin/reports/day/pdf/").status_code, 200)   # PDF с официантами собирается
+
+    def test_bill_preview_does_not_print(self):
+        number = self.hall_order().data["number"]
+        self.as_user(self.admin)
+        job = self.client.post("/api/staff/bills/preview/", {"orders": [number]}, format="json").data
+        self.assertEqual((job["kind"], job["payload"]["title"], job["payload"]["total"]), ("bill", "СЧЕТ", 730))
+        self.assertFalse(PrintJob.objects.exists())                          # только показали — на аппарат не ушло

@@ -234,6 +234,7 @@ def bills(branch, user) -> list:
         orders.sort(key=lambda o: o.created_at)
         first = orders[0]
         waiter = next((o.claimed_by for o in orders if o.claimed_by_id), None)
+        staff = _staff_line(waiter, next((o.accepted_by for o in orders if o.accepted_by_id), None))   # кто ведёт счёт и его роль
         ask = asks.get(first.table_id) if key[0] == "table" else None
         title = bill_title(orders)                                                 # заголовок карточки
         result.append({
@@ -243,6 +244,7 @@ def bills(branch, user) -> list:
             "orders": [o.id for o in orders],
             "opened_at": first.created_at,
             "waiter": _person(waiter),
+            "staff_role": staff["staff_role"], "staff": staff["waiter"],       # «Официант: Азамат» / «Программист: Muslim»
             "customer": first.customer_name if not at_table(first) else "",
             "phone": first.phone if not at_table(first) else "",
             "payment_method": first.payment_method,                                # что гость выбрал при заказе
@@ -275,6 +277,13 @@ def _load(branch, user, order_ids) -> list:
         if not (user.is_waiter and at_table(order) and owns_table(user, order.table)):
             raise PermissionDenied("Этот счёт закрывает админ, кассир, официант этого стола или курьер доставки.")
     return orders
+
+
+def preview_bill(branch, user, order_ids) -> dict:
+    """Кнопка «Счёт»: сначала показать счёт в панели (без печати)."""
+    with transaction.atomic():
+        orders = _load(branch, user, order_ids)
+    return {"kind": "bill", "payload": bill_payload(orders)}
 
 
 @transaction.atomic

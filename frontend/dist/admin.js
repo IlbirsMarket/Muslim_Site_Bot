@@ -146,7 +146,7 @@
   const billTime=iso=>new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
   function billMeta(b){
     return [b.orders.length>1?`${b.orders.length} ${ordersWord(b.orders.length)}`:`№${b.orders[0]}`,`открыт ${billTime(b.opened_at)}`,
-      b.waiter&&`${b.kind==='delivery'?'курьер':'официант'} ${esc(b.waiter)}`,b.customer&&esc(b.customer),b.phone&&esc(b.phone)].filter(Boolean).join(' · ');
+      b.staff?`${esc(b.staff_role)}: ${esc(b.staff)}`:b.waiter&&`${b.kind==='delivery'?'Курьер':'Официант'}: ${esc(b.waiter)}`,b.customer&&esc(b.customer),b.phone&&esc(b.phone)].filter(Boolean).join(' · ');
   }
   // «К оплате»: счета столов (все заказы стола — один счёт), доставки и самовывозы
   async function billsView(){
@@ -192,7 +192,7 @@
   // Окно с чеком: как он выйдет на чековом аппарате + кнопка печати
   function showReceipt(title,note,job,printAttr){
     $('#editor-title').textContent=title;
-    $('#editor-content').innerHTML=`<div class="receipt-view"><p class="fine">${note}</p><iframe class="receipt-frame" title="Чек" scrolling="no"></iframe><button type="button" class="primary" ${printAttr}>🖨 Напечатать${job.kind==='receipt'?' копию':''}</button></div>`;
+    $('#editor-content').innerHTML=`<div class="receipt-view"><p class="fine">${note}</p><iframe class="receipt-frame" title="Чек" scrolling="no"></iframe><button type="button" class="primary" ${printAttr}>🖨 Напечатать${job.kind==='receipt'?' копию':job.kind==='bill'?' счёт':''}</button></div>`;
     const frame=$('.receipt-frame');frame.srcdoc=MuslimReceipt.html(job);
     frame.onload=()=>{const body=frame.contentDocument.body;frame.style.height=body.scrollHeight+12+'px';};
     editor.showModal();
@@ -301,7 +301,7 @@
     const title=live?(kind==='delivery'||kind==='pickup'?KIND_NAME[kind]:`${o.table_name||''}${kind==='takeaway'?' · с собой':''}`.trim()||o.kind_display):o.type==='cafe'?`Стол ${o.table}`:o.type==='pickup'?'Самовывоз':'Доставка';
     const items=live?o.items.map(i=>({name:[i.dish_name,i.size_name].filter(Boolean).join(' '),qty:i.quantity})):o.items;
     const actions=live?(o.available_actions||[]):o.status==='new'?[{action:'cooking',label:'Принять'},{action:'cancelled',label:'Отменить',needs_reason:true}]:o.status==='cooking'?[{action:'ready',label:'Готов'},{action:'cancelled',label:'Отменить',needs_reason:true}]:[{action:'completed',label:delivery?'Доставлен':'Выдан'},{action:'cancelled',label:'Отменить',needs_reason:true}];
-    return `<article class="order-card kind-${kind}" style="view-transition-name:order-${esc(String(o.id))}"><div class="order-top"><strong>№${o.number||o.id}</strong><span class="tag kind-tag">${icon(KIND_ICON[kind]||'tables')}${esc(title)}</span><small>${live?`${esc(clock(o.created_at))} · ${esc(o.status_label)}`:o.minutes+' мин'}</small></div>${kind==='takeaway'?'<p class="takeaway-mark">С СОБОЙ — упаковать</p>':''}${orderInfo(o)}<div class="order-items">${items.map(i=>`${esc(i.name)} × ${i.qty}`).join('<br>')}</div>${o.comment||o.note?`<p class="order-note">${esc(o.comment||o.note)}</p>`:''}<div class="order-bottom"><strong>${money(live?o.total:Store.orderTotal(o))}</strong><div class="actions">${actions.map(a=>`<button class="${a.needs_reason||a.action==='reject'?'danger':'primary'}" data-order="${o.id}" data-number="${o.number||o.id}" data-kind="${esc(kind)}" data-action="${esc(a.action)}" data-reason="${Boolean(a.needs_reason)}">${esc(a.label)}</button>`).join('')}${live&&o.status!=='new'?`<button class="secondary ticket-btn" data-order-print="${o.id}" data-number="${o.number||o.id}" title="Ещё раз напечатать чек заказа на чековом аппарате">🖨 Распечатать чек</button>`:''}</div></div></article>`;
+    return `<article class="order-card kind-${kind}" style="view-transition-name:order-${esc(String(o.id))}"><div class="order-top"><strong>№${o.number||o.id}</strong><span class="tag kind-tag">${icon(KIND_ICON[kind]||'tables')}${esc(title)}</span><small>${live?`${esc(clock(o.created_at))} · ${esc(o.status_label)}`:o.minutes+' мин'}</small></div>${kind==='takeaway'?'<p class="takeaway-mark">С СОБОЙ — упаковать</p>':''}${orderInfo(o)}<div class="order-items">${items.map(i=>`${esc(i.name)} × ${i.qty}`).join('<br>')}</div>${o.comment||o.note?`<p class="order-note">${esc(o.comment||o.note)}</p>`:''}<div class="order-bottom"><strong>${money(live?o.total:Store.orderTotal(o))}</strong><div class="actions${live&&o.status==='new'?' new-grid':''}">${actions.map(a=>`<button class="${a.needs_reason||a.action==='reject'?'danger':'primary'}" data-order="${o.id}" data-number="${o.number||o.id}" data-kind="${esc(kind)}" data-action="${esc(a.action)}" data-reason="${Boolean(a.needs_reason)}">${esc(a.label)}</button>`).join('')}${live&&o.status==='new'?`<button class="secondary ticket-btn" data-order-print="${o.id}" data-number="${o.number||o.id}" title="Напечатать чек заказа на чековом аппарате">🖨 Распечатать чек</button>`:''}</div></div></article>`;
   }
   // ===== Блюда и категории =====
   // Компьютер и планшет: слева категории (порядок, видимость, переименовать, удалить), справа блюда.
@@ -707,7 +707,11 @@
       showReceipt(`Чек · ${h.title}`,`${billTime(h.paid_at)} · ${esc(h.method)}${h.by?` · принял(а) ${esc(h.by)}`:''}`,{kind:'receipt',payload:h.receipt},`data-receipt-copy="${button.dataset.historyOpen}"`);return;}
     if(button.dataset.receiptCopy){const h=cache.history?.[Number(button.dataset.receiptCopy)];if(!h)return;await API.request('/staff/cash/receipt-copy/',{method:'POST',body:{orders:h.orders}});toast('Копия чека отправлена на чековый аппарат');return;}
     if(button.hasAttribute('data-cash-close-save')){const v=$('#cash-counted').value;if(v===''){$('#cash-error').textContent='Посчитайте наличные и введите сумму.';return;}const r=await cashAction('/staff/cash/close/',{counted:Number(v)});if(r){editor.close();toast(`Смена закрыта · разница ${r.difference>=0?'+':'−'}${money(Math.abs(r.difference))}`);await render(true);}return;}
-    if(button.dataset.billPrint){const bill=cache.bills?.[Number(button.dataset.billPrint)];if(!bill)return;await API.request('/staff/bills/print/',{method:'POST',body:{orders:bill.orders}});toast('Счёт отправлен на чековый аппарат');return;}
+    if(button.dataset.billPrint){const bill=cache.bills?.[Number(button.dataset.billPrint)];if(!bill)return;      // «Счёт»: сначала показать, потом напечатать
+      const job=await API.request('/staff/bills/preview/',{method:'POST',body:{orders:bill.orders}});
+      showReceipt(`Счёт · ${bill.title}`,`${money(bill.total)} · ещё не оплачен`,job,`data-bill-print-send="${button.dataset.billPrint}"`);return;}
+    if(button.dataset.billPrintSend){const bill=cache.bills?.[Number(button.dataset.billPrintSend)];if(!bill)return;
+      await API.request('/staff/bills/print/',{method:'POST',body:{orders:bill.orders}});button.closest('dialog')?.close();toast('Счёт отправлен на чековый аппарат');return;}
     if(button.dataset.billPay){const bill=cache.bills?.[Number(button.dataset.billPay)];if(bill)openPay(bill);return;}
     if(button.dataset.payMethod&&payState){payState.method=button.dataset.payMethod;drawPay();return;}            // наличные / карта / наличные + карта
     if(button.hasAttribute('data-pay-quick')&&payState){                                                            // быстрые суммы: «Без сдачи», 600, 1 000, 5 000

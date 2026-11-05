@@ -151,3 +151,8 @@ body:has(.cart.is-open) .guest-fab,body:has(dialog[open]) .guest-fab{display:non
 /* Кнопка-колокольчик на телефоне: салатовый круг, тёмно-зелёный колокольчик */
 .fab-main{background:var(--green);color:var(--on-green);box-shadow:0 8px 24px #1E4D1340}
 .guest-fab.open .fab-main{background:#fff;color:var(--on-green)}
+/* Кнопка «Telegram» в шапке за столом (компьютер): ярче, голубая, как у Telegram */
+.header-actions .tg-head{height:43px;padding:0 16px 0 12px;gap:8px;border:0;border-radius:999px;color:#fff;font-size:13px;font-weight:800;
+  background:linear-gradient(135deg,#4FC3F7,#229ED9);box-shadow:0 4px 14px #229ED955,inset 0 1px 0 #ffffff40;transition:transform .15s,box-shadow .15s,filter .15s}
+.header-actions .tg-head:hover{background:linear-gradient(135deg,#5DCBFA,#2AABEE);filter:brightness(1.05);transform:translateY(-1px);box-shadow:0 6px 18px #229ED966}
+.header-actions .tg-head svg{width:20px;height:20px;padding:3px;border-radius:50%;background:#ffffff33;box-sizing:content-box}

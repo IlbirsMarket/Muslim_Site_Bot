@@ -303,7 +303,7 @@
           const close=()=>{hint.remove();storage.write('muslim-fab-hint',true);};
           hint.querySelector('[data-fab-hint]').onclick=close;fab.querySelector('[data-fab]').addEventListener('click',close,{once:true});
         }
-        if(tableInfo.telegram_url&&!$('.header-actions .tg-head')){const a=document.createElement('a');a.className='outline tg-head';a.href=tableInfo.telegram_url;a.target='_blank';a.rel='noopener';a.innerHTML=ICON_TG+'Telegram';$('#table-label').before(a);}   // на компьютере — в шапке
+        if(tableInfo.telegram_url&&!$('.header-actions .tg-head')){const a=document.createElement('a');a.className='outline tg-head';a.href=tableInfo.telegram_url;a.target='_blank';a.rel='noopener';a.innerHTML=ICON_TG+'Открыть в Telegram';$('#table-label').before(a);}   // на компьютере — в шапке
       }
       renderMyOrders();                                                   // «Мои заказы» с этого телефона
     }

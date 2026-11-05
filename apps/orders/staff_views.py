@@ -151,6 +151,17 @@ class BillListView(APIView):
         return Response(bills(staff_branch(request), request.user))
 
 
+class BillPreviewView(APIView):
+    """POST /api/staff/bills/preview/ {"orders": [1, 2]} — счёт для просмотра в панели (ничего не печатает)."""
+
+    permission_classes = [CanTakePayment]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .billing import preview_bill
+        return Response(preview_bill(staff_branch(request), request.user, request.data.get("orders")))
+
+
 class BillPrintView(APIView):
     """POST /api/staff/bills/print/ {"orders": [1, 2]} — напечатать счёт без оплаты."""
 
