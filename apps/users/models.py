@@ -21,6 +21,7 @@ class User(AbstractUser):
         COOK = "cook", "Повар"                    # кухня
         WAITER = "waiter", "Официант"             # зал
         COURIER = "courier", "Курьер"             # доставка
+        CASHIER = "cashier", "Кассир"             # касса: оплата, смена, чеки
 
     # Роль сотрудника. Значения по умолчанию нет: при создании роль нужно выбрать явно
     role = models.CharField("Роль", max_length=20, choices=Role.choices)
@@ -91,6 +92,11 @@ class User(AbstractUser):
         return self.role == self.Role.WAITER
 
     @property
+    def is_cashier(self) -> bool:
+        """Кассир: «Касса» (смена, внесение, изъятие), оплата счетов, выдача самовывоза."""
+        return self.role == self.Role.CASHIER
+
+    @property
     def is_courier(self) -> bool:
         """Курьер: видит доставки, берёт заказ, «В пути», «Доставлен»."""
         return self.role == self.Role.COURIER
@@ -101,11 +107,11 @@ class User(AbstractUser):
         """Какие роли этот сотрудник может назначать другим."""
         R = self.Role
         if self.role == R.PROGRAMMER:
-            return [R.CHEF, R.ADMIN, R.COOK, R.WAITER, R.COURIER]
+            return [R.CHEF, R.ADMIN, R.CASHIER, R.COOK, R.WAITER, R.COURIER]
         if self.role == R.CHEF:
-            return [R.ADMIN, R.COOK, R.WAITER, R.COURIER]
+            return [R.ADMIN, R.CASHIER, R.COOK, R.WAITER, R.COURIER]
         if self.role == R.ADMIN:
-            return [R.COOK, R.WAITER, R.COURIER]    
+            return [R.CASHIER, R.COOK, R.WAITER, R.COURIER]    
         return []                                        # повар, официант и курьер никому роли не назначают                           # повар и официант никому роли не назначают
 
     def can_manage(self, target: "User") -> bool:
@@ -148,4 +154,4 @@ class RoleChangeLog(models.Model):
         verbose_name_plural = "Журнал смен ролей"
 
     def __str__(self):
-        return f"{self.user}: {self.old_role or '—'} → {self.new_role}"
+        return f"{self.user}: {self.old_role or '—'} → {self.new_role}"

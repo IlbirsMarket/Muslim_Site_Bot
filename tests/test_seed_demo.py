@@ -45,7 +45,7 @@ class SeedDemoTests(TestCase):
     def test_demo_like_real_cafe(self):
         with mock.patch.object(Command, "fetch", staticmethod(fake_fetch)):
             call_command("seed_demo")
-        self.assertEqual(User.objects.filter(username__startswith="demo_").count(), 8)
+        self.assertEqual(User.objects.filter(username__startswith="demo_").count(), 9)
         self.assertEqual(Order.objects.exclude(status__in=["completed", "cancelled"]).count(), 7)   # во всех колонках
         self.assertGreater(Order.objects.filter(status="completed").count(), 300)               # история для отчётов
         self.assertTrue(Dish.objects.filter(is_available=False).exists())                        # есть стоп-лист

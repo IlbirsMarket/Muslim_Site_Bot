@@ -16,7 +16,7 @@ from django.db import transaction                            # «всё или �
 from apps.bot.events import Kind as BotKind, add_event       # «почтовый ящик» для Telegram-бота
 from apps.tables.models import Table
 from core.branches import staff_branch                       # текущий филиал запроса
-from core.permissions import IsStaffMember, IsWaiterOrAdmin
+from core.permissions import CanTakePayment, IsCashierOrAdmin, IsStaffMember, IsWaiterOrAdmin
 from .models import Order, TableCall
 from .staff_serializers import OrderStaffSerializer, StatusChangeSerializer, TableCallStaffSerializer
 from .status_service import owns_table, change_status, claim_order, close_visits
@@ -52,7 +52,7 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
         ).prefetch_related(
             "items", "status_logs__changed_by",          # всё нужное одним махом
         )
-        if user.is_cafe_admin:                            # админ и выше — все заказы
+        if user.is_cafe_admin or user.is_cashier:         # админ, кассир и выше — все заказы
             pass
         elif user.is_waiter:                              # официант — только зал
             queryset = queryset.filter(table__kind=Table.Kind.HALL)   # только заказы со столов: «в кафе» и «с собой»
@@ -143,7 +143,7 @@ class CloseTableVisitView(APIView):
 class BillListView(APIView):
     """GET /api/staff/bills/ — «К оплате»: неоплаченные счета (заказы одного стола — один счёт)."""
 
-    permission_classes = [IsWaiterOrAdmin]
+    permission_classes = [CanTakePayment]
 
     @extend_schema(responses={200: dict})
     def get(self, request):
@@ -154,7 +154,7 @@ class BillListView(APIView):
 class BillPrintView(APIView):
     """POST /api/staff/bills/print/ {"orders": [1, 2]} — напечатать счёт без оплаты."""
 
-    permission_classes = [IsWaiterOrAdmin]
+    permission_classes = [CanTakePayment]
 
     @extend_schema(request=dict, responses={200: dict})
     def post(self, request):
@@ -169,7 +169,7 @@ class BillPayView(APIView):
     {"orders": [1, 2], "method": "cash|card|mixed", "cash": 1000 (для mixed), "received": 2000 (сколько дал гость)}
     """
 
-    permission_classes = [IsWaiterOrAdmin]
+    permission_classes = [CanTakePayment]
 
     @extend_schema(request=dict, responses={200: dict})
     def post(self, request):
@@ -192,7 +192,7 @@ class BillPayView(APIView):
 class PrintJobClaimView(APIView):
     """POST /api/staff/print-jobs/claim/ — кассовый компьютер забирает чеки на печать (каждый — один раз)."""
 
-    permission_classes = [IsWaiterOrAdmin]
+    permission_classes = [CanTakePayment]
 
     @extend_schema(request=None, responses={200: dict})
     def post(self, request):
@@ -203,7 +203,7 @@ class PrintJobClaimView(APIView):
 class OrderReprintView(APIView):
     """POST /api/staff/orders/{id}/print/ — ещё раз напечатать чек «ЗАКАЗ»."""
 
-    permission_classes = [IsWaiterOrAdmin]
+    permission_classes = [CanTakePayment]
 
     @extend_schema(request=None, responses={200: dict})
     def post(self, request, pk):
@@ -211,3 +211,64 @@ class OrderReprintView(APIView):
         order = get_object_or_404(Order, pk=pk, branch=staff_branch(request))
         print_order(order)
         return Response({"ok": True})
+
+
+# ===================== КАССА (смена) =====================
+
+def _int(request, name, required=False):
+    """Число из тела запроса (или None)."""
+    value = request.data.get(name)
+    if value in (None, ""):
+        if required:
+            raise ValidationError({name: "Укажите сумму."})
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        raise ValidationError({name: "Нужно число."})
+
+
+class CashView(APIView):
+    """GET /api/staff/cash/ — открытая смена филиала и её цифры ({"shift": null} — смены нет)."""
+
+    permission_classes = [IsCashierOrAdmin]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        from .cash import current_shift, shift_data
+        return Response(shift_data(current_shift(staff_branch(request))))
+
+
+class CashOpenView(APIView):
+    """POST /api/staff/cash/open/ {"cash": 2000} — открыть смену."""
+
+    permission_classes = [IsCashierOrAdmin]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .cash import open_shift, shift_data
+        return Response(shift_data(open_shift(staff_branch(request), request.user, _int(request, "cash"))))
+
+
+class CashMoveView(APIView):
+    """POST /api/staff/cash/move/ {"kind": "in|out", "amount": 1000, "comment": ""} — внесение / изъятие."""
+
+    permission_classes = [IsCashierOrAdmin]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .cash import current_shift, move, shift_data
+        branch = staff_branch(request)
+        move(branch, request.user, request.data.get("kind"), _int(request, "amount", True), request.data.get("comment", ""))
+        return Response(shift_data(current_shift(branch)))
+
+
+class CashCloseView(APIView):
+    """POST /api/staff/cash/close/ {"counted": 19350} — закрыть смену и напечатать отчёт."""
+
+    permission_classes = [IsCashierOrAdmin]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .cash import close_shift
+        return Response(close_shift(staff_branch(request), request.user, _int(request, "counted", True)))

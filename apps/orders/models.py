@@ -240,6 +240,7 @@ class PrintJob(models.Model):
         ORDER = "order", "Заказ"            # сразу после подтверждения — на кухню / кассу
         BILL = "bill", "Счёт"               # счёт без оплаты — отнести гостю
         RECEIPT = "receipt", "Чек об оплате"
+        SHIFT = "shift", "Отчёт за смену"   # «Закрыть смену» в «Кассе»
 
     branch = models.ForeignKey("cafe.Branch", on_delete=models.CASCADE, related_name="print_jobs", verbose_name="Филиал")
     kind = models.CharField("Что печатать", max_length=10, choices=Kind.choices)
@@ -254,3 +255,48 @@ class PrintJob(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} — {self.created_at:%d.%m %H:%M}"
+
+
+class CashShift(models.Model):
+    """Смена кассы филиала: открыли с суммой наличных, в конце посчитали, сколько в кассе по факту."""
+
+    branch = models.ForeignKey("cafe.Branch", on_delete=models.CASCADE, related_name="cash_shifts", verbose_name="Филиал")
+    opened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="opened_shifts", verbose_name="Открыл",
+    )
+    opened_at = models.DateTimeField("Открыта", auto_now_add=True)
+    opening_cash = models.PositiveIntegerField("Наличных на начало, сом", default=0)
+    closed_at = models.DateTimeField("Закрыта", null=True, blank=True)            # пусто — смена идёт
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="closed_shifts", verbose_name="Закрыл",
+    )
+    counted_cash = models.PositiveIntegerField("Наличных по факту, сом", null=True, blank=True)
+    report = models.JSONField("Итоги смены", default=dict, blank=True)              # снимок цифр при закрытии
+
+    class Meta:
+        ordering = ["-opened_at"]
+        verbose_name = "Смена кассы"
+        verbose_name_plural = "Смены кассы"
+
+    def __str__(self):
+        return f"Смена {self.opened_at:%d.%m %H:%M} — {self.branch}"
+
+
+class CashMove(models.Model):
+    """Внесение или изъятие наличных во время смены (размен, инкассация)."""
+
+    class Kind(models.TextChoices):
+        IN = "in", "Внесение"
+        OUT = "out", "Изъятие"
+
+    shift = models.ForeignKey(CashShift, on_delete=models.CASCADE, related_name="moves", verbose_name="Смена")
+    kind = models.CharField("Что", max_length=3, choices=Kind.choices)
+    amount = models.PositiveIntegerField("Сумма, сом")
+    comment = models.CharField("Комментарий", max_length=150, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, verbose_name="Кто")
+    created_at = models.DateTimeField("Когда", auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "Движение наличных"
+        verbose_name_plural = "Движения наличных"

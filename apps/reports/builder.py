@@ -105,8 +105,15 @@ def build_summary(start_date, end_date, branch=None) -> dict:
         "by_payment": by_payment,
         "unpaid": {"count": unpaid["c"], "sum": unpaid["s"] or 0},     # завершены, но оплату ещё не отметили
         "waiters": waiters_report(start_date, end_date, branch),      # как работали официанты
+        "shifts": _shifts(start_date, end_date, branch),             # смены кассы: наличные, карта, разница
         "top_dishes": top_dishes,
     }
+
+
+def _shifts(start_date, end_date, branch=None) -> list:
+    """Закрытые смены кассы за период."""
+    from apps.orders.cash import shifts_report
+    return shifts_report(*_range(start_date, end_date), branch)
 
 
 def waiters_report(start_date, end_date, branch=None) -> list:

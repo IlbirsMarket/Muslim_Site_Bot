@@ -26,7 +26,7 @@ from django.utils import timezone
 
 from apps.cafe.models import Branch, CafeSettings
 from apps.menu.models import Category, Dish, DishSize, Extra
-from apps.orders.models import Order, OrderItem, OrderStatusLog, PrintJob, TableCall, TableVisit
+from apps.orders.models import CashMove, CashShift, Order, OrderItem, OrderStatusLog, PrintJob, TableCall, TableVisit
 from apps.tables.models import Floor, Table
 from apps.users.models import User
 
@@ -41,6 +41,7 @@ STAFF = [
     ("demo_waiter", "Бекзат", User.Role.WAITER, "k"),
     ("demo_waiter2", "Эльмира", User.Role.WAITER, "k"),
     ("demo_courier", "Нурлан", User.Role.COURIER, "k"),
+    ("demo_cashier", "Айжан", User.Role.CASHIER, "k"),
     ("demo_admin2", "Фарух", User.Role.ADMIN, "t"),
     ("demo_waiter3", "Тимур", User.Role.WAITER, "t"),
 ]
@@ -104,6 +105,7 @@ class Command(BaseCommand):
                 self.history(branch, dishes, tables, people)
                 if key == "k":
                     self.active_orders(branch, dishes, tables, people)
+                    self.cash_shifts(branch, people["demo_cashier"])
         photos = 0 if options["no_photos"] else self.photos()
         self.stdout.write(self.style.SUCCESS(
             f"Демо готово. Фото блюд: {photos}. Вход в демо-панель — кнопками на странице входа "
@@ -111,7 +113,7 @@ class Command(BaseCommand):
 
     # ----- Очистка демо-базы -----
     def clear(self):
-        for model in (OrderStatusLog, OrderItem, TableCall, TableVisit, PrintJob, Order, DishSize, Dish, Extra, Category, Table):
+        for model in (OrderStatusLog, OrderItem, TableCall, TableVisit, PrintJob, CashMove, CashShift, Order, DishSize, Dish, Extra, Category, Table):
             model.objects.all().delete()
         Floor.objects.all().delete()
         User.objects.all().delete()
@@ -267,6 +269,22 @@ class Command(BaseCommand):
                                                      waiter=waiter if table != tables[2] else None)
         Table.objects.filter(pk=tables[3].pk).update(occupied_since=now - timedelta(minutes=50), waiter=waiter2)
         TableCall.objects.create(table=tables[4], kind=TableCall.Kind.BILL, people=3)   # «Попросить счёт» на троих
+
+    def cash_shifts(self, branch, cashier):
+        """Касса: вчерашняя смена закрыта (с разницей −50), сегодняшняя открыта с утра."""
+        from apps.orders.cash import _payload, stats
+        now = timezone.localtime()
+        yesterday = (now - timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+        shift = CashShift.objects.create(branch=branch, opened_by=cashier, opening_cash=2000)
+        CashShift.objects.filter(pk=shift.pk).update(opened_at=yesterday)
+        shift.refresh_from_db()
+        CashMove.objects.create(shift=shift, kind=CashMove.Kind.OUT, amount=5000, comment="Инкассация", created_by=cashier)
+        shift.closed_at, shift.closed_by = yesterday.replace(hour=22, minute=10), cashier
+        shift.counted_cash = stats(shift)["expected"] - 50
+        shift.report = _payload(shift, stats(shift))
+        shift.save()
+        today = CashShift.objects.create(branch=branch, opened_by=cashier, opening_cash=2000)
+        CashShift.objects.filter(pk=today.pk).update(opened_at=now - timedelta(hours=3))
 
     # ----- Фото с Wikimedia Commons -----
     def photos(self):

@@ -106,7 +106,7 @@ def _can_complete(user, order) -> bool:
         return False
     if at_table(order):
         return user.is_cafe_admin or (user.is_waiter and order.claimed_by_id in (None, user.id) and owns_table(user, order.table))   # подаёт официант этого стола
-    return user.is_cafe_admin                                       # самовывоз выдаёт админ
+    return user.is_cafe_admin or (user.is_cashier and order.kind == K.PICKUP)   # самовывоз выдаёт админ или кассир
 
 
 def _can_cancel(user, order) -> bool:

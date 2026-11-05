@@ -3,6 +3,8 @@
 from xml.sax.saxutils import escape     # название филиала безопасно вставляем в PDF (там разметка)
 from io import BytesIO                                     # "файл в памяти"
 
+from django.utils import timezone                          # время смены по Бишкеку
+
 from django.conf import settings                           # путь к проекту
 from reportlab.lib import colors                           # цвета
 from reportlab.lib.pagesizes import A4                     # размер листа
@@ -94,6 +96,15 @@ def _summary_blocks(data, s) -> list:
         rows += [[w["name"], w["orders"], _money(w["revenue"]), _money(w["avg_check"]), w["calls"],
                   w["response_min"] if w["response_min"] is not None else "—"] for w in data["waiters"]]
         blocks.append(_table(rows, [40 * mm, 20 * mm, 32 * mm, 26 * mm, 20 * mm, 22 * mm]))
+
+    # Смены кассы
+    if data.get("shifts"):
+        blocks.append(Paragraph("Смены кассы", s["h"]))
+        rows = [["Кассир", "Время", "Наличные", "Карта", "Разница"]]
+        rows += [[x["cashier"], f"{timezone.localtime(x['opened_at']):%d.%m %H:%M}–{timezone.localtime(x['closed_at']):%H:%M}",
+                  _money(x["cash"]), _money(x["card"]), _money(x["difference"]) if x["difference"] >= 0 else "−" + _money(-x["difference"])]
+                 for x in data["shifts"]]
+        blocks.append(_table(rows, [36 * mm, 40 * mm, 30 * mm, 30 * mm, 24 * mm]))
 
     # Топ блюд
     blocks.append(Paragraph("Что продалось лучше всего", s["h"]))

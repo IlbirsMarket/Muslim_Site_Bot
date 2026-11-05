@@ -78,7 +78,7 @@
     document.documentElement.classList.add('in-telegram');
     postEvent('web_app_ready');                                    // сайт готов — Telegram убирает заставку
     postEvent('web_app_expand');                                   // на весь экран
-    postEvent('web_app_set_header_color',{color:'#A2E819'});       // шапка Telegram — в зелёный цвет кафе
+    postEvent('web_app_set_header_color',{color:'#92CF16'});       // шапка Telegram — в зелёный цвет кафе
     postEvent('web_app_set_background_color',{color:'#f5f4ef'});
     postEvent('web_app_setup_swipe_behavior',{allow_vertical_swipe:false});   // свайп вниз не закрывает (списки листаются спокойно)
     const watch=()=>new MutationObserver(syncBack).observe(document.body,{subtree:true,attributes:true,attributeFilter:['open']});

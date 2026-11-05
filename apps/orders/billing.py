@@ -154,7 +154,7 @@ def unpaid_orders(branch, user):
         .exclude(status__in=[Order.Status.CANCELLED, Order.Status.NEW])            # неподтверждённые ещё могут отклонить
         .select_related("table", "claimed_by", "branch").prefetch_related("items")
     )
-    if not user.is_cafe_admin:
+    if not (user.is_cafe_admin or user.is_cashier):                 # кассир и админ видят все счета филиала
         orders = orders.filter(table__kind="hall", kind__in=[Order.Kind.HALL, Order.Kind.TAKEAWAY])
     return list(orders)
 
@@ -212,15 +212,15 @@ def _load(branch, user, order_ids) -> list:
     """Заказы для счёта / оплаты с проверкой: свой филиал, не отменены, есть права."""
     ids = sorted({int(x) for x in order_ids or []})
     if not ids:
-        raise ValidationError({"orders": "Не выбраны заказы."})
+        raise ValidationError("Не выбраны заказы.")
     orders = list(
         Order.objects.select_for_update().filter(pk__in=ids, branch=branch)
         .exclude(status=Order.Status.CANCELLED)
     )
     if len(orders) != len(ids):
-        raise ValidationError({"orders": "Некоторые заказы не найдены или отменены."})
+        raise ValidationError("Некоторые заказы не найдены или отменены.")
     for order in orders:
-        if user.is_cafe_admin:
+        if user.is_cafe_admin or user.is_cashier:                     # кассир закрывает любой счёт филиала
             continue
         if not (user.is_waiter and at_table(order) and owns_table(user, order.table)):
             raise PermissionDenied("Этот счёт закрывает админ или официант этого стола.")
@@ -241,7 +241,7 @@ def _split(total, method, cash):
     if method == Order.PaidMethod.CARD:
         return 0, total
     if cash is None or not 0 < cash < total:                          # смешанная: наличных больше 0 и меньше суммы
-        raise ValidationError({"cash": "Укажите, сколько наличными (меньше общей суммы), остальное — картой."})
+        raise ValidationError("Укажите, сколько наличными (меньше общей суммы), остальное — картой.")
     return cash, total - cash
 
 
@@ -249,14 +249,17 @@ def _split(total, method, cash):
 def pay(branch, user, order_ids, method, cash=None, received=None) -> dict:
     """«Оплачено»: отмечаем заказы оплаченными, закрываем «Попросить счёт» и печатаем чек об оплате."""
     if method not in Order.PaidMethod.values:
-        raise ValidationError({"method": "Выберите: наличные, карта или наличные + карта."})
+        raise ValidationError("Выберите: наличные, карта или наличные + карта.")
+    if user.is_cashier:                                               # кассир — только в открытую смену
+        from .cash import require_shift
+        require_shift(branch)
     orders = _load(branch, user, order_ids)
     if any(o.paid_at for o in orders):
-        raise ValidationError({"orders": "Этот счёт уже оплачен."})
+        raise ValidationError("Этот счёт уже оплачен.")
     total = sum(o.total for o in orders)
     cash_sum, card_sum = _split(total, method, cash)
     if received is not None and received < cash_sum:
-        raise ValidationError({"received": f"Получено меньше, чем нужно наличными ({cash_sum} сом)."})
+        raise ValidationError(f"Получено меньше, чем нужно наличными ({cash_sum} сом).")
 
     now = timezone.now()
     left = cash_sum                                                   # наличные раскладываем по заказам по очереди

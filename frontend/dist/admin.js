@@ -5,8 +5,8 @@
   const money=n=>`${new Intl.NumberFormat('ru-RU').format(n||0)} сом`;
   const list=data=>Array.isArray(data)?data:data?.results||[];
   const icon=window.MuslimIcons.render;
-  const roles={owner:'Программист',programmer:'Программист',chef:'Шеф',admin:'Админ',cook:'Повар',waiter:'Официант',courier:'Курьер',user:'Пользователь',blocked:'Заблокирован'};
-  const views=[['orders','orders','Заказы'],['menu','menu','Блюда и категории'],['tables','tables','Столы и QR'],['users','users','Пользователи и роли'],['reports','reports','Отчёты'],['settings','settings','Настройки'],...(API.enabled?[['api','api','Проверка API']]:[])];
+  const roles={owner:'Программист',programmer:'Программист',chef:'Шеф',admin:'Админ',cook:'Повар',waiter:'Официант',courier:'Курьер',cashier:'Кассир',user:'Пользователь',blocked:'Заблокирован'};
+  const views=[['cash','wallet','Касса'],['orders','orders','Заказы'],['menu','menu','Блюда и категории'],['tables','tables','Столы и QR'],['users','users','Пользователи и роли'],['reports','reports','Отчёты'],['settings','settings','Настройки'],...(API.enabled?[['api','api','Проверка API']]:[])];
   let live=false,state,me,view='orders',orderFilter='all',menuFilter='all',menuTab='cats',query='',userFilter='all',reportPeriod='day',reportScope='branch',reportDate=Store.today(),loadSequence=0,cache={},confirmation,editorImage='',uploadFile=null,editingId=null,toastTimer;
   let orderTab='active',payState=null;   // «Активные | К оплате»; открытое окно оплаты
   const editor=$('#editor-dialog');
@@ -76,7 +76,8 @@
   function canManageMenu(){return !live||['programmer','chef','admin'].includes(me?.role);}
   function canAccess(id){
     if(id==='api')return live&&['programmer','owner'].includes(me?.role);
-    return !live||['programmer','chef','admin'].includes(me?.role)||['orders',...(me?.role==='cook'?['menu']:[]),...(me?.role==='waiter'?['tables']:[])].includes(id);   // официант видит столы, повар — блюда (стоп-лист)
+    if(id==='cash')return live&&['programmer','chef','admin','cashier'].includes(me?.role);                       // «Касса» — кассиру и администрации
+    return !live||['programmer','chef','admin'].includes(me?.role)||['orders',...(me?.role==='cook'?['menu']:[]),...(me?.role==='waiter'?['tables']:[]),...(me?.role==='cashier'?['settings']:[])].includes(id);   // официант видит столы, повар — блюда (стоп-лист)
   }
   function showLogin(message=''){
     stopWatch();   // вышли — уведомления больше не нужны
@@ -96,17 +97,18 @@
     $('#staff-role').textContent=live?`Роль: ${me.role_display}`:'Демонстрационный режим';
     if(live)API.setBranch(multiBranch()?currentBranch()?.id:null);   // шеф — последний выбранный филиал, остальные — свой (сервер)
     paintBranch();
-    const requested=location.hash.slice(1);view=views.some(v=>v[0]===requested)&&canAccess(requested)?requested:'orders';
+    const requested=location.hash.slice(1);view=views.some(v=>v[0]===requested)&&canAccess(requested)?requested:homeView();
     await render();
     paintTelegram();   // кнопка «Привязать Telegram»
     startWatch();   // следим за новыми заказами и вызовами
   }
   async function render(quiet=false){   // quiet=true — тихое обновление, без надписи «Загружаем…»
-    if(!canAccess(view))view='orders';
+    if(!canAccess(view))view=homeView();
     const sequence=++loadSequence;nav();location.hash=view;
     if(!quiet)$('#content').innerHTML='<div class="loading">Загружаем…</div>';
     try{
       let html='';
+      if(view==='cash')html=await cashView();
       if(view==='orders')html=await ordersView();
       if(view==='menu')html=await menuView();
       if(view==='tables')html=await tablesView();
@@ -118,7 +120,7 @@
     }catch(error){if(sequence!==loadSequence)return;$('#content').innerHTML=heading(views.find(v=>v[0]===view)?.[2]||'Панель')+`<div class="panel"><h2>Не удалось загрузить раздел</h2><p class="error">${esc(error.message)}</p><p class="fine">${error.status===500?'Сервер вернул 500. Ошибку нужно исправить в API.':error.status===401?'Войдите повторно.':error.status===403?'У вашей роли нет доступа к этому разделу.':'Проверьте подключение и повторите.'}</p><br><button class="secondary" data-reload>Повторить</button></div>`;}
   }
   async function ordersView(){
-    if(live&&orderTab==='pay'&&seesCalls()){cache.fresh=null;return billsView();}   // вкладка «К оплате»
+    if(live&&orderTab==='pay'&&canPay()){cache.fresh=null;return billsView();}   // вкладка «К оплате»
     let orders,calls=[];
     if(live&&cache.fresh){({orders,calls}=cache.fresh);cache.fresh=null;}   // данные только что получены — без лишнего запроса
     else if(live){const data=await Promise.all([API.request('/staff/orders/?active=true'),seesCalls()?API.request('/staff/table-calls/'):Promise.resolve([])]);orders=list(data[0]);calls=list(data[1]);}
@@ -133,11 +135,11 @@
   }
   // ===== Вкладки «Активные | К оплате» (официант и администрация) =====
   function orderTabs(active){
-    if(!live||!seesCalls())return '';
+    if(!live||!canPay())return '';
     return `<div class="order-tabs" role="tablist"><button type="button" role="tab" data-order-tab="active" aria-selected="${orderTab==='active'}">Активные <i>${active}</i></button><button type="button" role="tab" data-order-tab="pay" aria-selected="${orderTab==='pay'}">К оплате <i id="pay-count">${cache.billCount??'…'}</i></button></div>`;
   }
   function refreshBillCount(){                                          // цифра на вкладке «К оплате» — без задержки списка
-    if(!live||!seesCalls())return;
+    if(!live||!canPay())return;
     API.request('/staff/bills/').then(b=>{cache.billCount=list(b).length;const el=$('#pay-count');if(el)el.textContent=cache.billCount;}).catch(()=>{});
   }
   const ordersWord=n=>n%10===1&&n%100!==11?'заказ':[2,3,4].includes(n%10)&&![12,13,14].includes(n%100)?'заказа':'заказов';   // 1 заказ, 2 заказа, 5 заказов
@@ -149,9 +151,46 @@
   // «К оплате»: счета столов (все заказы стола — один счёт), доставки и самовывозы
   async function billsView(){
     const bills=list(await API.request('/staff/bills/'));cache.bills=bills;cache.billCount=bills.length;
+    return heading('Заказы',`${bills.length} к оплате`,`<button class="secondary" data-reload>↻ Обновить</button>`)+orderTabs(cache.activeCount??'…')+billGrid(bills);
+  }
+  function billGrid(bills){
     const cards=bills.map((b,i)=>`<article class="bill-card kind-${esc(b.kind)}"><div class="bill-head"><h3>${esc(b.title)}</h3>${b.bill_requested?`<span class="bill-ask">просит счёт${b.people?` · ${b.people} чел.`:''}</span>`:''}</div><p class="fine">${billMeta(b)}</p>${b.in_progress?`<p class="fine bill-wip">Ещё не подано: ${b.in_progress}</p>`:''}<strong class="bill-sum">${money(b.total)}</strong><div class="bill-actions"><button type="button" class="secondary" data-bill-print="${i}">🖨 Счёт</button><button type="button" class="primary" data-bill-pay="${i}">Оплатить</button></div></article>`).join('');
-    return heading('Заказы',`${bills.length} к оплате`,`<button class="secondary" data-reload>↻ Обновить</button>`)+orderTabs(cache.activeCount??'…')
-      +(bills.length?`<div class="bill-grid">${cards}</div>`:'<section class="panel"><p class="empty">Все счета оплачены</p></section>');
+    return bills.length?`<div class="bill-grid">${cards}</div>`:'<section class="panel"><p class="empty">Все счета оплачены</p></section>';
+  }
+
+  // ===== «Касса»: смена кассира — открыть, внесение / изъятие, закрыть с подсчётом наличных =====
+  async function cashView(){
+    const [data,bills]=await Promise.all([API.request('/staff/cash/'),API.request('/staff/bills/')]);
+    const shift=data.shift;cache.shift=shift;cache.bills=list(bills);cache.billCount=cache.bills.length;
+    if(!shift)return heading('Касса',esc(branchName()))+`<section class="panel cash-open"><h2>Открыть смену</h2><p class="fine">Посчитайте наличные в кассе перед началом работы. Без открытой смены кассир не принимает оплату.</p><label class="field">В кассе наличных, сом<input id="cash-start" type="number" min="0" inputmode="numeric" value="0"></label><p class="error" id="cash-error"></p><button type="button" class="primary" data-cash-open>Открыть смену</button></section>`
+      +`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills);
+    const tile=(name,value)=>`<article class="stat"><span>${name}</span><strong>${value}</strong></article>`;
+    const moves=shift.moves.length?`<section class="panel cash-moves"><h2>Внесения и изъятия</h2>${shift.moves.map(m=>`<div class="split-line list-line"><span>${billTime(m.at)} · ${esc(m.label)}${m.comment?` · ${esc(m.comment)}`:''} <small class="fine">${esc(m.by)}</small></span><strong>${m.kind==='out'?'−':'+'} ${money(m.amount)}</strong></div>`).join('')}</section>`:'';
+    return heading('Касса',`${esc(branchName())} · сегодня`)
+      +`<section class="cash-shift"><div><b><i class="cash-dot"></i>Смена открыта с ${billTime(shift.opened_at)}</b><small>Кассир ${esc(shift.opened_by)} · в кассе на начало ${money(shift.opening_cash)}</small></div><div class="cash-buttons"><button type="button" class="secondary" data-cash-move="in">＋ Внесение</button><button type="button" class="secondary" data-cash-move="out">− Изъятие</button><button type="button" class="primary" data-cash-close>Закрыть смену</button></div></section>`
+      +`<div class="stats cash-stats">${tile('Наличные',money(shift.cash))}${tile('Карта',money(shift.card))}${tile('Счетов оплачено',shift.orders)}${tile('В кассе сейчас',money(shift.expected))}</div>`
+      +moves+`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills);
+  }
+  function cashMoveDialog(kind){
+    $('#editor-title').textContent=kind==='in'?'Внесение наличных':'Изъятие наличных';
+    $('#editor-content').innerHTML=`<div class="pay-form"><p class="fine">${kind==='in'?'Положили деньги в кассу (например, на размен).':'Забрали деньги из кассы (например, инкассация).'}</p><label class="field">Сумма, сом<input id="cash-amount" type="number" min="1" inputmode="numeric" required></label><label class="field">Комментарий<input id="cash-comment" maxlength="150" placeholder="${kind==='in'?'Размен':'Инкассация'}"></label><p class="error" id="cash-error"></p><button type="button" class="primary pay-submit" data-cash-move-save="${kind}">${kind==='in'?'Внести':'Изъять'}</button></div>`;
+    editor.showModal();$('#cash-amount').focus();
+  }
+  function cashCloseDialog(){
+    const s=cache.shift;if(!s)return;
+    const line=(name,value)=>`<div class="split-line"><span>${name}</span><span>${value}</span></div>`;
+    $('#editor-title').textContent='Закрыть смену';
+    $('#editor-content').innerHTML=`<div class="pay-form"><p class="fine">Смена ${esc(s.opened_by)} · с ${billTime(s.opened_at)}</p>${line('В кассе на начало',money(s.opening_cash))}${line('Наличными за смену','+ '+money(s.cash))}${s.cash_in?line('Внесение','+ '+money(s.cash_in)):''}${s.cash_out?line('Изъятие','− '+money(s.cash_out)):''}
+      <div class="split-line pay-total"><strong>Должно быть в кассе</strong><strong>${money(s.expected)}</strong></div>
+      <span class="pay-label">Посчитали наличные</span><div class="pay-calc"><label>В кассе по факту<input id="cash-counted" type="number" min="0" inputmode="numeric"></label><div>Разница<strong id="cash-diff">—</strong></div></div>
+      <p class="fine">Картой за смену: ${money(s.card)} · счетов: ${s.orders}</p><p class="error" id="cash-error"></p><button type="button" class="primary pay-submit" data-cash-close-save>Закрыть смену · печать отчёта</button></div>`;
+    editor.showModal();
+    const input=$('#cash-counted');input.focus();
+    input.oninput=()=>{const d=input.value===''?null:Number(input.value)-s.expected;const out=$('#cash-diff');out.textContent=d==null?'—':d===0?'0 сом ✓':`${d>0?'+ ':'− '}${money(Math.abs(d))}`;out.className=d&&d<0?'minus':'';};
+  }
+  async function cashAction(path,body){                                   // запрос «Кассы» с ошибкой прямо в окне
+    try{return await API.request(path,{method:'POST',body});}
+    catch(error){const out=$('#cash-error');if(out)out.textContent=error.message;else toast(error.message);return null;}
   }
   // Окно «Оплата»: способ, сколько дал гость, сдача → «Оплачено · печать чека»
   function openPay(bill){
@@ -218,6 +257,8 @@
   function kindOf(o){return live?o.kind:o.type==='cafe'?'hall':o.type;}
   // Вызовы со столов видят официант и администрация (повару и курьеру они не нужны)
   function seesCalls(){return ['programmer','chef','admin','waiter'].includes(me?.role);}
+  function canPay(){return ['programmer','chef','admin','waiter','cashier'].includes(me?.role);}            // «К оплате» и «Оплатить»
+  function homeView(){return me?.role==='cashier'?'cash':'orders';}                                         // кассир начинает с «Кассы»
   // Сколько заказов ждут реакции этого сотрудника (цифра в меню и во вкладке)
   function waitingCount(orders){
     if(live&&me.role==='cook')return orders.filter(o=>o.status==='accepted').length;                      // повар: ждут кухню
@@ -497,7 +538,7 @@
     const waiting=waitingCount(orders);                                             // ждут реакции
     cache.newCount=waiting;nav();MuslimNotify.title(waiting+calls.length);           // цифра в меню и во вкладке
     if(events.length){MuslimNotify.alert(events);toast(events.slice(0,3).join(' · ')+(events.length>3?` и ещё ${events.length-3}`:''),kinds[0]);}
-    if(before&&(before.key!==seen.key||(view==='orders'&&orderTab==='pay'))&&['orders','tables'].includes(view)&&!document.querySelector('dialog[open]')&&!typing()){if(view==='orders')cache.fresh={orders,calls};await render(true);}   // список сам обновился
+    if(before&&(before.key!==seen.key||(view==='orders'&&orderTab==='pay')||view==='cash')&&['orders','tables','cash'].includes(view)&&!document.querySelector('dialog[open]')&&!typing()){if(view==='orders')cache.fresh={orders,calls};await render(true);}   // список сам обновился
   }
   // ===== Кнопка «Telegram» в верхней полосе: привязан ли Telegram (привязка — входом в боте), «Отвязать» =====
   function paintTelegram(){
@@ -601,13 +642,16 @@
     const waitersBlock=`<section class="panel full waiters-panel"><h2>Официанты</h2>${W.length?`<table class="data-table waiters-table"><thead><tr><th>Официант</th><th>Заказы</th><th>Выручка</th><th>Ср. чек</th><th>Вызовы</th><th>Ответ на вызов</th><th>Доля</th></tr></thead><tbody>${W.map((w,i)=>`<tr><td><strong>${esc(w.name)}</strong>${bestTag(w,i)}</td><td>${w.orders}</td><td>${money(w.revenue)}</td><td>${money(w.avg_check)}</td><td>${w.calls}</td><td>${minutes(w.response_min)}</td><td><div class="progress"><span style="width:${w.share}%"></span></div></td></tr>`).join('')}</tbody></table>
       <div class="waiter-cards">${W.map((w,i)=>`<article class="waiter-card"><div class="split-line"><strong>${esc(w.name)}${bestTag(w,i)}</strong><strong>${money(w.revenue)}</strong></div><div class="progress"><span style="width:${w.share}%"></span></div><div class="split-line"><small>${w.orders} ${ordersWord(w.orders)} · ср. чек ${money(w.avg_check)}</small><small>${w.calls} вызов. · ${minutes(w.response_min)}</small></div></article>`).join('')}</div>`
       :`<p class="empty">Нет заказов в зале за ${isDay?'этот день':'этот период'}</p>`}</section>`;
+    const S=r.shifts||[],signed=n=>n===0?'0 сом':`${n>0?'+':'−'} ${money(Math.abs(n))}`;
+    const shiftsBlock=S.length?`<section class="panel full shifts-panel"><h2>Смены кассы</h2>${S.map(x=>`<article class="shift-row"><div><strong>${esc(x.cashier)}</strong><small class="fine"> · ${new Date(x.opened_at).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})} ${billTime(x.opened_at)}–${billTime(x.closed_at)}</small></div><span>Наличные ${money(x.cash)}</span><span>Карта ${money(x.card)}</span><span>Счетов ${x.orders}</span><strong class="${x.difference<0?'minus':''}">Разница ${signed(x.difference)}</strong></article>`).join('')}</section>`:'';
     const unpaid=r.unpaid?.count?`<p class="fine unpaid-note">Ещё не оплачено: ${r.unpaid.count} ${ordersWord(r.unpaid.count)} · ${money(r.unpaid.sum)}</p>`:'';
 
     // Раскладка рядами, без пустот: плитки → график во всю ширину → карточки одинаковой высоты → топ блюд → официанты → архив
     const cards=[split('Откуда выручка',r.by_kind),split('Оплата',r.by_payment).replace(/<\/section>$/,unpaid+'</section>'),reasons].filter(Boolean);
-    return `<div class="report">${banner}${stats}${chart}<div class="report-cards cards-${cards.length}">${cards.join('')}</div>${topBlock}${waitersBlock}${archiveBlock}</div>`;
+    return `<div class="report">${banner}${stats}${chart}<div class="report-cards cards-${cards.length}">${cards.join('')}</div>${topBlock}${waitersBlock}${shiftsBlock}${archiveBlock}</div>`;
   }
   async function settingsView(){
+    if(live&&me.role==='cashier')return heading('Настройки')+printerPanel();      // кассиру — только чековый аппарат
     const s=live?await API.request('/admin/cafe/'):state.settings;cache.settings=s;
     const get=(remote,local)=>live?s[remote]:s[local];
     return heading('Настройки','',`<button class="primary" type="submit" form="settings-form">Сохранить</button>`)+printerPanel()+`<form id="settings-form"><div class="settings-grid"><section class="panel"><h2>Приём заказов</h2><div class="setting-line">Принимать заказы с сайта${toggle('Принимать заказы',get('is_accepting_orders','acceptOrders'),'name="acceptOrders"')}</div><div class="setting-line">Принимать доставку${toggle('Принимать доставку',get('is_delivery_enabled','acceptDelivery'),'name="acceptDelivery"')}</div><div class="two-fields">${field('Открываемся','opens',get('opens_at','opens')?.slice(0,5),'time','required')}${field('Закрываемся','closes',get('closes_at','closes')?.slice(0,5),'time','required')}</div></section><section class="panel"><h2>Доставка</h2><div class="three-fields">${field('Мин. сумма, сом','deliveryMin',get('delivery_min_sum','deliveryMin'),'number','min="0" max="1000000" required')}${field('Стоимость, сом','deliveryFee',get('delivery_fee','deliveryFee'),'number','min="0" max="1000000" required')}${field('Время, мин','deliveryTime',get('delivery_time','deliveryTime'),'text','maxlength="50" required')}</div>${field('Бесплатная доставка от, сом (0 — нет)','freeFrom',get('free_delivery_from','freeFrom'),'number','min="0" max="1000000" required')}</section><section class="panel"><h2>${multiBranch()?'Филиал и контакты':'Контакты кафе'}</h2>${multiBranch()?field('Название филиала','branchName',s.branch_name,'text','maxlength="60" required'):''}${field('Адрес','address',s.address,'text','maxlength="200"')}${field('Телефон','phone',s.phone,'tel','maxlength="30"')}</section><section class="panel"><h2>Telegram</h2><p class="fine">Telegram пока не подключён. Уведомления и отправка отчётов в группу будут доступны после подключения бота.</p><div class="setting-line">Отчёт в группу${toggle('Отчёт в Telegram',false,'disabled')}</div><p class="fine">Время работы и параметры доставки сохраняются ${live?'на сервере':'только в этом браузере'}.</p></section>${live?'':`<section class="panel"><h2>Ссылка меню для QR</h2>${field('Адрес гостевого меню','menuUrl',s.menuUrl,'url','required maxlength="400"')}<p class="fine">Для печати QR укажите опубликованный адрес сайта, доступный гостям.</p></section>`}</div><p id="settings-error" class="error" role="alert"></p></form>`;
@@ -641,6 +685,11 @@
     if(button.hasAttribute('data-close')){button.closest('dialog').close();return;}
     if(button.dataset.orderFilter){orderFilter=button.dataset.orderFilter;await render();return;}
     if(button.dataset.orderTab){orderTab=button.dataset.orderTab;await render();return;}                       // «Активные | К оплате»
+    if(button.hasAttribute('data-cash-open')){const v=$('#cash-start')?.value;if(await cashAction('/staff/cash/open/',{cash:Number(v||0)})){toast('Смена открыта');await render(true);}return;}
+    if(button.dataset.cashMove){cashMoveDialog(button.dataset.cashMove);return;}
+    if(button.dataset.cashMoveSave){const amount=Number($('#cash-amount').value||0);if(await cashAction('/staff/cash/move/',{kind:button.dataset.cashMoveSave,amount,comment:$('#cash-comment').value})){editor.close();toast(button.dataset.cashMoveSave==='in'?'Внесение записано':'Изъятие записано');await render(true);}return;}
+    if(button.hasAttribute('data-cash-close')){cashCloseDialog();return;}
+    if(button.hasAttribute('data-cash-close-save')){const v=$('#cash-counted').value;if(v===''){$('#cash-error').textContent='Посчитайте наличные и введите сумму.';return;}const r=await cashAction('/staff/cash/close/',{counted:Number(v)});if(r){editor.close();toast(`Смена закрыта · разница ${r.difference>=0?'+':'−'}${money(Math.abs(r.difference))}`);await render(true);}return;}
     if(button.dataset.billPrint){const bill=cache.bills?.[Number(button.dataset.billPrint)];if(!bill)return;await API.request('/staff/bills/print/',{method:'POST',body:{orders:bill.orders}});toast('Счёт отправлен на чековый аппарат');return;}
     if(button.dataset.billPay){const bill=cache.bills?.[Number(button.dataset.billPay)];if(bill)openPay(bill);return;}
     if(button.dataset.payMethod&&payState){payState.method=button.dataset.payMethod;drawPay();return;}            // наличные / карта / наличные + карта
@@ -815,7 +864,7 @@
   }
   // ===== Демо-версия (только на своём компьютере: её включает frontend/server.cjs, на сервере nginx её не знает) =====
   const DEMO_STAFF=[['demo_chef','Шеф','Имрон · оба филиала, отчёты, настройки'],['demo_admin','Админ','Азамат · заказы, меню, столы, сотрудники'],
-    ['demo_cook','Повар','Айбек · кухня и стоп-лист'],['demo_waiter','Официант','Бекзат · зал, столы, вызовы'],['demo_courier','Курьер','Нурлан · доставки']];
+    ['demo_cook','Повар','Айбек · кухня и стоп-лист'],['demo_waiter','Официант','Бекзат · зал, столы, вызовы'],['demo_cashier','Кассир','Айжан · касса, смена, оплата'],['demo_courier','Курьер','Нурлан · доставки']];
   if(API.enabled&&window.MUSLIM_CONFIG?.demo){                       // демо-сайт: войти одной кнопкой за любую роль
     $('#login-form').hidden=true;
     $('#login-description').textContent='Демо-версия: настоящая панель с примером кафе — меню, столы, заказы и отчёты за месяц. Войдите за любую роль:';

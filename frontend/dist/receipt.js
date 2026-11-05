@@ -21,6 +21,15 @@
   function body(job){
     const p=job.payload||{};
     const head=`<div class="c b">КАФЕ "МУСЛИМ"</div>${p.branch?`<div class="c">${esc(p.branch)}</div>`:''}<div class="c big">${esc(p.title)} N${esc(p.number)}</div>${line}`;
+    if(job.kind==='shift'){                                                                   // «ОТЧЁТ ЗА СМЕНУ»
+      const signed=n=>`${n<0?'−':''}${sum(Math.abs(n))}`;
+      return `<div class="c b">КАФЕ "МУСЛИМ"</div>${p.branch?`<div class="c">${esc(p.branch)}</div>`:''}<div class="c big">${esc(p.title)}</div>${line}`
+        +`<div>Дата: ${esc(p.date)}</div><div>Смена: ${esc(p.opened)} – ${esc(p.closed)}</div><div>Кассир: ${esc(p.cashier)}</div>${p.closed_by&&p.closed_by!==p.cashier?`<div>Закрыл: ${esc(p.closed_by)}</div>`:''}${line}`
+        +row('Счетов оплачено',p.orders)+row('Наличные',sum(p.cash))+row('Карта',sum(p.card))+row('ВСЕГО',sum(p.total),'b')+line
+        +row('В кассе на начало',sum(p.opening_cash))+row('+ Наличные',sum(p.cash))+(p.cash_in?row('+ Внесение',sum(p.cash_in)):'')+(p.cash_out?row('− Изъятие',sum(p.cash_out)):'')
+        +row('ДОЛЖНО БЫТЬ',sum(p.expected),'b')+row('ПО ФАКТУ',sum(p.counted))+row('РАЗНИЦА',signed(p.difference),'b')+line
+        +'<br><div>Подпись кассира ____________</div>';
+    }
     if(job.kind==='order'){                                                                   // «ЗАКАЗ»
       return head+row(`Дата: ${esc(p.date)}`,`Время: ${esc(p.time)}`)+`<div>Место: ${esc(p.place)}</div>`
         +(p.waiter?`<div>Официант: ${esc(p.waiter)}</div>`:'')+(p.accepted_by?`<div>Принял: ${esc(p.accepted_by)}</div>`:'')+guest(p)
