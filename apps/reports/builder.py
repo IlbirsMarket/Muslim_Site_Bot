@@ -69,10 +69,21 @@ def build_summary(start_date, end_date, branch=None) -> dict:
     for row in done.values("kind").annotate(count=Count("id"), revenue=Sum("total")):
         by_kind[row["kind"]].update(count=row["count"], revenue=row["revenue"] or 0)
 
-    # Разбивка по оплате: наличные / карта
-    by_payment = {value: {"label": label, "count": 0, "revenue": 0} for value, label in Order.Payment.choices}
-    for row in done.values("payment_method").annotate(count=Count("id"), revenue=Sum("total")):
-        by_payment[row["payment_method"]].update(count=row["count"], revenue=row["revenue"] or 0)
+    # Разбивка по оплате: наличные / карта. Оплаченные — как реально заплатили (смешанная делится на части),
+    # ещё не оплаченные — как гость выбрал при заказе
+    by_payment = {"cash": {"label": "Наличные", "count": 0, "revenue": 0}, "card": {"label": "Карта", "count": 0, "revenue": 0}}
+    for paid_at, method, cash, card, chosen, total in done.values_list(
+        "paid_at", "paid_method", "paid_cash", "paid_card", "payment_method", "total",
+    ):
+        if paid_at:                                                   # оплачен через «Оплатить» / доставку
+            parts = {"cash": cash, "card": card}
+        else:                                                         # оплата ещё не отмечена
+            parts = {"card" if chosen == Order.Payment.CARD else "cash": total}
+        for key, value in parts.items():
+            if value:
+                by_payment[key]["count"] += 1
+                by_payment[key]["revenue"] += value
+    unpaid = done.filter(paid_at__isnull=True).aggregate(s=Sum("total"), c=Count("id"))
 
     # Топ-10 блюд по выручке
     top_dishes = [
@@ -92,8 +103,54 @@ def build_summary(start_date, end_date, branch=None) -> dict:
         "in_progress_count": orders.exclude(status__in=[S.COMPLETED, S.CANCELLED]).count(),  # ещё в работе
         "by_kind": by_kind,
         "by_payment": by_payment,
+        "unpaid": {"count": unpaid["c"], "sum": unpaid["s"] or 0},     # завершены, но оплату ещё не отметили
+        "waiters": waiters_report(start_date, end_date, branch),      # как работали официанты
         "top_dishes": top_dishes,
     }
+
+
+def waiters_report(start_date, end_date, branch=None) -> list:
+    """
+    Официанты за период: сколько заказов в зале обслужили (стол взял он), выручка, средний чек,
+    сколько вызовов гостей закрыл и как быстро подходил (в минутах).
+    """
+    from apps.orders.models import TableCall
+    start, end = _range(start_date, end_date)
+    done = _orders(start_date, end_date, branch).filter(
+        status=S.COMPLETED, claimed_by__isnull=False, table__kind="hall", kind__in=[Order.Kind.HALL, Order.Kind.TAKEAWAY],
+    )
+    people = {}
+
+    def person(user_id, name):
+        return people.setdefault(user_id, {"id": user_id, "name": name, "orders": 0, "revenue": 0, "calls": 0, "_wait": []})
+
+    for row in done.values("claimed_by", "claimed_by__first_name", "claimed_by__last_name", "claimed_by__username").annotate(
+        count=Count("id"), revenue=Sum("total"),
+    ):
+        name = f"{row['claimed_by__first_name']} {row['claimed_by__last_name']}".strip() or row["claimed_by__username"]
+        item = person(row["claimed_by"], name)
+        item.update(orders=row["count"], revenue=row["revenue"] or 0)
+
+    calls = TableCall.objects.filter(is_done=True, done_by__isnull=False, created_at__gte=start, created_at__lt=end)
+    if branch is not None:
+        calls = calls.filter(table__branch=branch)
+    for call in calls.select_related("done_by"):
+        user = call.done_by
+        item = person(user.id, user.get_full_name() or user.username)
+        item["calls"] += 1
+        if call.done_at:
+            item["_wait"].append((call.done_at - call.created_at).total_seconds() / 60)
+
+    result = []
+    for item in people.values():
+        waits = item.pop("_wait")
+        item["avg_check"] = round(item["revenue"] / item["orders"]) if item["orders"] else 0
+        item["response_min"] = round(sum(waits) / len(waits), 1) if waits else None   # среднее время ответа на вызов
+        result.append(item)
+    total = sum(i["revenue"] for i in result) or 1
+    for item in result:
+        item["share"] = round(item["revenue"] / total * 100, 1)                         # доля выручки зала
+    return sorted(result, key=lambda i: (-i["revenue"], -i["calls"]))
 
 
 def _work_hours(cafe) -> set:
@@ -188,4 +245,4 @@ def build_period_report(period) -> dict:
         **summary,
         "by_day": _days_series(period.start_date, until, branch),
         "compare": {"previous_revenue": previous_revenue, "change_percent": _percent(summary["revenue"], previous_revenue)},
-    }
+    }

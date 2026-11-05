@@ -87,6 +87,14 @@ def _summary_blocks(data, s) -> list:
     rows += [[v["label"], v["count"], _money(v["revenue"])] for v in data["by_payment"].values()]
     blocks.append(_table(rows, [70 * mm, 40 * mm, 50 * mm]))
 
+    # Официанты
+    if data.get("waiters"):
+        blocks.append(Paragraph("Официанты", s["h"]))
+        rows = [["Официант", "Заказов", "Выручка", "Ср. чек", "Вызовов", "Ответ, мин"]]
+        rows += [[w["name"], w["orders"], _money(w["revenue"]), _money(w["avg_check"]), w["calls"],
+                  w["response_min"] if w["response_min"] is not None else "—"] for w in data["waiters"]]
+        blocks.append(_table(rows, [40 * mm, 20 * mm, 32 * mm, 26 * mm, 20 * mm, 22 * mm]))
+
     # Топ блюд
     blocks.append(Paragraph("Что продалось лучше всего", s["h"]))
     rows = [["Блюдо", "Продано, шт.", "Выручка"]]
@@ -140,4 +148,4 @@ def render_period_pdf(data) -> bytes:
         _table([["Дата", "Заказов", "Выручка"]] + [[f"{d['date']:%d.%m.%Y}", d["count"], _money(d["revenue"])] for d in data["by_day"]],
                [50 * mm, 40 * mm, 70 * mm]),
     ]
-    return _build(story)
+    return _build(story)

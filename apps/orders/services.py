@@ -91,6 +91,8 @@ def create_order(data: dict) -> Order:
     if trusted:
         OrderStatusLog.objects.create(order=order, status=Order.Status.ACCEPTED)  # и сразу принят (доверенный телефон)
         occupy_table(order.table_id)                                              # стол занят (если его успели закрыть)
+        from .billing import print_order                                          # чек «ЗАКАЗ» на кассовый аппарат
+        print_order(order)
 
     # 7. Событие для Telegram-бота: он отправит заказ в нужные темы группы
     add_event(BotKind.ORDER_CREATED, order=order, trusted=trusted)

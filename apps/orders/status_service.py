@@ -214,5 +214,10 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
 
     order.save(update_fields=fields)                                # сохраняем
     OrderStatusLog.objects.create(order=order, status=order.status, changed_by=user)  # пишем в историю
+    from .billing import pay_on_delivery, print_order               # чеки (импорт здесь — без кругового импорта)
+    if action == "accept":
+        print_order(order)                                          # подтвердили — чек «ЗАКАЗ» на кассовый аппарат
+    if action == "complete" and order.kind == K.DELIVERY:
+        pay_on_delivery(order, user)                                # доставлен — курьер взял деньги, чек об оплате
     add_event(BotKind.ORDER_CHANGED, order=order, action=action, user_id=user.id)    # бот обновит сообщения о заказе
     return order

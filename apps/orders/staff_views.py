@@ -136,3 +136,78 @@ class CloseTableVisitView(APIView):
             raise PermissionDenied("Этот стол ведёт другой официант.")
         closed = close_visits(table, request.user)                   # закрываем визиты
         return Response({"table": table.name, "closed_visits": closed})
+
+
+# ===================== ОПЛАТА И ЧЕКИ =====================
+
+class BillListView(APIView):
+    """GET /api/staff/bills/ — «К оплате»: неоплаченные счета (заказы одного стола — один счёт)."""
+
+    permission_classes = [IsWaiterOrAdmin]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        from .billing import bills
+        return Response(bills(staff_branch(request), request.user))
+
+
+class BillPrintView(APIView):
+    """POST /api/staff/bills/print/ {"orders": [1, 2]} — напечатать счёт без оплаты."""
+
+    permission_classes = [IsWaiterOrAdmin]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .billing import print_bill
+        print_bill(staff_branch(request), request.user, request.data.get("orders"))
+        return Response({"ok": True})
+
+
+class BillPayView(APIView):
+    """
+    POST /api/staff/bills/pay/ — «Оплачено».
+    {"orders": [1, 2], "method": "cash|card|mixed", "cash": 1000 (для mixed), "received": 2000 (сколько дал гость)}
+    """
+
+    permission_classes = [IsWaiterOrAdmin]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .billing import pay
+
+        def number(name):                                            # число или пусто
+            value = request.data.get(name)
+            if value in (None, ""):
+                return None
+            try:
+                return max(0, int(value))
+            except (TypeError, ValueError):
+                raise ValidationError({name: "Нужно число."})
+
+        result = pay(staff_branch(request), request.user, request.data.get("orders"),
+                     request.data.get("method", ""), number("cash"), number("received"))
+        return Response(result)
+
+
+class PrintJobClaimView(APIView):
+    """POST /api/staff/print-jobs/claim/ — кассовый компьютер забирает чеки на печать (каждый — один раз)."""
+
+    permission_classes = [IsWaiterOrAdmin]
+
+    @extend_schema(request=None, responses={200: dict})
+    def post(self, request):
+        from .billing import claim_jobs
+        return Response(claim_jobs(staff_branch(request)))
+
+
+class OrderReprintView(APIView):
+    """POST /api/staff/orders/{id}/print/ — ещё раз напечатать чек «ЗАКАЗ»."""
+
+    permission_classes = [IsWaiterOrAdmin]
+
+    @extend_schema(request=None, responses={200: dict})
+    def post(self, request, pk):
+        from .billing import print_order
+        order = get_object_or_404(Order, pk=pk, branch=staff_branch(request))
+        print_order(order)
+        return Response({"ok": True})

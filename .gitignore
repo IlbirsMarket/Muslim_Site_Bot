@@ -24,4 +24,8 @@ Thumbs.db
 *.log
 
 dejavu-fonts-ttf-2.37/
-Claude outputs/
+
+# Демо-версия — только на этом компьютере (своя база и фото)
+demo.sqlite3
+demo.sqlite3-journal
+demo_media/

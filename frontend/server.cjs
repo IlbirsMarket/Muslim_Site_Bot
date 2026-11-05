@@ -10,7 +10,7 @@ return http.createServer(async (req, res) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { res.writeHead(400).end(); return; }
   if (pathname === '/runtime-config.js') {
-    res.writeHead(200, {'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'}).end('window.MUSLIM_CONFIG='+JSON.stringify({allowDemo:true,apiBase:apiEnabled?'/backend/api':null,apiOrigin:apiEnabled?apiOrigin.origin:null,apiDocs:apiOrigin.origin+'/api/docs/'})+';'); return;
+    res.writeHead(200, {'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'}).end('window.MUSLIM_CONFIG='+JSON.stringify({...(process.env.MUSLIM_DEMO==='1'?{demo:true}:{demoUrl:process.env.MUSLIM_DEMO_URL||'http://localhost:4175'}),apiBase:apiEnabled?'/backend/api':null,apiOrigin:apiEnabled?apiOrigin.origin:null,apiDocs:apiOrigin.origin+'/api/docs/'})+';'); return;
   }
   if (pathname.startsWith('/backend/api/') || pathname.startsWith('/backend/media/')) {
     if(!apiEnabled){res.writeHead(503,{'Content-Type':'application/json'}).end(JSON.stringify({detail:'API отключён. Панель работает без базы данных.'}));return;}

@@ -106,7 +106,7 @@ def recipients(event) -> list:
                 out.append((subs, "🆕 Новый заказ", head, "/admin"))
             elif order.status == S.ACCEPTED:                             # доверенный стол — сразу на кухню
                 out.append((_staff(order.branch_id, ["cook"]), "🍳 На кухню", head, "/admin"))
-        elif event.kind == K.ORDER_CHANGED and action != "claim":
+        elif event.kind == K.ORDER_CHANGED and action not in ("claim", "pay"):   # оплата — не новость для push
             if action == "accept":
                 out.append((_staff(order.branch_id, ["cook"]), "🍳 На кухню", head, "/admin"))
             if action == "ready":
@@ -123,10 +123,13 @@ def recipients(event) -> list:
     elif event.call_id and event.kind == K.CALL_CREATED:
         call = event.call
         if call.table.waiter_id:
-            subs = PushSubscription.objects.filter(user_id=call.table.waiter_id)
+            subs = list(PushSubscription.objects.filter(user_id=call.table.waiter_id))   # официант этого стола
+            if call.kind == call.Kind.BILL:                                       # счёт — ещё и админам (касса)
+                subs += list(_staff(call.table.branch_id, ["admin"]))
         else:
             subs = _staff(call.table.branch_id, ["waiter", "admin"])
-        out.append((subs, f"🔔 {call.table}", call.get_kind_display(), "/admin"))
+        body = call.get_kind_display() + (f" · {call.people} чел." if call.people else "")   # «Попросить счёт · 3 чел.»
+        out.append((subs, f"🔔 {call.table}", body, "/admin"))
     return out
 
 

@@ -321,7 +321,7 @@ def table_by_start(token: str):
 
 def guest_ping(event) -> str:
     """Короткий сигнал гостю «🔔 Заказ №12: Готовится» — только когда сменился статус (не на «Беру стол»)."""
-    if event.kind != BotEvent.Kind.ORDER_CHANGED or (event.payload or {}).get("action") == "claim":
+    if event.kind != BotEvent.Kind.ORDER_CHANGED or (event.payload or {}).get("action") in ("claim", "pay"):   # «Беру стол» и оплата гостю не пишем
         return ""
     order = Order.objects.filter(pk=event.order_id).first()
     return f"🔔 Заказ №{order.id}: {order.status_label}" if order else ""

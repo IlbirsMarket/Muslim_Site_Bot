@@ -40,6 +40,12 @@ class Order(models.Model):
         CASH = "cash", "Наличные"
         CARD = "card", "Картой при получении"
 
+    class PaidMethod(models.TextChoices):
+        """Как фактически оплатили (может отличаться от того, что гость выбрал при заказе)."""
+        CASH = "cash", "Наличные"
+        CARD = "card", "Карта"
+        MIXED = "mixed", "Наличные + карта"
+
     class Source(models.TextChoices):
         """Откуда пришёл заказ."""
         SITE = "site", "Сайт"
@@ -89,6 +95,15 @@ class Order(models.Model):
     accepted_by = models.ForeignKey(                 # кто подтвердил заказ
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="accepted_orders", verbose_name="Принял",
+    )
+    # ----- Оплата (кнопка «Оплатить» в разделе «К оплате») -----
+    paid_at = models.DateTimeField("Оплачен", null=True, blank=True, db_index=True)       # пусто — ещё не оплачен
+    paid_method = models.CharField("Чем оплатили", max_length=10, choices=PaidMethod.choices, blank=True)
+    paid_cash = models.PositiveIntegerField("Наличными, сом", default=0)                   # сколько из суммы наличными
+    paid_card = models.PositiveIntegerField("Картой, сом", default=0)                      # сколько из суммы картой
+    paid_by = models.ForeignKey(                     # кто принял оплату
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="paid_orders", verbose_name="Принял оплату",
     )
     created_at = models.DateTimeField("Создан", auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField("Изменён", auto_now=True)
@@ -213,3 +228,29 @@ class TableVisit(models.Model):
 
     def __str__(self):
         return f"{self.table} — {self.started_at:%d.%m %H:%M}"
+
+
+class PrintJob(models.Model):
+    """
+    Задание для чекового аппарата. Сервер в интернете не видит принтер в кафе,
+    поэтому кассовый компьютер (панель в Chrome) забирает задания и печатает их сам.
+    """
+
+    class Kind(models.TextChoices):
+        ORDER = "order", "Заказ"            # сразу после подтверждения — на кухню / кассу
+        BILL = "bill", "Счёт"               # счёт без оплаты — отнести гостю
+        RECEIPT = "receipt", "Чек об оплате"
+
+    branch = models.ForeignKey("cafe.Branch", on_delete=models.CASCADE, related_name="print_jobs", verbose_name="Филиал")
+    kind = models.CharField("Что печатать", max_length=10, choices=Kind.choices)
+    payload = models.JSONField("Содержимое чека", default=dict)                 # всё для печати — снимок на момент события
+    created_at = models.DateTimeField("Создано", auto_now_add=True, db_index=True)
+    printed_at = models.DateTimeField("Забрано на печать", null=True, blank=True)   # пусто — ещё не печатали
+
+    class Meta:
+        ordering = ["created_at"]           # печатаем по порядку
+        verbose_name = "Задание печати"
+        verbose_name_plural = "Задания печати"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} — {self.created_at:%d.%m %H:%M}"

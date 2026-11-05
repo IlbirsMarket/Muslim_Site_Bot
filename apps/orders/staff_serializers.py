@@ -36,6 +36,7 @@ class OrderStaffSerializer(serializers.ModelSerializer):
             "payment_method", "payment_display", "change_from", "comment", "cancel_reason",
             "items", "subtotal", "delivery_fee", "total",
             "claimed_by_name", "accepted_by_name", "created_at", "timeline", "available_actions",
+            "paid_at", "paid_method",                               # оплачен ли (вкладка «К оплате»)
         ]
 
     def get_claimed_by_name(self, obj):
@@ -74,4 +75,4 @@ class TableCallStaffSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TableCall
-        fields = ["id", "table", "table_name", "kind", "kind_display", "is_done", "created_at", "done_at"]
+        fields = ["id", "table", "table_name", "kind", "kind_display", "people", "is_done", "created_at", "done_at"]
