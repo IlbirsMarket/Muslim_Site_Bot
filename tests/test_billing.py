@@ -31,7 +31,7 @@ class BillingTests(BaseAPITest):
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0]["kind"], "order")
         ticket = jobs[0]["payload"]
-        self.assertEqual(ticket["title"], "ЗАКАЗ")
+        self.assertEqual(ticket["title"], "СЧЕТ")
         self.assertEqual(ticket["items"][0]["name"], "Пепперони 30 см")
         self.assertEqual(ticket["items"][0]["extras"], ["Сыр"])
         self.assertEqual(ticket["total"], 730)
@@ -112,7 +112,7 @@ class BillingTests(BaseAPITest):
         kinds = [j.kind for j in PrintJob.objects.order_by("id")]
         self.assertEqual(kinds, ["order", "receipt"])
         receipt = PrintJob.objects.last().payload
-        self.assertEqual(receipt["place"], "ДОСТАВКА")
+        self.assertEqual(receipt["place"], "Доставка")
         self.assertEqual(receipt["address"], "Чуй 1")
 
     def test_waiters_in_report(self):

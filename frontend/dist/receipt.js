@@ -1,4 +1,4 @@
-// Чеки для чекового аппарата 80 мм: «ЗАКАЗ» (после подтверждения), «СЧЕТ» (без оплаты) и чек об оплате.
+// Чеки для чекового аппарата 80 мм в виде старого чека кафе: после подтверждения, счёт без оплаты и чек об оплате.
 // Сервер присылает данные чека (payload), здесь из них собирается страница и печатается в скрытой рамке.
 // Если Chrome запущен с --kiosk-printing, чек выходит сразу, без окна печати.
 (function(){
@@ -30,27 +30,23 @@
         +row('ДОЛЖНО БЫТЬ',sum(p.expected),'b')+row('ПО ФАКТУ',sum(p.counted))+row('РАЗНИЦА',signed(p.difference),'b')+line
         +'<br><div>Подпись кассира ____________</div>';
     }
-    if(job.kind==='order'){                                                                   // «ЗАКАЗ»
-      return head+row(`Дата: ${esc(p.date)}`,`Время: ${esc(p.time)}`)+`<div>Место: ${esc(p.place)}</div>`
-        +(p.waiter?`<div>Официант: ${esc(p.waiter)}</div>`:'')+(p.accepted_by?`<div>Принял: ${esc(p.accepted_by)}</div>`:'')+guest(p)
-        +line+items(p.items)+line
-        +(p.comment?`<div>Комментарий: ${esc(p.comment)}</div>${line}`:'')
-        +(p.takeaway?`<div class="c b">!! УПАКОВАТЬ С СОБОЙ !!</div>${line}`:'')
-        +(p.delivery_fee?row('Блюда:',sum(p.subtotal))+row('Доставка:',sum(p.delivery_fee)):'')
-        +row(p.delivery_fee||p.kind==='pickup'?'ИТОГО':'СУММА ЗАКАЗА',`= ${sum(p.total)}`,'big')
-        +`<div class="c note">${esc(p.note||'')}</div>`;
-    }
-    const pay=p.payment;                                                                      // «СЧЕТ»: счёт или чек об оплате
-    return head+`<div>Дата: ${esc(p.date)}</div><div>Открыт: ${esc(p.opened)}${p.closed?`&nbsp;&nbsp;&nbsp;Закрыт: ${esc(p.closed)}`:''}</div>`
-      +`<div>Место: ${esc(p.place)}</div><div>Официант: ${esc(p.waiter)}</div>${guest(p)}`
-      +line+'<div class="c">Наименования блюд и товаров</div>'+line+items(p.items)+line
-      +(p.delivery_fee?row('Доставка:',sum(p.delivery_fee)):'')
-      +row('','ВСЕГО: '+sum(p.total))+line
-      +row(pay?'ИТОГО К ОПЛАТЕ':'К ОПЛАТЕ',`= ${sum(p.total)}`,'big')+line
-      +(pay?`<div>ОПЛАТА:</div>${pay.cash?row('&nbsp;&nbsp;Взнос: Наличные',sum(pay.cash)):''}${pay.card?row('&nbsp;&nbsp;Взнос: Карта',sum(pay.card)):''}`
-        +(pay.received!=null?row('&nbsp;&nbsp;Получено',sum(pay.received))+row('&nbsp;&nbsp;Сдача',sum(pay.change)):'')
-        +`<div class="c b thanks">${esc(p.thanks||'')}</div>`
-        :`<div class="c note">${esc(p.note||'')}</div>`);
+    // Чек как у кафе на бумаге: СЧЕТ N…, Дата / Открыт / Закрыт / Место / Официант, «Наименования блюд и товаров»,
+    // позиции, ВСЕГО, ИТОГО К ОПЛАТЕ, ОПЛАТА: Взнос …, «ВСЕГДА МЫ РАДЫ ВАМ!!!». После подтверждения — тот же вид без оплаты
+    const pay=p.payment;
+    const field=(label,value)=>value?`<div class="f"><span>${label}:</span><span>${value}</span></div>`:'';
+    const opened=job.kind==='order'?p.time:p.opened;
+    const copy=/КОПИЯ/.test(p.title||'');
+    return `<div class="c b">КАФЕ "МУСЛИМ"</div><div class="c title">СЧЕТ N${esc(p.number)}</div>${copy?'<div class="c">КОПИЯ</div>':''}${line}`
+      +`<div class="fields">${field('Дата',esc(p.date))}${field('Открыт',esc(opened)+(p.closed?` Закрыт: ${esc(p.closed)}`:''))}${field('Место',esc(p.place))}${field('Официант',esc(p.waiter))}`
+      +`${field('Гость',esc(p.customer))}${field('Тел',esc(p.phone))}${field('Адрес',esc(p.address))}${field('Курьеру',esc(p.courier_comment))}${!pay?field('Оплата',esc(p.guest_payment)):''}</div>`
+      +line+'<div class="c b">Наименования блюд и товаров</div>'+line
+      +(p.items||[]).map((it,i)=>`<div class="item"><div>${i+1}. ${esc(it.name)}</div>${it.extras?.length?`<div class="sub">+ ${esc(it.extras.join(', '))}</div>`:''}<div class="qty"><span>${it.qty} * ${sum(it.price)}</span><span>= ${sum(it.sum)}</span></div></div>`).join('')
+      +(p.comment?`<div class="note">Комментарий: ${esc(p.comment)}</div>`:'')
+      +line+(p.delivery_fee?`<div class="r">Доставка: ${sum(p.delivery_fee)}</div>`:'')
+      +`<div class="r">ВСЕГО: ${sum(p.total)}</div>`+line
+      +`<div class="r total">ИТОГО К ОПЛАТЕ = ${sum(p.total)}</div>`+line
+      +(pay?`<div class="pay"><div>ОПЛАТА:</div>${pay.cash?`<div class="row"><span>Взнос: Наличные</span><span>${sum(pay.cash)}</span></div>`:''}${pay.card?`<div class="row"><span>Взнос: Карта</span><span>${sum(pay.card)}</span></div>`:''}${pay.received!=null&&pay.change?`<div class="row"><span>Сдача</span><span>${sum(pay.change)}</span></div>`:''}</div>`:'')
+      +'<div class="c b thanks">ВСЕГДА МЫ РАДЫ ВАМ!!!</div>';
   }
 
   // Страница чека: ширина бумаги 80 мм (печатная область ~72 мм)
@@ -58,10 +54,15 @@
     return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Чек</title><style>
       @page{size:80mm auto;margin:0}
       *{box-sizing:border-box}
-      body{margin:0;padding:3mm 4mm 8mm;width:80mm;font:12px/1.35 "Courier New",monospace;color:#000}
-      .row{display:flex;justify-content:space-between;gap:6px}.c{text-align:center}.b{font-weight:700}
-      .big{font-size:15px;font-weight:700;margin:2px 0}.sub{padding-left:16px}.item{margin:2px 0}
-      .line{border-top:1px dashed #000;margin:5px 0}.note{margin-top:8px}.thanks{margin-top:10px;font-size:13px}
+      body{margin:0;padding:4mm 3mm 8mm;width:80mm;font:13px/1.4 "Courier New",Courier,monospace;color:#000}
+      .row,.qty{display:flex;justify-content:space-between;gap:6px}.c{text-align:center}.b{font-weight:700}
+      .title{font-size:16px;margin:2px 0 4px}
+      .fields .f{display:grid;grid-template-columns:42% 58%;gap:0 6px}.fields .f span:first-child{text-align:right}
+      .item{margin:6px 0}.qty{padding-left:30%}.sub{padding-left:16px}
+      .r{text-align:right}.total{font-size:17px;font-weight:700;margin:3px 0}
+      .line{border-top:1px dashed #000;margin:6px 0}.note{margin-top:6px}
+      .pay{margin-top:4px}.pay .row{padding-left:22%}
+      .thanks{margin-top:6px;font-size:13px}.big{font-size:15px;font-weight:700;margin:2px 0}
     </style></head><body>${body(job)}</body></html>`;
   }
 
@@ -85,7 +86,7 @@
 
   // Пробный чек — проверить принтер в «Настройках»
   function sample(branch){
-    return {id:0,kind:'order',payload:{title:'ЗАКАЗ',number:0,branch,date:new Date().toLocaleDateString('ru-RU'),time:new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
+    return {id:0,kind:'order',payload:{title:'СЧЕТ',number:0,branch,date:new Date().toLocaleDateString('ru-RU'),time:new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
       place:'ПРОБНЫЙ ЧЕК',items:[{name:'Плов',extras:[],qty:2,price:380,sum:760},{name:'Чай чёрный',extras:[],qty:1,price:80,sum:80}],total:840,subtotal:840,delivery_fee:0,note:'Принтер работает'}};
   }
 

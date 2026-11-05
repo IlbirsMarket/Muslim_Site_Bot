@@ -31,10 +31,10 @@ def _place(order) -> str:
     """«Место» на чеке: стол, с собой, доставка или самовывоз."""
     table = str(order.table) if order.table_id else ""
     if order.kind == Order.Kind.HALL:
-        return table
+        return table or "Зал"                                      # «Стол 3 · 1 этаж»
     if order.kind == Order.Kind.TAKEAWAY:
-        return f"С СОБОЙ ({table})" if table else "С СОБОЙ"
-    return "ДОСТАВКА" if order.kind == Order.Kind.DELIVERY else "САМОВЫВОЗ"
+        return "Собой"                                             # как на старом чеке кафе
+    return "Доставка" if order.kind == Order.Kind.DELIVERY else "Самовывоз"
 
 
 def _line(item) -> dict:
@@ -69,10 +69,13 @@ def order_payload(order) -> dict:
     """Чек «ЗАКАЗ» — печатается сразу после подтверждения (не чек об оплате)."""
     now = timezone.localtime(order.created_at)
     return {
-        "title": "ЗАКАЗ", "number": order.id, "branch": order.branch.name,
+        "title": "СЧЕТ", "number": order.id, "branch": order.branch.name,
         "date": f"{now:%d.%m.%Y}", "time": f"{now:%H:%M}",
         "place": _place(order), "kind": order.kind,
-        "waiter": _person(order.claimed_by), "accepted_by": _person(order.accepted_by),
+        "type": {Order.Kind.HALL: "В КАФЕ", Order.Kind.TAKEAWAY: "С СОБОЙ",
+                 Order.Kind.DELIVERY: "ДОСТАВКА", Order.Kind.PICKUP: "САМОВЫВОЗ"}.get(order.kind, ""),   # крупно на чеке
+        "waiter": _person(order.claimed_by) or _person(order.accepted_by) or "Администратор",   # «Официант:» на чеке
+        "accepted_by": _person(order.accepted_by),
         "takeaway": order.kind == Order.Kind.TAKEAWAY,                       # «УПАКОВАТЬ С СОБОЙ»
         "items": [_line(item) for item in order.items.all()],
         "comment": order.comment,

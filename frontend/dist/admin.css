@@ -495,3 +495,5 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
   .moves-table td:nth-child(3),.moves-table td:nth-child(4){grid-column:1/-1;padding-top:0}
 }
 @media(max-width:550px){.moves-table td:nth-child(5){grid-row:1;grid-column:3}.moves-table td:nth-child(1){grid-row:1;grid-column:1}.moves-table td:nth-child(2){grid-row:1;grid-column:2}}
+.receipt-frame{width:calc(80mm + 2px);overflow:hidden}                /* чек целиком, без полосы прокрутки */
+.order-bottom .ticket-btn{padding:8px 10px;font-size:11px;min-height:36px}

@@ -286,3 +286,16 @@ class ReceiptCopyView(APIView):
         from .billing import receipt_copy
         receipt_copy(staff_branch(request), request.data.get("orders"))
         return Response({"ok": True})
+
+
+class OrderTicketView(APIView):
+    """GET /api/staff/orders/{id}/ticket/ — чек «ЗАКАЗ» этого заказа (посмотреть в панели перед печатью)."""
+
+    permission_classes = [IsStaffMember]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request, pk):
+        from .billing import order_payload
+        order = get_object_or_404(Order.objects.select_related("table", "branch", "claimed_by", "accepted_by"),
+                                  pk=pk, branch=staff_branch(request))
+        return Response({"kind": "order", "payload": order_payload(order)})

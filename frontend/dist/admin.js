@@ -189,6 +189,14 @@
     const input=$('#cash-counted');input.focus();
     input.oninput=()=>{const d=input.value===''?null:Number(input.value)-s.expected;const out=$('#cash-diff');out.textContent=d==null?'—':d===0?'0 сом ✓':`${d>0?'+ ':'− '}${money(Math.abs(d))}`;out.className=d&&d<0?'minus':'';};
   }
+  // Окно с чеком: как он выйдет на чековом аппарате + кнопка печати
+  function showReceipt(title,note,job,printAttr){
+    $('#editor-title').textContent=title;
+    $('#editor-content').innerHTML=`<div class="receipt-view"><p class="fine">${note}</p><iframe class="receipt-frame" title="Чек" scrolling="no"></iframe><button type="button" class="primary" ${printAttr}>🖨 Напечатать${job.kind==='receipt'?' копию':''}</button></div>`;
+    const frame=$('.receipt-frame');frame.srcdoc=MuslimReceipt.html(job);
+    frame.onload=()=>{const body=frame.contentDocument.body;frame.style.height=body.scrollHeight+12+'px';};
+    editor.showModal();
+  }
   async function cashAction(path,body){                                   // запрос «Кассы» с ошибкой прямо в окне
     try{return await API.request(path,{method:'POST',body});}
     catch(error){const out=$('#cash-error');if(out)out.textContent=error.message;else toast(error.message);return null;}
@@ -293,7 +301,7 @@
     const title=live?(kind==='delivery'||kind==='pickup'?KIND_NAME[kind]:`${o.table_name||''}${kind==='takeaway'?' · с собой':''}`.trim()||o.kind_display):o.type==='cafe'?`Стол ${o.table}`:o.type==='pickup'?'Самовывоз':'Доставка';
     const items=live?o.items.map(i=>({name:[i.dish_name,i.size_name].filter(Boolean).join(' '),qty:i.quantity})):o.items;
     const actions=live?(o.available_actions||[]):o.status==='new'?[{action:'cooking',label:'Принять'},{action:'cancelled',label:'Отменить',needs_reason:true}]:o.status==='cooking'?[{action:'ready',label:'Готов'},{action:'cancelled',label:'Отменить',needs_reason:true}]:[{action:'completed',label:delivery?'Доставлен':'Выдан'},{action:'cancelled',label:'Отменить',needs_reason:true}];
-    return `<article class="order-card kind-${kind}" style="view-transition-name:order-${esc(String(o.id))}"><div class="order-top"><strong>№${o.number||o.id}</strong><span class="tag kind-tag">${icon(KIND_ICON[kind]||'tables')}${esc(title)}</span><small>${live?`${esc(clock(o.created_at))} · ${esc(o.status_label)}`:o.minutes+' мин'}</small></div>${kind==='takeaway'?'<p class="takeaway-mark">С СОБОЙ — упаковать</p>':''}${orderInfo(o)}<div class="order-items">${items.map(i=>`${esc(i.name)} × ${i.qty}`).join('<br>')}</div>${o.comment||o.note?`<p class="order-note">${esc(o.comment||o.note)}</p>`:''}<div class="order-bottom"><strong>${money(live?o.total:Store.orderTotal(o))}</strong><div class="actions">${actions.map(a=>`<button class="${a.needs_reason||a.action==='reject'?'danger':'primary'}" data-order="${o.id}" data-number="${o.number||o.id}" data-kind="${esc(kind)}" data-action="${esc(a.action)}" data-reason="${Boolean(a.needs_reason)}">${esc(a.label)}</button>`).join('')}</div></div></article>`;
+    return `<article class="order-card kind-${kind}" style="view-transition-name:order-${esc(String(o.id))}"><div class="order-top"><strong>№${o.number||o.id}</strong><span class="tag kind-tag">${icon(KIND_ICON[kind]||'tables')}${esc(title)}</span><small>${live?`${esc(clock(o.created_at))} · ${esc(o.status_label)}`:o.minutes+' мин'}</small></div>${kind==='takeaway'?'<p class="takeaway-mark">С СОБОЙ — упаковать</p>':''}${orderInfo(o)}<div class="order-items">${items.map(i=>`${esc(i.name)} × ${i.qty}`).join('<br>')}</div>${o.comment||o.note?`<p class="order-note">${esc(o.comment||o.note)}</p>`:''}<div class="order-bottom"><strong>${money(live?o.total:Store.orderTotal(o))}</strong><div class="actions">${actions.map(a=>`<button class="${a.needs_reason||a.action==='reject'?'danger':'primary'}" data-order="${o.id}" data-number="${o.number||o.id}" data-kind="${esc(kind)}" data-action="${esc(a.action)}" data-reason="${Boolean(a.needs_reason)}">${esc(a.label)}</button>`).join('')}${live&&o.status!=='new'?`<button class="secondary ticket-btn" data-order-ticket="${o.id}" title="Чек заказа">🖨 Чек</button>`:''}</div></div></article>`;
   }
   // ===== Блюда и категории =====
   // Компьютер и планшет: слева категории (порядок, видимость, переименовать, удалить), справа блюда.
@@ -690,11 +698,13 @@
     if(button.dataset.cashMove){cashMoveDialog(button.dataset.cashMove);return;}
     if(button.dataset.cashMoveSave){const amount=Number($('#cash-amount').value||0);if(await cashAction('/staff/cash/move/',{kind:button.dataset.cashMoveSave,amount,comment:$('#cash-comment').value})){editor.close();toast(button.dataset.cashMoveSave==='in'?'Внесение записано':'Изъятие записано');await render(true);}return;}
     if(button.hasAttribute('data-cash-close')){cashCloseDialog();return;}
+    if(button.dataset.orderTicket){                                                     // чек «ЗАКАЗ» из карточки заказа
+      const id=button.dataset.orderTicket,job=await API.request(`/staff/orders/${id}/ticket/`);
+      showReceipt(`Чек заказа №${job.payload.number}`,`${esc(job.payload.type||'')} · ${esc(job.payload.place||'')}`,job,`data-order-print="${id}"`);return;}
+    if(button.dataset.orderPrint){await API.request(`/staff/orders/${button.dataset.orderPrint}/print/`,{method:'POST'});toast('Чек заказа отправлен на чековый аппарат');return;}
     if(button.dataset.historyOpen){const h=cache.history?.[Number(button.dataset.historyOpen)];if(!h)return;                 // чек из «Истории оплат»
-      $('#editor-title').textContent=`Чек · ${h.title}`;
-      $('#editor-content').innerHTML=`<div class="receipt-view"><p class="fine">${billTime(h.paid_at)} · ${esc(h.method)}${h.by?` · принял(а) ${esc(h.by)}`:''}</p><iframe class="receipt-frame" title="Чек"></iframe><button type="button" class="primary" data-receipt-copy="${button.dataset.historyOpen}">🖨 Напечатать копию</button></div>`;
-      const frame=$('.receipt-frame');frame.srcdoc=MuslimReceipt.html({kind:'receipt',payload:h.receipt});frame.onload=()=>{frame.style.height=frame.contentDocument.body.scrollHeight+20+'px';};
-      editor.showModal();return;}
+      if(!h.receipt){toast('Чек не загрузился: перезапустите сайт на сервере (sudo systemctl restart muslim).');return;}
+      showReceipt(`Чек · ${h.title}`,`${billTime(h.paid_at)} · ${esc(h.method)}${h.by?` · принял(а) ${esc(h.by)}`:''}`,{kind:'receipt',payload:h.receipt},`data-receipt-copy="${button.dataset.historyOpen}"`);return;}
     if(button.dataset.receiptCopy){const h=cache.history?.[Number(button.dataset.receiptCopy)];if(!h)return;await API.request('/staff/cash/receipt-copy/',{method:'POST',body:{orders:h.orders}});toast('Копия чека отправлена на чековый аппарат');return;}
     if(button.hasAttribute('data-cash-close-save')){const v=$('#cash-counted').value;if(v===''){$('#cash-error').textContent='Посчитайте наличные и введите сумму.';return;}const r=await cashAction('/staff/cash/close/',{counted:Number(v)});if(r){editor.close();toast(`Смена закрыта · разница ${r.difference>=0?'+':'−'}${money(Math.abs(r.difference))}`);await render(true);}return;}
     if(button.dataset.billPrint){const bill=cache.bills?.[Number(button.dataset.billPrint)];if(!bill)return;await API.request('/staff/bills/print/',{method:'POST',body:{orders:bill.orders}});toast('Счёт отправлен на чековый аппарат');return;}
