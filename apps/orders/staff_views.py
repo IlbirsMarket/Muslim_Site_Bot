@@ -208,7 +208,9 @@ class PrintJobClaimView(APIView):
     @extend_schema(request=None, responses={200: dict})
     def post(self, request):
         from .billing import claim_jobs
-        return Response(claim_jobs(staff_branch(request)))
+        from .models import PrintJob
+        kinds = [k for k in (request.data.get("kinds") or []) if k in PrintJob.Kind.values]   # какие чеки печатает этот компьютер
+        return Response(claim_jobs(staff_branch(request), kinds or None))
 
 
 class OrderReprintView(APIView):

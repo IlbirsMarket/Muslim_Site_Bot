@@ -65,7 +65,7 @@ class CategoryAdminSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ["id", "name", "position", "is_active", "dishes_count"]
+        fields = ["id", "name", "position", "is_active", "printer", "dishes_count"]
 
     def create(self, validated_data):
         """Новая категория встаёт в конец списка, если порядок не указали."""

@@ -154,7 +154,8 @@ class Command(BaseCommand):
         for c_pos, (cat_name, items) in enumerate(MENU):
             if not full and cat_name == "Десерты":                      # у второго филиала меню чуть короче
                 continue
-            category = Category.objects.create(branch=branch, name=cat_name, position=(c_pos + 1) * 10)
+            printer = {"Пицца": "kitchen2", "Бургеры": "kitchen2", "Напитки": "none", "Десерты": "none"}.get(cat_name, "kitchen1")   # фастфуд — аппарат 2
+            category = Category.objects.create(branch=branch, name=cat_name, position=(c_pos + 1) * 10, printer=printer)
             for d_pos, (name, description, price, extra_keys, query, available) in enumerate(items):
                 sized = isinstance(price, list)
                 dish = Dish.objects.create(category=category, name=name, description=description, price=0 if sized else price,

@@ -527,3 +527,4 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
   .shifts-table td::before{content:attr(data-label);color:var(--muted);font-size:11px}
   .shifts-table .num{text-align:left}
 }
+.print-groups{border-left:3px solid var(--green);padding:2px 0 2px 12px;margin:0 0 12px}.print-groups .check-line{margin:6px 0;font-weight:600}

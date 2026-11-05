@@ -11,9 +11,9 @@ from tests.test_api import PASSWORD, BaseAPITest      # общая подгот�
 class BillingTests(BaseAPITest):
 
     def claim(self, user=None):
-        """Кассовый компьютер забирает чеки на печать."""
+        """Кассовый компьютер забирает чеки на печать (кухонные — отдельно, их здесь не берём)."""
         self.as_user(user or self.admin)
-        return self.client.post("/api/staff/print-jobs/claim/").data
+        return self.client.post("/api/staff/print-jobs/claim/", {"kinds": ["order", "bill", "receipt", "shift"]}, format="json").data
 
     def bills(self, user=None):
         self.as_user(user or self.admin)
@@ -110,7 +110,7 @@ class BillingTests(BaseAPITest):
         order = Order.objects.get(pk=number)
         self.assertEqual((order.paid_method, order.paid_card), ("card", order.total))
         kinds = [j.kind for j in PrintJob.objects.order_by("id")]
-        self.assertEqual(kinds, ["order", "receipt"])
+        self.assertEqual(kinds, ["kitchen1", "order", "receipt"])
         receipt = PrintJob.objects.last().payload
         self.assertEqual(receipt["place"], "Доставка")
         self.assertEqual(receipt["address"], "Чуй 1")
@@ -135,3 +135,35 @@ class BillingTests(BaseAPITest):
         job = self.client.post("/api/staff/bills/preview/", {"orders": [number]}, format="json").data
         self.assertEqual((job["kind"], job["payload"]["title"], job["payload"]["total"]), ("bill", "СЧЕТ", 730))
         self.assertFalse(PrintJob.objects.exists())                          # только показали — на аппарат не ушло
+
+    def test_kitchen_ticket_and_claim_by_kind(self):
+        number = self.hall_order().data["number"]
+        self.act(self.waiter, number, "accept")
+        self.as_user(self.admin)
+        kitchen = self.client.post("/api/staff/print-jobs/claim/", {"kinds": ["kitchen1", "kitchen2"]}, format="json").data
+        self.assertEqual([j["kind"] for j in kitchen], ["kitchen1"])              # кухня забрала только свой чек
+        ticket = kitchen[0]["payload"]
+        self.assertEqual((ticket["items"][0]["name"], ticket["items"][0]["qty"], ticket["items"][0]["extras"]), ("Пепперони 30 см", 1, ["Сыр"]))
+        self.assertNotIn("total", ticket)                                       # на кухне без цен
+        cash = self.client.post("/api/staff/print-jobs/claim/", {"kinds": ["order", "bill", "receipt", "shift"]}, format="json").data
+        self.assertEqual([j["kind"] for j in cash], ["order"])                  # касса — чек заказа
+
+
+    def test_items_split_between_kitchens(self):
+        from apps.orders.models import PrintJob
+        self.burgers.printer = "kitchen2"                                         # бургеры — фастфуд
+        self.burgers.save()
+        drinks = self.pizzas.__class__.objects.create(name="Напитки", printer="none")
+        tea = self.burger.__class__.objects.create(category=drinks, name="Чай", price=80)
+        self.as_user(None)
+        body = {"table_token": self.table.token, "items": [
+            {"dish_id": self.pizza.id, "size_id": self.size30.id, "quantity": 1},
+            {"dish_id": self.burger.id, "quantity": 2}, {"dish_id": tea.id, "quantity": 3}]}
+        number = self.client.post("/api/orders/", body, format="json").data["number"]
+        self.act(self.waiter, number, "accept")
+        jobs = {j.kind: j.payload for j in PrintJob.objects.filter(kind__in=["kitchen1", "kitchen2"])}
+        self.assertEqual([i["name"] for i in jobs["kitchen1"]["items"]], ["Пепперони 30 см"])   # пицца — аппарат 1 (по умолчанию)
+        self.assertEqual([(i["name"], i["qty"]) for i in jobs["kitchen2"]["items"]], [("Чизбургер", 2)])
+        self.assertEqual(jobs["kitchen1"]["number"], jobs["kitchen2"]["number"])   # заказ один
+        names = [i["name"] for p in jobs.values() for i in p["items"]]
+        self.assertNotIn("Чай", names)                                            # напитки на кухню не идут

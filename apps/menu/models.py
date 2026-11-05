@@ -22,6 +22,14 @@ class Category(models.Model):
     position = models.PositiveIntegerField("Порядок", default=0)           # чем меньше, тем выше в меню
     is_active = models.BooleanField("Показывать в меню", default=True)     # скрыть категорию, не удаляя
 
+    class Printer(models.TextChoices):
+        """Куда после подтверждения заказа печатать блюда этой категории."""
+        KITCHEN1 = "kitchen1", "Кухонный аппарат 1"
+        KITCHEN2 = "kitchen2", "Кухонный аппарат 2"
+        NONE = "none", "Не печатать (только в чеке оплаты)"   # напитки, десерты
+
+    printer = models.CharField("Куда печатать", max_length=10, choices=Printer.choices, default=Printer.KITCHEN1)
+
     class Meta:
         ordering = ["position", "id"]          # порядок по умолчанию
         verbose_name = "Категория"
@@ -105,4 +113,4 @@ class DishSize(models.Model):
         verbose_name_plural = "Размеры"
 
     def __str__(self):
-        return f"{self.dish.name} — {self.name}"
+        return f"{self.dish.name} — {self.name}"

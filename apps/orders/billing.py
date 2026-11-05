@@ -146,18 +146,47 @@ def add_job(branch, kind, payload) -> PrintJob:
     return PrintJob.objects.create(branch=branch, kind=kind, payload=payload)
 
 
+def kitchen_payload(order, items=None) -> dict:
+    """Кухонный чек: место, № заказа, кто принял, дата / время, блюда с количеством, добавки и комментарий. Без цен."""
+    now = timezone.localtime(order.created_at)
+    place = _place(order).upper()
+    return {
+        "number": order.id, "place": place, "date": f"{now:%d.%m.%Y}", "time": f"{now:%H:%M}",
+        **_staff_line(order.claimed_by, order.accepted_by),
+        "items": [{"name": item.dish_name + (f" {item.size_name}" if item.size_name else ""),
+                   "extras": [e.get("name", "") for e in (item.extras or [])], "qty": item.quantity}
+                  for item in (order.items.all() if items is None else items)],
+        "comment": order.comment,
+    }
+
+
 def print_order(order) -> PrintJob:
-    """Заказ подтверждён (или пришёл с доверенного телефона) — печатаем «ЗАКАЗ»."""
+    """
+    Заказ подтверждён (или пришёл с доверенного телефона). Блюда расходятся по аппаратам своих категорий:
+    кухонный аппарат 1 / 2 — каждому свой чек только с его блюдами; «не печатать» (напитки, десерты) — только в чеке оплаты.
+    """
+    groups = {}
+    for item in order.items.select_related("dish__category"):
+        where = item.dish.category.printer if item.dish_id and item.dish.category_id else "kitchen1"   # блюдо удалили — на аппарат 1
+        if where in (PrintJob.Kind.KITCHEN1, PrintJob.Kind.KITCHEN2):
+            groups.setdefault(where, []).append(item)
+    for kind in (PrintJob.Kind.KITCHEN1, PrintJob.Kind.KITCHEN2):
+        if groups.get(kind):
+            add_job(order.branch, kind, kitchen_payload(order, groups[kind]))
     return add_job(order.branch, PrintJob.Kind.ORDER, order_payload(order))
 
 
-def claim_jobs(branch) -> list:
-    """Кассовый компьютер забирает новые задания. Забранное помечаем — второй раз не напечатается."""
+def claim_jobs(branch, kinds=None) -> list:
+    """
+    Компьютер с аппаратом забирает новые задания нужных видов (касса — чеки, кухня — кухонные).
+    Забранное помечаем — второй раз не напечатается.
+    """
     since = timezone.now() - timedelta(hours=JOB_HOURS)
     with transaction.atomic():
-        jobs = list(PrintJob.objects.select_for_update().filter(
-            branch=branch, printed_at__isnull=True, created_at__gte=since,
-        )[:20])
+        jobs = PrintJob.objects.select_for_update().filter(branch=branch, printed_at__isnull=True, created_at__gte=since)
+        if kinds:
+            jobs = jobs.filter(kind__in=kinds)
+        jobs = list(jobs[:20])
         PrintJob.objects.filter(pk__in=[j.pk for j in jobs]).update(printed_at=timezone.now())
     return [{"id": j.id, "kind": j.kind, "payload": j.payload} for j in jobs]
 

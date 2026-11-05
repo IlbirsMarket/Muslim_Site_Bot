@@ -241,6 +241,8 @@ class PrintJob(models.Model):
         BILL = "bill", "Счёт"               # счёт без оплаты — отнести гостю
         RECEIPT = "receipt", "Чек об оплате"
         SHIFT = "shift", "Отчёт за смену"   # «Закрыть смену» в «Кассе»
+        KITCHEN1 = "kitchen1", "Кухонный аппарат 1"   # после подтверждения — блюда категорий этого аппарата, без цен
+        KITCHEN2 = "kitchen2", "Кухонный аппарат 2"
 
     branch = models.ForeignKey("cafe.Branch", on_delete=models.CASCADE, related_name="print_jobs", verbose_name="Филиал")
     kind = models.CharField("Что печатать", max_length=10, choices=Kind.choices)

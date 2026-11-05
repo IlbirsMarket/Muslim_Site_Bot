@@ -21,6 +21,12 @@
   function body(job){
     const p=job.payload||{};
     const head=`<div class="c b">КАФЕ "МУСЛИМ"</div>${p.branch?`<div class="c">${esc(p.branch)}</div>`:''}<div class="c big">${esc(p.title)} N${esc(p.number)}</div>${line}`;
+    if(job.kind==='kitchen1'||job.kind==='kitchen2'){                                                                 // кухня: место, № заказа, кто принял, блюда крупно, без цен
+      return `<div class="k"><div class="ktop"><span>${esc(p.place)}</span><span>Заказ № ${esc(p.number)}</span></div>`
+        +`<div class="kwho">${esc((p.staff_role||'').toUpperCase())}${p.waiter?': '+esc(p.waiter.toUpperCase()):''}</div><div class="kwhen">Дата: ${esc(p.date)} Время: ${esc(p.time)}</div><div class="kl"></div>`
+        +(p.items||[]).map(it=>`<div class="kdish"><span>${esc(it.name)}${it.extras?.length?`<small>+ ${esc(it.extras.join(', '))}</small>`:''}</span><span>${esc(it.qty)}</span></div><div class="kl"></div>`).join('')
+        +(p.comment?`<div class="knote">Комментарий: ${esc(p.comment)}</div><div class="kl"></div>`:'')+'</div>';
+    }
     if(job.kind==='shift'){                                                                   // «ОТЧЁТ ЗА СМЕНУ»
       const signed=n=>`${n<0?'−':''}${sum(Math.abs(n))}`;
       return `<div class="c b">КАФЕ "МУСЛИМ"</div>${p.branch?`<div class="c">${esc(p.branch)}</div>`:''}<div class="c big">${esc(p.title)}</div>${line}`
@@ -54,18 +60,24 @@
     return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Чек</title><style>
       @page{size:80mm auto;margin:0}
       *{box-sizing:border-box;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      /* Печатная область 80-мм аппарата — около 72 мм: ширину чека берём 70 мм, чтобы правый край не обрезался.
-         Жирный шрифт и чистый чёрный — на термобумаге тонкие серые буквы выходят бледными */
-      body{margin:0;padding:3mm 0 8mm 1mm;width:70mm;font:700 13px/1.4 "Lucida Console","Consolas","Courier New",monospace;
+      /* Как бумажный чек кафе: печатная ширина ~64 мм, мелкий тонкий шрифт; крупно и жирно — только «ИТОГО» и «ВСЕГДА МЫ РАДЫ ВАМ!!!» */
+      body{margin:0;padding:3mm 0 8mm 0;width:64mm;font:400 10px/1.35 "Lucida Console","Consolas","Courier New",monospace;
         -webkit-font-smoothing:none;text-rendering:geometricPrecision;letter-spacing:0}
-      .row,.qty{display:flex;justify-content:space-between;gap:6px}.c{text-align:center}.b{font-weight:700}
-      .title{font-size:17px;margin:2px 0 4px}
-      .fields .f{display:grid;grid-template-columns:42% 58%;gap:0 6px}.fields .f span:first-child{text-align:right}
-      .item{margin:6px 0}.qty{padding-left:30%}.sub{padding-left:16px}
-      .r{text-align:right}.total{font-size:16px;font-weight:900;margin:3px 0}
-      .line{border-top:2px dashed #000;margin:6px 0}.note{margin-top:6px}
-      .pay{margin-top:4px}.pay .row{padding-left:22%}
-      .thanks{margin-top:6px;font-size:13px}.big{font-size:15px;font-weight:700;margin:2px 0}
+      .row,.qty{display:flex;justify-content:space-between;gap:4px}.c{text-align:center}.b{font-weight:400}
+      .title{font-size:12px;margin:2px 0 3px}
+      .fields .f{display:grid;grid-template-columns:44% 56%;gap:0 4px}.fields .f span:first-child{text-align:right}
+      .item{margin:4px 0}.qty{padding-left:28%}.sub{padding-left:14px}
+      .r{text-align:right}.total{font-size:13px;font-weight:700;margin:3px 0}
+      .line{border-top:1px dashed #000;margin:5px 0}.note{margin-top:5px}
+      .pay{margin-top:3px}.pay .row{padding-left:20%}
+      .thanks{margin-top:5px;font-size:11px;font-weight:700}.big{font-size:12px;margin:2px 0}
+      /* Кухонный чек — как у кухни кафе: блюда крупно и жирно, между ними пунктир */
+      .k{font-size:11px}.ktop{display:flex;justify-content:space-between;align-items:flex-end;gap:6px;font-weight:700;font-size:12px}
+      .kwho{text-align:center;font-weight:700;font-size:13px;margin:8px 0 2px}.kwhen{text-align:center}
+      .kl{border-top:1px dashed #000}.kl:first-of-type{margin-top:6px}
+      .kdish{display:flex;justify-content:space-between;gap:12px;font-weight:700;font-size:15px;padding:6px 0}
+      .kdish small{display:block;font-size:12px}.kdish span:last-child{white-space:nowrap}
+      .knote{font-weight:700;font-size:12px;padding:5px 0}
     </style></head><body>${body(job)}</body></html>`;
   }
 
