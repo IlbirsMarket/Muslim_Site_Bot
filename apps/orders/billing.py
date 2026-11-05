@@ -22,6 +22,19 @@ THANKS = "ВСЕГДА МЫ РАДЫ ВАМ!!!"   # подпись внизу ч
 
 # ===================== ЧТО ПЕЧАТАТЬ =====================
 
+# Как называть роль на чеке: вместо «Официант:» — роль того, кто обслужил
+RECEIPT_ROLES = {"programmer": "Программист", "chef": "Шеф", "admin": "Администратор", "cashier": "Кассир",
+                 "waiter": "Официант", "courier": "Курьер", "cook": "Повар"}
+
+
+def _staff_line(*users) -> dict:
+    """Первый, кто есть: {"staff_role": "Официант", "waiter": "Бекзат"} — на чеке «Официант: Бекзат»."""
+    user = next((u for u in users if u), None)
+    if not user:
+        return {"staff_role": "Администратор", "waiter": ""}
+    return {"staff_role": RECEIPT_ROLES.get(user.role, "Сотрудник"), "waiter": _person(user)}
+
+
 def _person(user) -> str:
     """Имя сотрудника для чека."""
     return (user.get_full_name() or user.username) if user else ""
@@ -74,7 +87,7 @@ def order_payload(order) -> dict:
         "place": _place(order), "kind": order.kind,
         "type": {Order.Kind.HALL: "В КАФЕ", Order.Kind.TAKEAWAY: "С СОБОЙ",
                  Order.Kind.DELIVERY: "ДОСТАВКА", Order.Kind.PICKUP: "САМОВЫВОЗ"}.get(order.kind, ""),   # крупно на чеке
-        "waiter": _person(order.claimed_by) or _person(order.accepted_by) or "Администратор",   # «Официант:» на чеке
+        **_staff_line(order.claimed_by, order.accepted_by),           # «Официант: Бекзат» / «Администратор: Азамат»
         "accepted_by": _person(order.accepted_by),
         "takeaway": order.kind == Order.Kind.TAKEAWAY,                       # «УПАКОВАТЬ С СОБОЙ»
         "items": [_line(item) for item in order.items.all()],
@@ -107,11 +120,13 @@ def bill_payload(orders, payment=None) -> dict:
     opened = timezone.localtime(first.created_at)
     closed = timezone.localtime()
     waiter = next((o.claimed_by for o in orders if o.claimed_by_id), None)
+    accepted = next((o.accepted_by for o in orders if o.accepted_by_id), None)
+    paid_by = next((o.paid_by for o in orders if o.paid_by_id), None)
     data = {
         "title": "СЧЕТ", "number": first.id, "branch": first.branch.name,
         "date": f"{opened:%d.%m.%Y}", "opened": f"{opened:%H:%M}",
         "place": _place(first) if len(orders) == 1 or at_table(first) else "Несколько заказов",
-        "waiter": _person(waiter) or "Администратор",
+        **_staff_line(waiter, accepted, paid_by),                       # кто обслужил: официант, иначе кто принял / оплатил
         "orders": [o.id for o in orders],
         "items": _merged_lines(orders),
         "subtotal": sum(o.subtotal for o in orders),
