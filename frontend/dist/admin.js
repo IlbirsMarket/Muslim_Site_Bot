@@ -161,16 +161,18 @@
   // ===== «Касса»: смена кассира — открыть, внесение / изъятие, закрыть с подсчётом наличных =====
   async function cashView(){
     const [data,bills]=await Promise.all([API.request('/staff/cash/'),API.request('/staff/bills/')]);
-    const shift=data.shift;cache.shift=shift;cache.bills=list(bills);cache.billCount=cache.bills.length;cache.history=data.history||[];
+    const shift=data.shift;cache.shift=shift;cache.bills=list(bills);cache.billCount=cache.bills.length;cache.history=data.history||[];cache.pastShifts=data.past_shifts||[];
+    const signed=n=>n===0?'0 сом':`${n>0?'+ ':'− '}${money(Math.abs(n))}`,day=iso=>new Date(iso).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'});
+    const pastBlock=`<h2 class="cash-h">Прошлые смены</h2>`+(cache.pastShifts.length?`<section class="panel past-shifts"><table class="shifts-table"><thead><tr><th>Дата</th><th>Время</th><th>Открыл(а)</th><th>Закрыл(а)</th><th class="num">На начало</th><th class="num">Наличные</th><th class="num">Карта</th><th class="num">Должно быть</th><th class="num">По факту</th><th class="num">Разница</th></tr></thead><tbody>${cache.pastShifts.map((x,i)=>`<tr data-shift-open="${i}" tabindex="0" title="Показать отчёт смены"><td data-label="Дата"><b>${day(x.opened_at)}</b></td><td data-label="Время">${billTime(x.opened_at)}–${billTime(x.closed_at)}</td><td data-label="Открыл(а)">${esc(x.opened_by)}</td><td data-label="Закрыл(а)">${esc(x.closed_by)}</td><td class="num" data-label="На начало">${money(x.opening_cash)}</td><td class="num" data-label="Наличные">${money(x.cash)}</td><td class="num" data-label="Карта">${money(x.card)}</td><td class="num" data-label="Должно быть">${money(x.expected)}</td><td class="num" data-label="По факту">${money(x.counted)}</td><td class="num ${x.difference<0?'minus':x.difference>0?'plus':''}" data-label="Разница"><b>${signed(x.difference)}</b></td></tr>`).join('')}</tbody></table></section>`:'<section class="panel"><p class="empty">Закрытых смен пока нет</p></section>');
     const historyBlock=`<h2 class="cash-h">История оплат${shift?' за смену':' за сегодня'}</h2>`+(cache.history.length?`<section class="panel cash-history">${cache.history.map((h,i)=>`<div class="history-row"><button type="button" class="history-open" data-history-open="${i}" title="Показать чек"><span class="history-time">${billTime(h.paid_at)}</span><span class="history-main"><strong>${esc(h.title)}</strong><small class="fine">${esc(h.method)}${h.by?` · ${esc(h.by)}`:''}${h.orders.length>1?` · ${h.orders.length} ${ordersWord(h.orders.length)}`:''}</small></span><strong class="history-sum">${money(h.total)}</strong></button><button type="button" class="secondary" data-receipt-copy="${i}" title="Напечатать копию чека">🖨 Чек</button></div>`).join('')}</section>`:'<section class="panel"><p class="empty">Оплат пока нет</p></section>');
     if(!shift)return heading('Касса',esc(branchName()))+`<section class="panel cash-open"><h2>Открыть смену</h2><p class="fine">Посчитайте наличные в кассе перед началом работы. Без открытой смены кассир не принимает оплату.</p><label class="field">В кассе наличных, сом<input id="cash-start" type="number" min="0" inputmode="numeric" value="0"></label><p class="error" id="cash-error"></p><button type="button" class="primary" data-cash-open>Открыть смену</button></section>`
-      +`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills)+historyBlock;
+      +pastBlock+`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills)+historyBlock;
     const tile=(name,value)=>`<article class="stat"><span>${name}</span><strong>${value}</strong></article>`;
     const moves=shift.moves.length?`<section class="panel cash-moves"><h2>Внесения и изъятия</h2><table class="moves-table"><thead><tr><th>Время</th><th>Операция</th><th>Причина</th><th>Кто</th><th class="num">Сумма</th></tr></thead><tbody>${shift.moves.map(m=>`<tr class="move-${m.kind}"><td>${billTime(m.at)}</td><td><b>${esc(m.label)}</b></td><td>${m.comment?esc(m.comment):'<span class="fine">—</span>'}</td><td>${esc(m.by)}</td><td class="num"><b>${m.kind==='out'?'−':'+'} ${money(m.amount)}</b></td></tr>`).join('')}</tbody></table></section>`:'';
     return heading('Касса',`${esc(branchName())} · сегодня`)
       +`<section class="cash-shift"><div><b><i class="cash-dot"></i>Смена открыта с ${billTime(shift.opened_at)}</b><small>Кассир ${esc(shift.opened_by)} · в кассе на начало ${money(shift.opening_cash)}</small></div><div class="cash-buttons"><button type="button" class="secondary" data-cash-move="in">＋ Внесение</button><button type="button" class="secondary" data-cash-move="out">− Изъятие</button><button type="button" class="primary" data-cash-close>Закрыть смену</button></div></section>`
       +`<div class="stats cash-stats">${tile('Наличные',money(shift.cash))}${tile('Карта',money(shift.card))}${tile('Счетов оплачено',shift.orders)}${tile('В кассе сейчас',money(shift.expected))}</div>`
-      +moves+`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills)+historyBlock;
+      +moves+`<h2 class="cash-h">К оплате</h2>`+billGrid(cache.bills)+historyBlock+pastBlock;
   }
   function cashMoveDialog(kind){
     $('#editor-title').textContent=kind==='in'?'Внесение наличных':'Изъятие наличных';
@@ -698,6 +700,7 @@
     if(button.dataset.cashMove){cashMoveDialog(button.dataset.cashMove);return;}
     if(button.dataset.cashMoveSave){const amount=Number($('#cash-amount').value||0);if(await cashAction('/staff/cash/move/',{kind:button.dataset.cashMoveSave,amount,comment:$('#cash-comment').value})){editor.close();toast(button.dataset.cashMoveSave==='in'?'Внесение записано':'Изъятие записано');await render(true);}return;}
     if(button.hasAttribute('data-cash-close')){cashCloseDialog();return;}
+    if(button.dataset.shiftCopy){await API.request('/staff/cash/shift-copy/',{method:'POST',body:{id:Number(button.dataset.shiftCopy)}});button.closest('dialog')?.close();toast('Копия отчёта смены отправлена на чековый аппарат');return;}
     if(button.dataset.orderTicket){                                                     // чек «ЗАКАЗ» из карточки заказа
       const id=button.dataset.orderTicket,job=await API.request(`/staff/orders/${id}/ticket/`);
       showReceipt(`Чек заказа №${job.payload.number}`,`${esc(job.payload.type||'')} · ${esc(job.payload.place||'')}`,job,`data-order-print="${id}"`);return;}
@@ -844,6 +847,10 @@
   document.addEventListener('input',event=>{
     if(event.target.id==='menu-search'||event.target.id==='user-search'){query=event.target.value;filterRows();}
   });
+  document.addEventListener('click',event=>{const row=event.target.closest('[data-shift-open]');if(!row)return;   // прошлая смена → её отчёт
+    const x=cache.pastShifts?.[Number(row.dataset.shiftOpen)];if(!x)return;
+    showReceipt(`Смена · ${new Date(x.opened_at).toLocaleDateString('ru-RU')}`,`${billTime(x.opened_at)}–${billTime(x.closed_at)} · открыл(а) ${esc(x.opened_by)} · закрыл(а) ${esc(x.closed_by)}`,{kind:'shift',payload:x.report},`data-shift-copy="${x.id}"`);});
+  document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches?.('[data-shift-open]'))event.target.click();});
   document.addEventListener('change',async event=>{const input=event.target;
     try{
       if(input.id==='report-date'){reportDate=input.value||Store.today();await render();}

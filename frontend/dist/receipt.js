@@ -36,7 +36,7 @@
     const field=(label,value)=>value?`<div class="f"><span>${label}:</span><span>${value}</span></div>`:'';
     const opened=job.kind==='order'?p.time:p.opened;
     const copy=/КОПИЯ/.test(p.title||'');
-    return `<div class="c b">КАФЕ "МУСЛИМ"</div><div class="c title">СЧЕТ N${esc(p.number)}</div>${copy?'<div class="c">КОПИЯ</div>':''}${line}`
+    return `<div class="c b">КАФЕ "МУСЛИМ"</div><div class="c title">СЧЕТ №&nbsp;${esc(p.number)}</div>${copy?'<div class="c">КОПИЯ</div>':''}${line}`
       +`<div class="fields">${field('Дата',esc(p.date))}${field('Открыт',esc(opened)+(p.closed?` Закрыт: ${esc(p.closed)}`:''))}${field('Место',esc(p.place))}${field(esc(p.staff_role||'Официант'),esc(p.waiter||'—'))}`
       +`${field('Гость',esc(p.customer))}${field('Тел',esc(p.phone))}${field('Адрес',esc(p.address))}${field('Курьеру',esc(p.courier_comment))}${!pay?field('Оплата',esc(p.guest_payment)):''}</div>`
       +line+'<div class="c b">Наименования блюд и товаров</div>'+line

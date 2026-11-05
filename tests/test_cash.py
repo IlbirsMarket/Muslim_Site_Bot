@@ -165,3 +165,16 @@ class CourierAndAutoFreeTests(BaseAPITest):
         self.table.refresh_from_db()
         self.assertIsNone(self.table.occupied_since)                          # стол освободился сам
         self.assertIsNotNone(self.table.freed_at)
+
+
+class PastShiftsTests(BaseAPITest):
+
+    def test_past_shifts_and_copy(self):
+        cashier = User.objects.create_user("cashier", password=PASSWORD, role=User.Role.CASHIER)
+        self.as_user(cashier)
+        self.client.post("/api/staff/cash/open/", {"cash": 1000}, format="json")
+        self.client.post("/api/staff/cash/close/", {"counted": 950}, format="json")
+        rows = self.client.get("/api/staff/cash/").data["past_shifts"]
+        self.assertEqual((rows[0]["opened_by"], rows[0]["closed_by"], rows[0]["opening_cash"], rows[0]["difference"]), ("cashier", "cashier", 1000, -50))
+        self.assertEqual(self.client.post("/api/staff/cash/shift-copy/", {"id": rows[0]["id"]}, format="json").status_code, 200)
+        self.assertEqual(PrintJob.objects.filter(kind="shift").last().payload["title"], "ОТЧЁТ ЗА СМЕНУ (КОПИЯ)")

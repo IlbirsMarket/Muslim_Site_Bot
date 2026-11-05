@@ -130,6 +130,30 @@ def shifts_report(start, end, branch=None) -> list:
     return result
 
 
+def past_shifts(branch, limit=15) -> list:
+    """«Прошлые смены» в «Кассе»: последние закрытые смены — кто открыл, кто закрыл, суммы и разница."""
+    rows = []
+    for shift in CashShift.objects.filter(branch=branch, closed_at__isnull=False).select_related("opened_by", "closed_by").order_by("-opened_at")[:limit]:
+        r = shift.report or {}
+        rows.append({
+            "id": shift.id, "opened_at": shift.opened_at, "closed_at": shift.closed_at,
+            "opened_by": _person(shift.opened_by), "closed_by": _person(shift.closed_by),
+            "opening_cash": shift.opening_cash, "cash": r.get("cash", 0), "card": r.get("card", 0),
+            "orders": r.get("orders", 0), "cash_in": r.get("cash_in", 0), "cash_out": r.get("cash_out", 0),
+            "expected": r.get("expected", 0), "counted": shift.counted_cash, "difference": r.get("difference", 0),
+            "report": r,                                                           # отчёт — показать и напечатать копию
+        })
+    return rows
+
+
+def shift_copy(branch, shift_id) -> None:
+    """Копия отчёта закрытой смены на чековый аппарат."""
+    shift = CashShift.objects.filter(branch=branch, pk=shift_id, closed_at__isnull=False).first()
+    if not shift or not shift.report:
+        raise ValidationError("Смена не найдена.")
+    add_job(branch, PrintJob.Kind.SHIFT, {**shift.report, "title": "ОТЧЁТ ЗА СМЕНУ (КОПИЯ)"})
+
+
 def history(branch, shift=None, limit=60) -> list:
     """
     «История оплат» внизу «Кассы»: оплаты за смену (без смены — за сегодня), новые сверху.

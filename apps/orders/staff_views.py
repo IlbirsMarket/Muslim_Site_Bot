@@ -246,10 +246,10 @@ class CashView(APIView):
 
     @extend_schema(responses={200: dict})
     def get(self, request):
-        from .cash import current_shift, history, shift_data
+        from .cash import current_shift, history, past_shifts, shift_data
         branch = staff_branch(request)
         shift = current_shift(branch)
-        return Response({**shift_data(shift), "history": history(branch, shift)})   # смена + история оплат
+        return Response({**shift_data(shift), "history": history(branch, shift), "past_shifts": past_shifts(branch)})   # смена, оплаты, прошлые смены
 
 
 class CashOpenView(APIView):
@@ -285,6 +285,18 @@ class CashCloseView(APIView):
     def post(self, request):
         from .cash import close_shift
         return Response(close_shift(staff_branch(request), request.user, _int(request, "counted", True)))
+
+
+class ShiftCopyView(APIView):
+    """POST /api/staff/cash/shift-copy/ {"id": 5} — копия отчёта закрытой смены на чековый аппарат."""
+
+    permission_classes = [IsCashierOrAdmin]
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from .cash import shift_copy
+        shift_copy(staff_branch(request), request.data.get("id"))
+        return Response({"ok": True})
 
 
 class ReceiptCopyView(APIView):

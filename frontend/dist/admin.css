@@ -510,3 +510,20 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 .new-grid:not(:has([data-action=claim])) [data-action=accept]{grid-column:1/-1;grid-row:1}
 .new-grid:not(:has([data-action=claim])) .ticket-btn{grid-column:1;grid-row:2}
 .new-grid:not(:has([data-action=claim])) [data-action=reject]{grid-column:2;grid-row:2}
+/* «Прошлые смены» в «Кассе» */
+.past-shifts{overflow-x:auto;padding:6px 10px}
+.shifts-table{width:100%;border-collapse:collapse;font-size:13px}
+.shifts-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;padding:8px 10px;white-space:nowrap}
+.shifts-table td{padding:11px 10px;border-top:1px solid var(--line);white-space:nowrap}
+.shifts-table .num{text-align:right}
+.shifts-table tbody tr{cursor:pointer}.shifts-table tbody tr:hover td{background:#92CF161a}
+.shifts-table .minus b{color:#C62828}.shifts-table .plus b{color:var(--green-ink)}
+@media(max-width:1000px){                                             /* планшет и телефон — карточки */
+  .past-shifts{padding:8px}
+  .shifts-table thead{display:none}
+  .shifts-table,.shifts-table tbody{display:block}
+  .shifts-table tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+  .shifts-table td{border:0;padding:3px 0;display:flex;justify-content:space-between;gap:8px;white-space:normal}
+  .shifts-table td::before{content:attr(data-label);color:var(--muted);font-size:11px}
+  .shifts-table .num{text-align:left}
+}
