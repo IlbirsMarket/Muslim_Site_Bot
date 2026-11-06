@@ -22,18 +22,21 @@ class UniqueEmailMixin:
         return value
 
 
-def check_pin(value, user=None):
-    """Код входа: ровно 2 цифры и ни у кого другого такого нет. Пусто — кода нет (None)."""
+def check_pin(value, user=None, required=False):
+    """Код входа: от 2 до 8 цифр и ни у кого другого такого нет. Пусто — не менять (None)."""
+    from .pin_login import PIN_RE, pin_hash
     value = (value or "").strip()
     if not value:
+        if required:
+            raise serializers.ValidationError("Задайте код входа: от 2 до 8 цифр.")
         return None
-    if len(value) != 2 or not value.isdigit():
-        raise serializers.ValidationError("Код — ровно 2 цифры, например 66.")
-    same = User.objects.filter(pin=value)
+    if not PIN_RE.match(value):
+        raise serializers.ValidationError("Код — только цифры, от 2 до 8.")
+    same = User.objects.filter(pin_hash=pin_hash(value))
     if user is not None and user.pk:
         same = same.exclude(pk=user.pk)                                # себя не считаем
     if same.exists():
-        raise serializers.ValidationError("Этот код уже занят другим сотрудником.")
+        raise serializers.ValidationError("Этот код уже занят. Придумайте другой.")
     return value
 
 
@@ -44,11 +47,15 @@ class MeSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)   # свой филиал (у шефа — пусто)
     branches = serializers.SerializerMethodField()                                           # какие филиалы видит
+    has_pin = serializers.SerializerMethodField()                                            # задан ли код входа
 
     class Meta:
         model = User  # с какой моделью работаем
         fields = ["id", "username", "email", "first_name", "last_name", "role", "role_display", "phone", "telegram_id",
-                  "branch", "branch_name", "branches", "pin"]  # какие поля отдаём (свой код входа — тоже)
+                  "branch", "branch_name", "branches", "has_pin"]  # какие поля отдаём (сам код — никогда)
+
+    def get_has_pin(self, obj) -> bool:
+        return bool(obj.pin_hash)
 
     def get_branches(self, obj) -> list:
         """Шеф и программист — все работающие филиалы (для переключателя), остальные — только свой."""
@@ -70,7 +77,7 @@ class StaffSerializer(UniqueEmailMixin, serializers.ModelSerializer):
         model = User
         fields = [
             "id", "username", "email", "first_name", "last_name", "role", "role_display",
-            "phone", "telegram_id", "is_active", "last_login", "date_joined", "can_edit", "branch", "branch_name", "pin",
+            "phone", "telegram_id", "is_active", "last_login", "date_joined", "can_edit", "branch", "branch_name", "pin", "has_pin",
         ]
         read_only_fields = ["role", "last_login", "date_joined"]  # роль меняется через set-role, пароль — через set-password
 
@@ -106,17 +113,20 @@ class StaffSerializer(UniqueEmailMixin, serializers.ModelSerializer):
             raise serializers.ValidationError("Выберите филиал.")
         return branch
 
-    pin = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=2)   # код входа из 2 цифр
+    pin = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=8, write_only=True)   # новый код (не показываем)
+    has_pin = serializers.SerializerMethodField()                                     # задан ли код
 
     def validate_pin(self, value):
-        return check_pin(value, self.instance)
+        return check_pin(value, self.instance)                          # пусто — код не меняем
 
-    def to_representation(self, obj):
-        data = super().to_representation(obj)
-        user = self.context["request"].user
-        if obj.pk != user.pk and not user.can_manage(obj):              # чужой код видит только тот, кто управляет сотрудником
-            data["pin"] = None
-        return data
+    def get_has_pin(self, obj) -> bool:
+        return bool(obj.pin_hash)
+
+    def update(self, instance, validated_data):
+        code = validated_data.pop("pin", None)
+        if code:
+            instance.set_pin(code)                                     # новый код — только отпечаток
+        return super().update(instance, validated_data)
 
     def get_can_edit(self, obj) -> bool:
         return self.context["request"].user.can_manage(obj)
@@ -131,10 +141,18 @@ class StaffCreateSerializer(UniqueEmailMixin, serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["username", "email", "password", "first_name", "last_name", "phone", "telegram_id", "role", "pin"]
-        extra_kwargs = {"pin": {"required": False, "allow_null": True, "allow_blank": True, "validators": []}}
+
+    pin = serializers.CharField(write_only=True, max_length=8, required=False, allow_blank=True)   # код входа (обратно не отдаём)
 
     def validate_pin(self, value):
-        return check_pin(value)
+        from django.conf import settings
+        return check_pin(value, required=settings.PIN_LOGIN)          # обязателен, только когда включён вход по коду
+
+    def validate(self, attrs):
+        from django.conf import settings
+        if settings.PIN_LOGIN and not attrs.get("pin"):                # вход по коду включён — без кода не создаём
+            raise serializers.ValidationError({"pin": "Задайте код входа: от 2 до 8 цифр."})
+        return attrs
 
     def validate_role(self, value):
         """Создатель может дать только ту роль, которую ему разрешено назначать."""
@@ -149,7 +167,9 @@ class StaffCreateSerializer(UniqueEmailMixin, serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop("password")       # достаём пароль отдельно
+        code = validated_data.pop("pin", None)          # и код входа (пока вход по коду выключен — может не быть)
         user = User(**validated_data)                   # создаём сотрудника без пароля
+        user.set_pin(code)                              # код храним только отпечатком
         user.set_password(password)                     # пароль сохраняется в зашифрованном виде
         user.save()
         RoleChangeLog.objects.create(                   # первая запись в журнале

@@ -6,7 +6,7 @@
   const list=data=>Array.isArray(data)?data:data?.results||[];
   const icon=window.MuslimIcons.render;
   const roles={owner:'Программист',programmer:'Программист',chef:'Шеф',admin:'Админ',cook:'Повар',waiter:'Официант',courier:'Курьер',cashier:'Кассир',user:'Пользователь',blocked:'Заблокирован'};
-  const views=[['cash','wallet','Касса'],['orders','orders','Заказы'],['menu','menu','Блюда и категории'],['tables','tables','Столы и QR'],['users','users','Пользователи и роли'],['reports','reports','Отчёты'],['settings','settings','Настройки'],...(API.enabled?[['api','api','Проверка API']]:[])];
+  const views=[['cash','wallet','Касса'],['orders','orders','Заказы'],['quick','plus','Заказ за гостя'],['menu','menu','Блюда и категории'],['tables','tables','Столы и QR'],['users','users','Пользователи и роли'],['reports','reports','Отчёты'],['settings','settings','Настройки'],...(API.enabled?[['api','api','Проверка API']]:[])];
   let live=false,state,me,view='orders',orderFilter='all',menuFilter='all',menuTab='cats',query='',userFilter='all',reportPeriod='day',reportScope='branch',reportDate=Store.today(),loadSequence=0,cache={},confirmation,editorImage='',uploadFile=null,editingId=null,toastTimer;
   let orderTab='active',payState=null;   // «Активные | К оплате»; открытое окно оплаты
   const editor=$('#editor-dialog');
@@ -77,6 +77,7 @@
   function canAccess(id){
     if(id==='api')return live&&['programmer','owner'].includes(me?.role);
     if(id==='cash')return live&&['programmer','chef','admin','cashier'].includes(me?.role);                       // «Касса» — кассиру и администрации
+    if(id==='quick')return live&&['programmer','chef','admin','cashier','waiter'].includes(me?.role);            // «Заказ за гостя» — официант, кассир, админ
     return !live||['programmer','chef','admin','cashier'].includes(me?.role)||['orders',...(me?.role==='cook'?['menu']:[]),...(me?.role==='waiter'?['tables']:[])].includes(id);   // официант видит столы, повар — блюда (стоп-лист)
   }
   function showLogin(message=''){
@@ -85,28 +86,33 @@
     document.querySelectorAll('dialog[open]').forEach(dialog=>dialog.close());
     $('#admin-shell').hidden=true;$('#login-screen').hidden=false;$('#content').innerHTML='';
     $('#login-form').elements.password.value='';$('#login-error').textContent=message;
-    pinMode(API.enabled&&API.pinReady()&&!window.MuslimTG?.active,message);   // здесь уже входили по паролю — сразу цифры
+    pinMode(codeOnly(),message);                                                     // на сайте вход только по коду
   }
-  // ===== Вход по коду из 2 цифр (как в 1С): «66» — и сразу в панели. Только на устройстве, где хоть раз вошли по паролю =====
+  // ===== Вход по коду сотрудника (как в 1С): набрал свой код → «Войти». Логина и пароля на сайте нет =====
+  // Форма логина и пароля остаётся только в Telegram (привязать Telegram) и в демо-версии (кнопки ролей)
+  // Пока выключено: входим по логину и паролю. Включить потом — pinLogin:true в runtime-config.js (и PIN_LOGIN=1 на сервере)
+  function pinOn(){return Boolean(window.MUSLIM_CONFIG?.pinLogin);}
+  function codeOnly(){return pinOn()&&API.enabled&&!window.MuslimTG?.active&&!window.MUSLIM_CONFIG?.demo;}
   let pinValue='',pinBusy=false;
   function pinMode(on,message=''){
     $('#pin-login').hidden=!on;$('#password-login').hidden=on;                                     // цифры или логин+пароль
-    $('#pin-switch').hidden=on||!API.enabled||!API.pinReady()||Boolean(window.MuslimTG?.active);   // «Войти по коду» — только где он работает
+    $('#pin-switch').hidden=true;                                                                   // переключателя больше нет
     pinValue='';paintPin();$('#pin-error').textContent=on?message:'';
   }
-  function paintPin(){$('#pin-dots').querySelectorAll('i').forEach((dot,i)=>dot.classList.toggle('on',i<pinValue.length));}   // закрашенные кружки
+  function paintPin(){$('#pin-dots').innerHTML=pinValue?'<i class="on"></i>'.repeat(pinValue.length):'<span>Наберите код и нажмите «Войти»</span>';}   // кружок на каждую цифру — сколько цифр в коде, не видно
   async function pinKey(key){
     if(pinBusy)return;
     if(key==='del'){pinValue=pinValue.slice(0,-1);paintPin();return;}
-    if(/^\d$/.test(key)&&pinValue.length<2){pinValue+=key;paintPin();$('#pin-error').textContent='';}
-    if(pinValue.length<2||(key!=='ok'&&!/^\d$/.test(key)))return;                               // ждём вторую цифру; на 2-й входим сразу
+    if(/^\d$/.test(key)){if(pinValue.length<8){pinValue+=key;paintPin();}$('#pin-error').textContent='';return;}   // цифры только копим
+    if(key!=='ok')return;
+    if(!pinValue){$('#pin-error').textContent='Наберите свой код.';return;}                         // входим только по кнопке «Войти»
     pinBusy=true;
     try{const user=await API.pinLogin(pinValue);pinValue='';paintPin();await enter(true,user);}
     catch(error){pinValue='';paintPin();$('#pin-error').textContent=error.message;$('#pin-dots').classList.remove('shake');void $('#pin-dots').offsetWidth;$('#pin-dots').classList.add('shake');}
     finally{pinBusy=false;}
   }
   function nav(){
-    $('#navigation').innerHTML=views.filter(([id])=>canAccess(id)).map(([id,icon,name])=>`<button class="nav-button" data-view="${id}" ${view===id?'aria-current="page"':''}><span class="nav-icon" aria-hidden="true">${window.MuslimIcons.render(icon)}</span><span class="nav-label">${name}</span><span class="nav-label-short">${id==='users'?'Роли':id==='tables'?'Столы':id==='menu'?'Блюда':name}</span>${id==='orders'&&cache.newCount?`<b class="nav-badge">${cache.newCount}</b>`:''}</button>`).join('');
+    $('#navigation').innerHTML=views.filter(([id])=>canAccess(id)).map(([id,icon,name])=>`<button class="nav-button" data-view="${id}" ${view===id?'aria-current="page"':''}><span class="nav-icon" aria-hidden="true">${window.MuslimIcons.render(icon)}</span><span class="nav-label">${name}</span><span class="nav-label-short">${id==='users'?'Роли':id==='tables'?'Столы':id==='menu'?'Блюда':id==='quick'?'Заказать':name}</span>${id==='orders'&&cache.newCount?`<b class="nav-badge">${cache.newCount}</b>`:''}</button>`).join('');
   }
   async function enter(useAPI,user){
     live=useAPI;me=user;state=useAPI?null:Store.load();
@@ -114,6 +120,7 @@
     $('#login-screen').hidden=true;$('#admin-shell').hidden=false;
     $('#staff-name').textContent=live?(me.first_name||me.username):'Администратор';
     $('#staff-role').textContent=live?`Роль: ${me.role_display}`:'Демонстрационный режим';
+    $('#my-pin').hidden=$('#session-pin').hidden=!(live&&pinOn());                    // «Мой код» — только когда включён вход по коду
     if(live)API.setBranch(multiBranch()?currentBranch()?.id:null);   // шеф — последний выбранный филиал, остальные — свой (сервер)
     paintBranch();
     const requested=location.hash.slice(1);view=views.some(v=>v[0]===requested)&&canAccess(requested)?requested:homeView();
@@ -129,6 +136,7 @@
       let html='';
       if(view==='cash')html=await cashView();
       if(view==='orders')html=await ordersView();
+      if(view==='quick')html=await quickView();
       if(view==='menu')html=await menuView();
       if(view==='tables')html=await tablesView();
       if(view==='users')html=await usersView();
@@ -138,6 +146,86 @@
       if(sequence===loadSequence){const paint=()=>{$('#content').innerHTML=html;};const smooth=view==='orders'&&quiet&&document.startViewTransition&&!matchMedia('(prefers-reduced-motion: reduce)').matches;if(smooth)await document.startViewTransition(paint).updateCallbackDone;else paint();nav();paintControls($('#content'));filterRows();const tabs=$('.floor-tabs'),open=tabs?.querySelector('[aria-selected=true]');if(tabs&&open)tabs.scrollLeft=Math.max(0,open.offsetLeft-(tabs.clientWidth-open.offsetWidth)/2);}   // открытая вкладка этажа всегда видна (на телефоне ряд прокручивается)
     }catch(error){if(sequence!==loadSequence)return;$('#content').innerHTML=heading(views.find(v=>v[0]===view)?.[2]||'Панель')+`<div class="panel"><h2>Не удалось загрузить раздел</h2><p class="error">${esc(error.message)}</p><p class="fine">${error.status===500?'Сервер вернул 500. Ошибку нужно исправить в API.':error.status===401?'Войдите повторно.':error.status===403?'У вашей роли нет доступа к этому разделу.':'Проверьте подключение и повторите.'}</p><br><button class="secondary" data-reload>Повторить</button></div>`;}
   }
+  // ===== «Заказ за гостя» (как в 1С): стол → меню без фото → «Отправить на кухню». Заказ сразу «Принят» =====
+  const qo={data:null,table:null,cat:null,search:'',lines:[],comment:'',floor:null};   // table: id стола или 'takeaway'
+  const qoAll=()=>(qo.data?.menu||[]).flatMap(c=>c.dishes.map(d=>({...d,cat:c.id})));
+  // Кнопки меню: у блюда с размерами — отдельная кнопка на каждый размер («Пепперони 30 см»)
+  function qoTiles(){
+    const q=qo.search.trim().toLowerCase();
+    const dishes=qoAll().filter(d=>q?d.name.toLowerCase().includes(q):d.cat===qo.cat);
+    return dishes.flatMap(d=>d.sizes.length?d.sizes.map(s=>({d,s,name:`${d.name} ${s.name}`,price:s.price})):[{d,s:null,name:d.name,price:d.price}]);
+  }
+  const qoKey=(dish,size,extras)=>[dish,size||0,[...extras].sort((a,b)=>a-b).join('.')].join('|');
+  function qoPrice(line){const d=qoAll().find(x=>x.id===line.dish_id);return line.price+line.extras.reduce((s,id)=>s+(d?.extras.find(e=>e.id===id)?.price||0),0);}
+  const qoTotal=()=>qo.lines.reduce((s,l)=>s+qoPrice(l)*l.qty,0);
+  function qoTableName(){if(qo.table==='takeaway')return 'С собой';const t=qo.data?.tables.find(t=>t.id===qo.table);return t?t.name:'';}
+  async function quickView(){
+    qo.data=await API.request('/staff/quick-order/');
+    if(qo.cat==null||!qo.data.menu.some(c=>c.id===qo.cat))qo.cat=qo.data.menu[0]?.id??null;
+    return qo.table==null?qoTablesHtml():qoMenuHtml();
+  }
+  function qoTablesHtml(){
+    const tables=qo.data.tables,floors=[...new Set(tables.map(t=>t.floor))];
+    if(!floors.includes(qo.floor))qo.floor=floors[0]??1;
+    const mins=t=>t.since?Math.max(1,Math.round((Date.now()-new Date(t.since))/60000)):0;
+    const ago=m=>m>=60?`${Math.floor(m/60)} ч ${m%60} мин`:`${m} мин`;
+    return heading('Заказ за гостя','Выберите стол — откроется меню','<button type="button" class="primary" data-qo="table" data-id="takeaway">С собой</button>')
+      +(floors.length>1?`<div class="toolbar"><div class="pills">${floors.map(f=>`<button type="button" class="pill ${f===qo.floor?'active':''}" data-qo="floor" data-id="${f}" aria-pressed="${f===qo.floor}">${f} этаж</button>`).join('')}</div></div>`:'')
+      +`<div class="table-tiles">${tables.filter(t=>t.floor===qo.floor).map(t=>`<button type="button" class="table-tile qo-table ${t.bill_requested?'busy bill':t.busy?'busy':''}" data-qo="table" data-id="${t.id}"><strong>${esc(t.name)}</strong>`
+        +`<span class="tag">${t.bill_requested?'Просят счёт':t.busy?esc(money(t.total)):'Свободен'}</span>`
+        +(t.busy||t.bill_requested?`<small>${esc(t.waiter||'')}${t.since?` · ${ago(mins(t))}`:''}</small>`:'')
+        +`</button>`).join('')||'<div class="empty">Столов нет — добавьте их в «Столы и QR»</div>'}</div>`;
+  }
+  function qoMenuHtml(){
+    const t=qo.table==='takeaway'?null:qo.data.tables.find(x=>x.id===qo.table);
+    const counts={};qo.lines.forEach(l=>{const k=`${l.dish_id}|${l.size_id||0}`;counts[k]=(counts[k]||0)+l.qty;});
+    const tiles=qoTiles().map(({d,s,name,price})=>{const n=counts[`${d.id}|${s?.id||0}`];return `<button type="button" class="qo-dish ${d.available?'':'stop'}" data-qo="add" data-dish="${d.id}" data-size="${s?.id||''}" ${d.available?'':'disabled'}><strong>${esc(name)}</strong><span>${d.available?esc(money(price)):'Нет в наличии'}</span>${n?`<b class="nav-badge qo-count">${n}</b>`:''}</button>`;}).join('');
+    const rows=qo.lines.map((l,i)=>{const d=qoAll().find(x=>x.id===l.dish_id),ex=l.extras.map(id=>d?.extras.find(e=>e.id===id)?.name).filter(Boolean);
+      const inner=`<span>${esc(l.name)}</span><small>${ex.length?'+ '+esc(ex.join(', '))+' · ':''}${money(qoPrice(l))}${d?.extras.length&&!ex.length?' · <u>добавки</u>':''}</small>`;
+      return `<div class="qo-line">${d?.extras.length?`<button type="button" class="qo-line-name" data-qo="extras" data-id="${i}">${inner}</button>`:`<div class="qo-line-name">${inner}</div>`}`
+        +`<div class="qo-qty"><button type="button" class="secondary" data-qo="minus" data-id="${i}" aria-label="Меньше">−</button><b>${l.qty}</b><button type="button" class="secondary" data-qo="plus" data-id="${i}" aria-label="Больше">+</button></div></div>`;}).join('');
+    const subtitle=t?.busy?`Дозаказ · уже ${money(t.total)}${t.waiter?` · официант ${t.waiter}`:''}`:t?.waiter?`Официант ${t.waiter}`:'Новый заказ';
+    return heading(esc(qoTableName()),esc(subtitle),'<button type="button" class="secondary" data-qo="back">← Столы</button>')
+      +`<div class="toolbar"><div class="pills qo-cats">${qo.data.menu.map(c=>`<button type="button" class="pill ${!qo.search&&c.id===qo.cat?'active':''}" data-qo="cat" data-id="${c.id}" aria-pressed="${!qo.search&&c.id===qo.cat}">${esc(c.name)}</button>`).join('')}</div>`
+      +`<input id="qo-search" type="search" aria-label="Поиск блюда" placeholder="Поиск блюда" value="${esc(qo.search)}" autocomplete="off"></div>`
+      +`<div class="qo-layout"><div class="qo-dishes">${tiles||'<div class="empty">Ничего не найдено</div>'}</div>`
+      +`<aside class="panel qo-check"><h2>${qo.lines.length?'Новые позиции':'Нажмите на блюдо'}</h2><div class="qo-lines">${rows}</div>`
+      +`<div class="qo-foot"><label>Комментарий для кухни<textarea id="qo-comment" rows="2" maxlength="500" placeholder="Например: без лука">${esc(qo.comment)}</textarea></label><div class="qo-total"><span>Итого</span><strong>${money(qoTotal())}</strong></div>`
+      +`<button type="button" class="primary qo-send" data-qo="send" ${qo.lines.length?'':'disabled'}>Отправить на кухню</button></div></aside></div>`;
+  }
+  function qoPaint(){if(view!=='quick')return;const focus=document.activeElement?.id;$('#content').innerHTML=qo.table==null?qoTablesHtml():qoMenuHtml();paintControls($('#content'));if(focus==='qo-search'){const s=$('#qo-search');s.focus();s.setSelectionRange(s.value.length,s.value.length);}}
+  function qoReset(){qo.table=null;qo.lines=[];qo.comment='';qo.search='';}
+  async function qoAct(button){
+    const what=button.dataset.qo,id=button.dataset.id;
+    if(what==='table'){qo.table=id==='takeaway'?'takeaway':Number(id);qo.lines=[];qo.comment='';qo.search='';qoPaint();return;}
+    if(what==='floor'){qo.floor=Number(id);qoPaint();return;}
+    if(what==='cat'){qo.cat=Number(id);qo.search='';qoPaint();return;}
+    if(what==='back'){if(!qo.lines.length){qoReset();await render(true);return;}confirm('Вернуться к столам?','Новые позиции не отправлены и пропадут.',async()=>{qoReset();await render(true);});return;}
+    if(what==='add'){const dish=Number(button.dataset.dish),size=button.dataset.size?Number(button.dataset.size):null;const d=qoAll().find(x=>x.id===dish);if(!d)return;
+      const line=qo.lines.find(l=>l.dish_id===dish&&l.size_id===size&&!l.extras.length);
+      if(line)line.qty=Math.min(99,line.qty+1);else{const s=size?d.sizes.find(x=>x.id===size):null;qo.lines.push({dish_id:dish,size_id:size,name:s?`${d.name} ${s.name}`:d.name,price:s?s.price:d.price,extras:[],qty:1});}
+      qoPaint();return;}
+    if(what==='plus'){const l=qo.lines[id];if(l)l.qty=Math.min(99,l.qty+1);qoPaint();return;}
+    if(what==='minus'){const l=qo.lines[id];if(l){l.qty--;if(l.qty<1)qo.lines.splice(Number(id),1);}qoPaint();return;}
+    if(what==='extras'){qoExtras(Number(id));return;}
+    if(what==='extras-save'){const l=qo.lines[editingId];if(l){l.extras=[...document.querySelectorAll('#qo-extras-form input:checked')].map(i=>Number(i.value));
+      const same=qo.lines.findIndex((x,i)=>i!==editingId&&qoKey(x.dish_id,x.size_id,x.extras)===qoKey(l.dish_id,l.size_id,l.extras));   // такая же строка уже есть — складываем
+      if(same>=0){qo.lines[same].qty=Math.min(99,qo.lines[same].qty+l.qty);qo.lines.splice(editingId,1);}}
+      editor.close();qoPaint();return;}
+    if(what==='send'){qo.comment=$('#qo-comment')?.value||'';
+      const order=await API.request('/staff/quick-order/',{method:'POST',body:{table:qo.table==='takeaway'?null:qo.table,comment:qo.comment,
+        items:qo.lines.map(l=>({dish_id:l.dish_id,size_id:l.size_id,extra_ids:l.extras,quantity:l.qty}))}});
+      toast(`Заказ №${order.number??order.id} · ${qoTableName()} — отправлен на кухню`);qoReset();await render(true);return;}
+  }
+  // Добавки к строке чека: нажали на строку → отметили галочками
+  function qoExtras(index){
+    const l=qo.lines[index],d=qoAll().find(x=>x.id===l?.dish_id);if(!d)return;editingId=index;
+    $('#editor-title').textContent=l.name;
+    $('#editor-content').innerHTML=`<form id="qo-extras-form" class="qo-extras">${d.extras.map(e=>`<label class="qo-extra"><input type="checkbox" value="${e.id}" ${l.extras.includes(e.id)?'checked':''}><span>${esc(e.name)}</span><b>+${esc(e.price)}</b></label>`).join('')}
+      <footer class="form-footer"><button class="primary" type="button" data-qo="extras-save">Готово</button></footer></form>`;
+    editor.showModal();
+  }
+  document.addEventListener('input',event=>{if(event.target.id==='qo-search'){qo.search=event.target.value;qoPaint();}else if(event.target.id==='qo-comment')qo.comment=event.target.value;});
   async function ordersView(){
     if(live&&orderTab==='pay'&&canPay()){cache.fresh=null;return billsView();}   // вкладка «К оплате»
     let orders,calls=[];
@@ -516,7 +604,7 @@
     const users=cache.users.filter(u=>userFilter==='all'||u.role===userFilter);   // поиск фильтрует строки на месте (filterRows)
     const filters=['all',...new Set(cache.users.map(u=>u.role))];
     const addButton=live&&cache.roles.length?'<button class="primary" data-add-staff>Добавить сотрудника</button>':'';   // кнопка есть у программиста, шефа и админа
-    return heading('Пользователи и роли',live?'Права проверяются сервером':'Демо-роли не предоставляют настоящий доступ',addButton)+`<div class="toolbar"><div class="pills">${filters.map(r=>pill(r==='all'?`Все · ${cache.users.length}`:roles[r],r,userFilter===r,'user-filter')).join('')}</div><input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя или логин" value="${esc(query)}"></div><div class="users-layout"><div class="data-wrap"><table class="data-table"><thead><tr><th>Пользователь</th><th>Роль</th><th class="category-col">Статус</th><th aria-label="Действия"></th></tr></thead><tbody>${users.map(u=>{const name=u.name||u.first_name||u.username,roleOptions=cache.roles.some(r=>r.value===u.role)?cache.roles:[{value:u.role,label:roles[u.role]},...cache.roles];return `<tr data-search="${esc(`${name} ${u.username||u.handle||''} ${u.email||''}`.toLowerCase())}"><td><div class="user-cell"><span class="avatar">${esc(name[0])}</span><div><strong>${esc(name)}</strong><small>@${esc(u.handle||u.username)}${u.email?' · '+esc(u.email):''}${u.pin?` · код <b>${esc(u.pin)}</b>`:''}</small></div></div></td><td><select class="role-select" data-role-user="${u.id}" aria-label="Роль: ${esc(name)}" ${(live?!u.can_edit||u.id===me.id:u.role==='owner')?'disabled':''}>${roleOptions.map(r=>`<option value="${r.value}" ${r.value===u.role?'selected':''}>${esc(r.label)}</option>`).join('')}</select></td><td class="category-col">${live?u.is_active?'Активен':'Отключён':u.role==='blocked'?'Отключён':'Активен'}</td><td>${live&&u.can_edit&&u.id!==me.id?`<div class="row-actions"><button class="icon-button" data-edit-staff="${u.id}" aria-label="Изменить: ${esc(name)}" title="Изменить сотрудника"></button><button class="icon-button danger" data-delete-staff="${u.id}" aria-label="Удалить: ${esc(name)}" title="Удалить сотрудника"></button></div>`:''}</td></tr>`;}).join('')||'<tr><td colspan="4" class="empty">Пользователи не найдены</td></tr>'}</tbody></table></div><aside class="panel"><h2>История смены ролей</h2>${cache.audit.slice().reverse().slice(0,20).map(a=>`<div class="audit-row"><strong>${esc(a.user_name||a.name)}</strong><br>${esc(a.old_role_display||roles[a.from])} → ${esc(a.new_role_display||roles[a.to])}<small>${esc(a.created_at||a.at)}</small></div>`).join('')||'<p class="fine">Пока нет изменений ролей</p>'}</aside></div>`;
+    return heading('Пользователи и роли',live?'Права проверяются сервером':'Демо-роли не предоставляют настоящий доступ',addButton)+`<div class="toolbar"><div class="pills">${filters.map(r=>pill(r==='all'?`Все · ${cache.users.length}`:roles[r],r,userFilter===r,'user-filter')).join('')}</div><input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя или логин" value="${esc(query)}"></div><div class="users-layout"><div class="data-wrap"><table class="data-table"><thead><tr><th>Пользователь</th><th>Роль</th><th class="category-col">Статус</th><th aria-label="Действия"></th></tr></thead><tbody>${users.map(u=>{const name=u.name||u.first_name||u.username,roleOptions=cache.roles.some(r=>r.value===u.role)?cache.roles:[{value:u.role,label:roles[u.role]},...cache.roles];return `<tr data-search="${esc(`${name} ${u.username||u.handle||''} ${u.email||''}`.toLowerCase())}"><td><div class="user-cell"><span class="avatar">${esc(name[0])}</span><div><strong>${esc(name)}</strong><small>@${esc(u.handle||u.username)}${u.email?' · '+esc(u.email):''}${live&&pinOn()&&!u.has_pin?' · <b class="no-pin">без кода</b>':''}</small></div></div></td><td><select class="role-select" data-role-user="${u.id}" aria-label="Роль: ${esc(name)}" ${(live?!u.can_edit||u.id===me.id:u.role==='owner')?'disabled':''}>${roleOptions.map(r=>`<option value="${r.value}" ${r.value===u.role?'selected':''}>${esc(r.label)}</option>`).join('')}</select></td><td class="category-col">${live?u.is_active?'Активен':'Отключён':u.role==='blocked'?'Отключён':'Активен'}</td><td>${live&&u.can_edit&&u.id!==me.id?`<div class="row-actions"><button class="icon-button" data-edit-staff="${u.id}" aria-label="Изменить: ${esc(name)}" title="Изменить сотрудника"></button><button class="icon-button danger" data-delete-staff="${u.id}" aria-label="Удалить: ${esc(name)}" title="Удалить сотрудника"></button></div>`:''}</td></tr>`;}).join('')||'<tr><td colspan="4" class="empty">Пользователи не найдены</td></tr>'}</tbody></table></div><aside class="panel"><h2>История смены ролей</h2>${cache.audit.slice().reverse().slice(0,20).map(a=>`<div class="audit-row"><strong>${esc(a.user_name||a.name)}</strong><br>${esc(a.old_role_display||roles[a.from])} → ${esc(a.new_role_display||roles[a.to])}<small>${esc(a.created_at||a.at)}</small></div>`).join('')||'<p class="fine">Пока нет изменений ролей</p>'}</aside></div>`;
   }
   // Окно «Изменить сотрудника»: старший меняет данные младшего (права ещё раз проверяет сервер)
   function editStaff(id){
@@ -529,7 +617,7 @@
       ${field('Логин','username',u.username||'','text','maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false"')}
       ${field('Email','email',u.email||'','email','maxlength="254" autocomplete="off" placeholder="Можно оставить пустым"')}
       <div class="two-fields">${field('Телефон','phone',u.phone||'','tel','maxlength="20" placeholder="+996"')}${field('Telegram ID','telegram_id',u.telegram_id||'','number','min="1" placeholder="Для бота"')}</div>
-      ${field('Код входа (2 цифры)','pin',u.pin||'','text','inputmode="numeric" pattern="\\d{2}" maxlength="2" autocomplete="off" placeholder="Например, 66 · пусто — без кода"')}
+      ${!pinOn()?'':field(u.has_pin?'Новый код входа':'Код входа — не задан!','pin','','text','inputmode="numeric" pattern="\\d{2,8}" maxlength="8" autocomplete="off" placeholder="'+(u.has_pin?'Не менять':'Только цифры')+'"')}
       <div class="setting-line">Активен (может входить)${toggle('Активен',u.is_active!==false,'name="is_active"')}</div>
       <div class="two-fields">${field('Новый пароль','password','','password','minlength="10" autocomplete="new-password" placeholder="Не менять"')}${field('Повторите пароль','password2','','password','minlength="10" autocomplete="new-password"')}</div>
       <p class="fine">Новый пароль, другая роль или блокировка сразу выводят сотрудника из панели на всех устройствах (и из Telegram-бота — при новом пароле или блокировке). Имя, телефон и email можно менять спокойно.</p>
@@ -546,7 +634,7 @@
     const tg=text('telegram_id');
     await API.request(`/admin/staff/${editingId}/`,{method:'PATCH',body:{
       first_name:text('first_name'),last_name:text('last_name'),username:text('username'),email:text('email').toLowerCase(),
-      phone:text('phone'),telegram_id:tg?Number(tg):null,is_active:v.has('is_active'),pin:text('pin'),
+      phone:text('phone'),telegram_id:tg?Number(tg):null,is_active:v.has('is_active'),...(text('pin')?{pin:text('pin')}:{}),
     }});
     if(text('role')&&text('role')!==u?.role)await API.request(`/admin/staff/${editingId}/set-role/`,{method:'POST',body:{role:text('role')}});
     if(password)await API.request(`/admin/staff/${editingId}/set-password/`,{method:'POST',body:{password}});
@@ -556,8 +644,8 @@
   function myPin(){
     $('#editor-title').textContent='Мой код входа';
     $('#editor-content').innerHTML=`<form id="pin-form">
-      ${field('Код из 2 цифр','pin',me?.pin||'','text','inputmode="numeric" pattern="\\d{2}" maxlength="2" autocomplete="off" placeholder="Например, 66"')}
-      <p class="fine">Код работает только на устройствах, где вы хоть раз вошли по логину и паролю. Чтобы убрать код, оставьте поле пустым.</p>
+      ${field('Новый код','pin','','password','inputmode="numeric" pattern="\\d{2,8}" maxlength="8" required autocomplete="new-password" placeholder="Только цифры"')}
+      <p class="fine">Старый код перестанет работать. Код знаете только вы: его не видит никто, даже админ.</p>
       <p id="editor-error" class="error"></p>
       <footer class="form-footer"><button class="primary" type="submit">Сохранить</button></footer>
     </form>`;
@@ -572,9 +660,9 @@
       ${field('Логин','username','','text','maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9@.+_\\-]+" title="Латинские буквы, цифры и символы @ . + - _"')}
       ${field('Email','email','','email','maxlength="254" autocomplete="off" placeholder="Можно оставить пустым"')}
       <div class="two-fields">${field('Телефон','phone','','tel','maxlength="20" placeholder="+996"')}${field('Telegram ID','telegram_id','','number','min="1" placeholder="Для бота"')}</div>
-      ${field('Код входа (2 цифры)','pin','','text','inputmode="numeric" pattern="\\d{2}" maxlength="2" autocomplete="off" placeholder="Например, 66 · можно потом"')}
+      ${!pinOn()?'':field('Код входа','pin','','text','inputmode="numeric" pattern="\\d{2,8}" maxlength="8" required autocomplete="off" placeholder="Только цифры"')}
       <div class="two-fields">${field('Пароль','password','','password','minlength="10" required autocomplete="new-password"')}${field('Повторите пароль','password2','','password','minlength="10" required autocomplete="new-password"')}</div>
-      <p class="fine">${multiBranch()?`Сотрудник будет работать в филиале «${esc(branchName())}» (шеф — во всех). `:''}Логин или email и пароль передайте сотруднику лично. Он сможет войти сразу.</p>
+      <p class="fine">${multiBranch()?`Сотрудник будет работать в филиале «${esc(branchName())}» (шеф — во всех). `:''}${pinOn()?'Код входа передайте сотруднику лично — потом его не увидит никто, даже вы. Логин и пароль нужны для Telegram-бота.':'Логин или email и пароль передайте сотруднику лично. Он сможет войти сразу.'}</p>
       <p id="editor-error" class="error"></p>
       <footer class="form-footer"><button class="primary" type="submit">Добавить</button></footer>
     </form>`;
@@ -771,7 +859,8 @@
   }
   function download(name,content,type='text/plain;charset=utf-8'){const blob=content instanceof Blob?content:new Blob([content],{type});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   async function act(button){
-    if(button.dataset.view){view=button.dataset.view;query='';await render();return;}
+    if(button.dataset.view){view=button.dataset.view;query='';if(view==='quick')qoReset();await render();return;}
+    if(button.dataset.qo){await qoAct(button);return;}                       // «Заказ за гостя»
     if(button.id==='telegram-toggle'){await telegramDialog();return;}   // привязать / отвязать Telegram
     if(button.id==='telegram-check'){await telegramCheck();return;}     // проверить привязку
     if(button.id==='push-toggle'){button.disabled=true;try{const result=await MuslimPush.enable();toast(result==='ok'?'Push включены: уведомления будут приходить на этот телефон':result);}catch(error){toast(error.message);}finally{button.disabled=false;paintPush();}return;}
@@ -963,7 +1052,7 @@
       if(form.id==='dish-form')await saveDish(form);
       if(form.id==='staff-form')await saveStaff(form);   // новый сотрудник
       if(form.id==='staff-edit-form')await saveStaffEdit(form);   // «Изменить сотрудника»
-      if(form.id==='pin-form'){const pin=String(new FormData(form).get('pin')||'').trim();const saved=await API.request('/auth/me/pin/',{method:'POST',body:{pin}});me.pin=saved.pin;editor.close();toast(saved.pin?`Ваш код: ${saved.pin}`:'Код входа убран');}
+      if(form.id==='pin-form'){const pin=String(new FormData(form).get('pin')||'').trim();await API.request('/auth/me/pin/',{method:'POST',body:{pin}});me.has_pin=true;editor.close();toast('Новый код сохранён');}
       if(form.id==='new-category'){const name=String(new FormData(form).get('name')).trim();await API.request('/admin/categories/',{method:'POST',body:{name}});toast(`Категория «${name}» добавлена`);await render(true);}   // новая категория — в конец списка
       if(form.id==='category-form'){const v=new FormData(form);await API.request(`/admin/categories/${editingId}/`,{method:'PATCH',body:{name:String(v.get('name')).trim(),is_active:v.has('is_active'),printer:v.get('printer')||'kitchen1'}});editor.close();toast('Категория сохранена');await render(true);}
       if(form.id==='table-form'&&!live){const values=new FormData(form),payload={name:String(values.get('name')).trim(),number:Number(values.get('number'))};if(!payload.name)throw new Error('Укажите название стола.');await localChange(s=>{if(s.tables.some(t=>t.number===payload.number&&t.number!==editingId))throw new Error('Стол с таким номером уже существует.');s.orders.forEach(o=>{if(o.table===editingId)o.table=payload.number;});s.tables=s.tables.filter(t=>t.number!==editingId);s.tables.push(payload);s.tables.sort((a,b)=>a.number-b.number);},'Стол сохранён');editor.close();await render();}
@@ -1016,6 +1105,7 @@
     const demo=document.createElement('a');demo.className='secondary demo-open';demo.href=new URL('/admin',window.MUSLIM_CONFIG.demoUrl).href;demo.textContent='Открыть демо-версию';
     $('#login-form').after(demo);
   }
+  if(codeOnly()&&!API.hasSession())pinMode(true);                   // сразу цифры: на сайте вход только по коду
   paintControls(document);
   // Вход сохранён — не показываем форму входа, пока сервер проверяет сессию (иначе она мелькает)
   // Мини-приложение Telegram: вход сам, по Telegram (пароль — только в первый раз, чтобы привязать Telegram к сотруднику)

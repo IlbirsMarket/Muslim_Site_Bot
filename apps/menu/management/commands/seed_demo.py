@@ -109,7 +109,8 @@ class Command(BaseCommand):
         photos = 0 if options["no_photos"] else self.photos()
         self.stdout.write(self.style.SUCCESS(
             f"Демо готово. Фото блюд: {photos}. Вход в демо-панель — кнопками на странице входа "
-            f"(пароль всех демо-сотрудников: {DEMO_PASSWORD})."))
+            f"(пароль всех демо-сотрудников: {DEMO_PASSWORD}). Коды входа: шеф 11, админ 22, повар 33, "
+            f"официант 44, официант 55, курьер 66, кассир 77, админ Таширова 88, официант Таширова 99."))
 
     # ----- Очистка демо-базы -----
     def clear(self):
@@ -140,9 +141,10 @@ class Command(BaseCommand):
 
     def staff(self, branches):
         people = {}
-        for username, name, role, key in STAFF:
+        for number, (username, name, role, key) in enumerate(STAFF, start=1):
             user = User(username=username, first_name=name, role=role, branch=branches[key] if key else None)
             user.set_password(DEMO_PASSWORD)
+            user.set_pin(f"{number}{number}")                         # код входа в демо: 11, 22, 33… (по порядку в STAFF)
             user.save()
             people[username] = user
         return people

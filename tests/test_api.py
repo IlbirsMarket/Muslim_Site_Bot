@@ -355,10 +355,10 @@ class StaffTests(BaseAPITest):
     def test_roles_rules(self):
         self.as_user(self.admin)
         self.assertEqual(len(self.client.get("/api/admin/staff/roles/").data), 4)          # кассир, повар, официант, курьер
-        new_cook = self.client.post("/api/admin/staff/", {"username": "cook2", "password": PASSWORD, "role": "cook"},
+        new_cook = self.client.post("/api/admin/staff/", {"username": "cook2", "password": PASSWORD, "role": "cook", "pin": "4001"},
                                     format="json")
         self.assertEqual(new_cook.status_code, 201)
-        self.assertEqual(self.client.post("/api/admin/staff/", {"username": "adm2", "password": PASSWORD, "role": "admin"},
+        self.assertEqual(self.client.post("/api/admin/staff/", {"username": "adm2", "password": PASSWORD, "role": "admin", "pin": "4002"},
                                           format="json").status_code, 400)                  # админ не создаёт админов
         cook_id = new_cook.data["id"]
         self.assertEqual(self.client.post(f"/api/admin/staff/{cook_id}/set-role/", {"role": "waiter"},

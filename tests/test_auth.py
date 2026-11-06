@@ -76,12 +76,12 @@ class LoginTests(BaseAPITest):
     def test_email_must_be_unique(self):
         self.as_user(self.admin)
         response = self.client.post("/api/admin/staff/", {
-            "username": "cook2", "email": "COOK@muslim.kg", "password": PASSWORD, "role": "cook",
+            "username": "cook2", "email": "COOK@muslim.kg", "password": PASSWORD, "role": "cook", "pin": "2001",
         }, format="json")
         self.assertEqual(response.status_code, 400)
         self.assertIn("email", response.data)
         ok = self.client.post("/api/admin/staff/", {                   # пустой email можно у многих
-            "username": "cook3", "password": PASSWORD, "role": "cook",
+            "username": "cook3", "password": PASSWORD, "role": "cook", "pin": "2002",
         }, format="json")
         self.assertEqual(ok.status_code, 201)
-        self.assertGreaterEqual(User.objects.filter(email="").count(), 2)
+        self.assertGreaterEqual(User.objects.filter(email="").count(), 2)

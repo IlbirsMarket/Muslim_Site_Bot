@@ -21,7 +21,7 @@ class StaffManageTests(BaseAPITest):
         self.as_user(self.chef)
         response = self.client.post(STAFF, {
             "first_name": "Азамат", "last_name": "Алиев", "username": "azamat", "email": "Azamat@Muslim.kg",
-            "phone": "+996700000000", "telegram_id": 123456, "role": "admin", "password": PASSWORD,
+            "phone": "+996700000000", "telegram_id": 123456, "role": "admin", "password": PASSWORD, "pin": "5050",
         }, format="json")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["email"], "azamat@muslim.kg")           # email в маленьких буквах
@@ -78,4 +78,4 @@ class StaffManageTests(BaseAPITest):
         response = self.client.post(f"{STAFF}{self.admin.id}/set-role/", {"role": "cook"}, format="json")
         self.assertEqual(response.status_code, 200)
         self.admin.refresh_from_db()
-        self.assertEqual(self.admin.role, "cook")
+        self.assertEqual(self.admin.role, "cook")

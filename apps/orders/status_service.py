@@ -117,6 +117,8 @@ def _can_complete(user, order) -> bool:
         return False
     if at_table(order):
         return user.is_cafe_admin or (user.is_waiter and order.claimed_by_id in (None, user.id) and owns_table(user, order.table))   # подаёт официант этого стола
+    if order.kind == K.TAKEAWAY and not order.table_id:             # «С собой» из «Заказа за гостя» — отдаёт тот, кто вбил
+        return user.is_cafe_admin or order.claimed_by_id == user.id
     return user.is_cafe_admin or (user.is_cashier and order.kind == K.PICKUP)   # самовывоз выдаёт админ или кассир
 
 

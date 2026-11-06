@@ -2,6 +2,7 @@
 
 from datetime import timedelta                               # промежуток времени
 
+from django.db.models import Q                               # «или» в фильтре
 from django.shortcuts import get_object_or_404               # найти запись или 404
 from django.utils import timezone                            # текущее время
 from drf_spectacular.utils import OpenApiParameter, extend_schema  # описание для Swagger
@@ -55,7 +56,8 @@ class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_cafe_admin or user.is_cashier:         # админ, кассир и выше — все заказы
             pass
         elif user.is_waiter:                              # официант — только зал
-            queryset = queryset.filter(table__kind=Table.Kind.HALL)   # только заказы со столов: «в кафе» и «с собой»
+            queryset = queryset.filter(                   # заказы со столов + свои «С собой» из «Заказа за гостя»
+                Q(table__kind=Table.Kind.HALL) | Q(table__isnull=True, kind=Order.Kind.TAKEAWAY, claimed_by=user))
         elif user.is_cook:                                # повар — только подтверждённые
             queryset = queryset.filter(status__in=KITCHEN_STATUSES)
         elif user.is_courier:                             # курьер — только доставки, уже подтверждённые админом
@@ -324,3 +326,28 @@ class OrderTicketView(APIView):
         order = get_object_or_404(Order.objects.select_related("table", "branch", "claimed_by", "accepted_by"),
                                   pk=pk, branch=staff_branch(request))
         return Response({"kind": "order", "payload": order_payload(order)})
+
+
+# ===================== «ЗАКАЗ ЗА ГОСТЯ» (как в 1С) =====================
+
+class QuickOrderView(APIView):
+    """
+    GET  /api/staff/quick-order/ — столы зала (свободен / занят / просят счёт) и меню без фото — одним запросом.
+    POST /api/staff/quick-order/ {"table": id или null («С собой»), "items": [...], "comment": ""} — заказ сразу «Принят»,
+         чек уходит на кухню. Могут: официант, админ, кассир (и шеф, программист).
+    """
+    permission_classes = [IsWaiterOrAdmin]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        from . import quick_order
+        branch = staff_branch(request)
+        return Response({"tables": quick_order.tables(branch), "menu": quick_order.menu(branch)})
+
+    @extend_schema(request=dict, responses={201: OrderStaffSerializer})
+    def post(self, request):
+        from . import quick_order
+        data = request.data if isinstance(request.data, dict) else {}
+        items = data.get("items") if isinstance(data.get("items"), list) else []
+        order = quick_order.create(request.user, staff_branch(request), data.get("table"), items, str(data.get("comment") or ""))
+        return Response(OrderStaffSerializer(order, context={"request": request}).data, status=201)

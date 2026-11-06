@@ -50,6 +50,7 @@ class Order(models.Model):
         """Откуда пришёл заказ."""
         SITE = "site", "Сайт"
         BOT = "bot", "Telegram-бот"
+        STAFF = "staff", "Персонал"             # «Заказ за гостя»: вбил официант, админ или кассир
 
     # ----- Основное -----
     public_id = models.UUIDField("Секретный id", default=uuid.uuid4, unique=True, editable=False)  # по нему гость смотрит статус

@@ -1,22 +1,39 @@
 """
-Быстрый вход по коду из 2 цифр (как в 1С) — только на «запомненном» устройстве.
+Вход в панель только по коду сотрудника (от 2 до 8 цифр, как в 1С). Логина и пароля на сайте нет.
 
-Как это работает:
-  1. Браузер один раз создаёт случайный ключ устройства (64 знака) и хранит его у себя.
-  2. Сотрудник входит на этом устройстве по логину и паролю — сервер запоминает пару «сотрудник + отпечаток ключа».
-  3. Дальше на этом устройстве ему хватает своего кода: «66» → сразу в панели.
-С чужого телефона или компьютера код не работает: ключа устройства там нет, а угадать 64 знака нельзя.
-Неверные коды считает та же защита от подбора, что и пароли: 5 ошибок с устройства → пауза 15 минут.
+Код не хранится: в базе только его отпечаток HMAC-SHA256 с SECRET_KEY (одинаковый код → одинаковый отпечаток,
+поэтому можно проверить, что код ни у кого не повторяется). Админ задаёт код при создании сотрудника и больше его не видит.
+
+Защита от подбора (короткий код угадать легко, поэтому её несколько слоёв):
+  1. Свои устройства кафе (здесь уже входили по коду): 5 ошибок → пауза 15 минут только для этого устройства.
+  2. Новые устройства: 5 ошибок с одного IP → пауза 15 минут для этого IP.
+  3. Всего 20 ошибок с новых устройств за час → вход с новых устройств закрыт до конца часа,
+     свои устройства кафе работают как обычно. Всё пишется в журнал сервера (muslim.security).
+Сколько цифр в коде, сайт не подсказывает: любой неверный набор — просто «Неверный код».
 """
 
 import hashlib                                                    # отпечаток ключа устройства
+import hmac                                                       # отпечаток кода
+import logging                                                    # журнал подбора
 import re                                                         # проверка формата
 
-from django.utils import timezone                                 # время «последнего входа по коду»
-from rest_framework_simplejwt.utils import get_md5_hash_password  # отпечаток пароля (как в токенах)
+from django.conf import settings                                  # SECRET_KEY
+from django.core.cache import cache                               # общий счётчик ошибок
+from django.utils import timezone                                 # время последнего входа
 
+from core import login_guard                                      # счётчики «5 ошибок → 15 минут»
+
+logger = logging.getLogger("muslim.security")
 DEVICE_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")               # ключ устройства: длинная случайная строка
-PIN_RE = re.compile(r"^\d{2}$")                                   # код: ровно 2 цифры
+PIN_RE = re.compile(r"^\d{2,8}$")                                 # код: от 2 до 8 цифр
+NEW_DEVICES_LIMIT = 20                                            # ошибок со всех новых устройств за час
+NEW_DEVICES_WINDOW = 60 * 60                                      # час (в секундах)
+NEW_DEVICES_KEY = "pin-fails-new-devices"
+
+
+def pin_hash(code: str) -> str:
+    """Отпечаток кода (сам код в базе не храним)."""
+    return hmac.new(settings.SECRET_KEY.encode(), f"pin:{code}".encode(), hashlib.sha256).hexdigest()
 
 
 def device_hash(device: str) -> str:
@@ -29,35 +46,43 @@ def valid_device(device) -> bool:
     return bool(device) and bool(DEVICE_RE.match(str(device)))
 
 
-def remember_device(user, device) -> None:
-    """После входа по паролю: запомнить это устройство для сотрудника (или обновить отпечаток пароля)."""
-    from .models import TrustedDevice
-    if not valid_device(device) or not user.role:
-        return
-    TrustedDevice.objects.update_or_create(
-        user=user, key_hash=device_hash(device),
-        defaults={"password_mark": get_md5_hash_password(user.password)},
-    )
-
-
 def known_device(device) -> bool:
-    """Запомнено ли устройство хоть для кого-то (тогда на нём показываем ввод кода)."""
+    """Своё устройство кафе: здесь уже кто-то входил по коду."""
     from .models import TrustedDevice
     return valid_device(device) and TrustedDevice.objects.filter(key_hash=device_hash(device)).exists()
 
 
-def find_user(device: str, pin: str):
-    """
-    (сотрудник, None) — код верный и сотрудник уже входил на этом устройстве по паролю.
-    (None, "wrong") — такого кода нет; (None, "not_here") — код есть, но на этом устройстве ещё не было входа по паролю.
-    """
+def _guard(device: str, ip: str, known: bool):
+    """Имя счётчика ошибок и «откуда» для login_guard: своё устройство — по устройству, новое — по IP."""
+    return ("pin-device", "dev:" + device_hash(device)[:16]) if known else ("pin-new", "ip:" + ip)
+
+
+def wait_minutes(device: str, ip: str) -> int:
+    """0 — можно пробовать; больше 0 — через сколько минут."""
+    known = known_device(device)
+    if not known and cache.get(NEW_DEVICES_KEY, 0) >= NEW_DEVICES_LIMIT:   # идёт подбор — новые устройства закрыты
+        return NEW_DEVICES_WINDOW // 60
+    return login_guard.wait_minutes(*_guard(device, ip, known))
+
+
+def check(device: str, ip: str, code: str):
+    """Проверить код. (сотрудник, 0) — входим; (None, сколько попыток осталось) — неверный код."""
     from .models import TrustedDevice, User
-    user = User.objects.filter(pin=pin, is_active=True).exclude(role="").first()
+    known = known_device(device)
+    user = None
+    if PIN_RE.match(code or ""):
+        user = User.objects.filter(pin_hash=pin_hash(code), is_active=True).exclude(role="").first()
     if user is None:
-        return None, "wrong"
-    trusted = TrustedDevice.objects.filter(user=user, key_hash=device_hash(device)).first()
-    if trusted is None or trusted.password_mark != get_md5_hash_password(user.password):   # не входил или сменили пароль
-        return None, "not_here"
-    trusted.last_used_at = timezone.now()
-    trusted.save(update_fields=["last_used_at"])
-    return user, None
+        if not known:
+            if cache.add(NEW_DEVICES_KEY, 1, NEW_DEVICES_WINDOW) is False:   # общий счётчик новых устройств
+                try:
+                    cache.incr(NEW_DEVICES_KEY)
+                except ValueError:
+                    cache.set(NEW_DEVICES_KEY, 1, NEW_DEVICES_WINDOW)
+        left = login_guard.record_failure(*_guard(device, ip, known))
+        return None, left
+    login_guard.record_success(*_guard(device, ip, known))
+    if valid_device(device):                                       # запоминаем: это своё устройство кафе
+        TrustedDevice.objects.update_or_create(user=user, key_hash=device_hash(device),
+                                               defaults={"password_mark": "", "last_used_at": timezone.now()})
+    return user, 0

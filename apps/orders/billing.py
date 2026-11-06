@@ -226,7 +226,7 @@ def bill_title(orders) -> str:
     if first.kind == Order.Kind.PICKUP:
         return f"Самовывоз №{first.id}"
     if all(o.kind == Order.Kind.TAKEAWAY for o in orders):
-        return f"С собой · {first.table}"
+        return f"С собой · {first.table}" if first.table_id else f"С собой №{first.id}"
     return str(first.table)
 
 

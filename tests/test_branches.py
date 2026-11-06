@@ -196,11 +196,11 @@ class StaffManagementTests(BranchBase):
 
     def test_new_staff_go_to_current_branch(self):
         self.as_user(self.admin2)
-        new = self.client.post("/api/admin/staff/", {"username": "cook-b2", "password": PASSWORD, "role": "cook"},
+        new = self.client.post("/api/admin/staff/", {"username": "cook-b2", "password": PASSWORD, "role": "cook", "pin": "3001"},
                                format="json")
         self.assertEqual(User.objects.get(pk=new.data["id"]).branch, self.b2)
         self.as_user(self.programmer)
-        chef2 = self.client.post("/api/admin/staff/", {"username": "chef2", "password": PASSWORD, "role": "chef"},
+        chef2 = self.client.post("/api/admin/staff/", {"username": "chef2", "password": PASSWORD, "role": "chef", "pin": "3002"},
                                  format="json", HTTP_X_BRANCH=str(self.b2.id))
         self.assertIsNone(User.objects.get(pk=chef2.data["id"]).branch)   # шеф — без филиала
 

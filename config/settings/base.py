@@ -33,6 +33,12 @@ DJANGO_ADMIN_URL = os.getenv("DJANGO_ADMIN_URL", "admin/")
 # Тот же адрес прописан в nginx; бот и уведомления ведут сотрудников туда
 STAFF_PANEL_PATH = "/" + os.getenv("STAFF_PANEL_PATH", "admin").strip("/")
 
+# Вход в панель: сейчас — по логину и паролю (как раньше).
+# Вход по коду сотрудника (как в 1С, apps/users/pin_login.py) пока выключен; включим позже: PIN_LOGIN=1 в .env
+# (и pinLogin:true в runtime-config.js у nginx). PASSWORD_LOGIN=0 — выключить вход по паролю, когда будет код
+PASSWORD_LOGIN = os.getenv("PASSWORD_LOGIN", "1") == "1"
+PIN_LOGIN = os.getenv("PIN_LOGIN", "0") == "1"
+
 # ---------- ПРИЛОЖЕНИЯ ----------
 
 # Встроенные приложения Django

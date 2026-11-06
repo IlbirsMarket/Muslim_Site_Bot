@@ -554,3 +554,44 @@ input[type=time]::-webkit-date-and-time-value,input[type=date]::-webkit-date-and
 .pin-switch[hidden]{display:none!important}
 .sidebar footer .my-pin{background:none;border:0;color:inherit;font-size:13px;padding:6px 0;cursor:pointer;text-align:left}
 @media (prefers-color-scheme:dark){.pin-pad button{background:#1f2a1a;color:#fff;border-color:#2f3d28;box-shadow:0 2px 0 #111}.pin-dots i{border-color:#92CF16}.pin-dots i.on{background:#92CF16}.pin-switch{color:#92CF16}}
+/* Код без подсказки о длине: кружки появляются по мере набора */
+.pin-dots{min-height:28px;align-items:center}
+.pin-dots span{font-size:13px;color:#777}
+.no-pin{color:#E53935}
+#my-pin[hidden],#session-pin[hidden]{display:none!important}
+
+/* ===== «Заказ за гостя»: в том же стиле, что вся панель (заголовок, пилюли, карточки столов, панель) ===== */
+.qo-table{text-align:left;font:inherit;color:inherit;cursor:pointer;min-height:104px;touch-action:manipulation}
+.qo-table.bill{border-color:var(--red)}.qo-table.bill .tag{background:#fdecec;color:var(--red)}
+.qo-cats{flex-wrap:wrap}
+.qo-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+.qo-dishes{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;align-content:start}
+.qo-dish{position:relative;min-height:82px;background:white;border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:8px;text-align:left;font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
+.qo-dish strong{font-size:14px;line-height:1.25;padding-right:24px}.qo-dish span{font-weight:800;color:var(--green-ink);font-size:13px}
+.qo-dish .qo-count{position:absolute;top:8px;right:8px}
+.qo-dish.stop{opacity:.45;cursor:not-allowed}.qo-dish.stop span{color:var(--red)}
+.qo-check{position:sticky;top:12px;gap:12px}.qo-check h2{margin:0}
+.qo-lines{display:flex;flex-direction:column;max-height:calc(100dvh - 420px);overflow:auto}
+.qo-line{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px dashed var(--line)}
+.qo-line-name{flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:none;border:0;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer;font-size:14px}
+div.qo-line-name{cursor:default}.qo-line-name small{font-size:12px;color:var(--muted)}
+.qo-qty{display:flex;align-items:center;gap:6px}.qo-qty b{min-width:20px;text-align:center}
+.qo-qty .secondary{min-height:38px;width:38px;padding:0;font-size:18px}
+.qo-foot{display:flex;flex-direction:column;gap:10px}
+.qo-foot label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700}
+.qo-total{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:700}.qo-total strong{font-size:22px}
+.qo-send{min-height:52px;font-size:16px}
+.qo-extras{display:flex;flex-direction:column;gap:8px}
+.qo-extra{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:15px}
+.qo-extra input{width:22px;height:22px}.qo-extra span{flex:1}
+@media (max-width:1000px){
+  .qo-layout{grid-template-columns:minmax(0,1fr)}
+  .qo-check{position:static}.qo-lines{max-height:none}
+  .qo-foot{position:sticky;bottom:0;background:white;padding-top:10px;margin:0 -22px -22px;padding:12px 22px 22px;border-radius:0 0 15px 15px;box-shadow:0 -6px 14px #0000000d}
+}
+@media (max-width:550px){
+  .qo-cats{flex-wrap:nowrap;overflow-x:auto;width:100%}
+  .qo-dishes{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .qo-foot{bottom:72px;margin:0 -17px -17px;padding:12px 17px 17px}
+  .qo-foot textarea{height:44px;min-height:44px}
+}

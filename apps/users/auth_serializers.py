@@ -20,8 +20,6 @@ from rest_framework_simplejwt.utils import get_md5_hash_password      # «отп
 from core import login_guard                                          # общая защита от подбора пароля
 from core.client_ip import client_ip                                  # настоящий IP за nginx
 
-from .pin_login import remember_device                                # «запомнить устройство» для входа по коду
-
 
 class LoginSerializer(TokenObtainSerializer):
     """Тело запроса: {"username": "email или логин", "password": "...", "remember": true}."""
@@ -33,12 +31,12 @@ class LoginSerializer(TokenObtainSerializer):
 
     # Галочка «Запомнить меня». Если не прислали — считаем, что галочки нет
     remember = serializers.BooleanField(required=False, default=False)
-    # Ключ этого устройства из браузера: после входа по паролю здесь можно будет входить по коду из 2 цифр
+    # Ключ устройства (старые версии панели присылали его) — принимаем и не используем
     device = serializers.CharField(required=False, allow_blank=True, max_length=128)
 
     def validate(self, attrs):
         remember = attrs.pop("remember", False)                         # достаём галочку, дальше она не нужна
-        device = attrs.pop("device", "")                                # ключ устройства (может не быть)
+        attrs.pop("device", "")                                         # ключ устройства здесь не нужен (старый фронт мог прислать)
         login = attrs.get(self.username_field, "")                      # что ввели в поле «email или логин»
         source = "ip:" + client_ip(self.context.get("request"))         # откуда пытаются войти
 
@@ -62,7 +60,6 @@ class LoginSerializer(TokenObtainSerializer):
         data["remember"] = remember                                     # фронт по нему решит, где хранить токены
 
         update_last_login(None, self.user)                              # «последний вход» — виден в разделе сотрудников
-        remember_device(self.user, device)                              # дальше на этом устройстве — вход по коду
         return data
 
 
