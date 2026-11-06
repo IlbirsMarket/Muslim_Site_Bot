@@ -43,7 +43,7 @@
   const dash=(cols=COLS)=>'-'.repeat(cols);
 
   function Builder(page){
-    const enc=encoder(page),bytes=[ESC,0x40,ESC,0x74,page];          // сброс + кодовая страница
+    const enc=encoder(page),bytes=[ESC,0x40,0x1c,0x2e,ESC,0x74,page];   // сброс + выключить китайский режим (FS .) — иначе Xprinter печатает иероглифы + кодовая страница
     const api={
       text(s,{align=0,bold=false,tall=false}={}){
         bytes.push(ESC,0x61,align,ESC,0x45,bold?1:0,GS,0x21,tall?0x01:0x00);   // выравнивание, жирный, двойная высота
