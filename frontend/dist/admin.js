@@ -171,7 +171,7 @@
     const ago=m=>m>=60?`${Math.floor(m/60)} ч ${m%60} мин`:`${m} мин`;
     return heading('Заказ за гостя','Выберите стол — откроется меню','<button type="button" class="primary" data-qo="table" data-id="takeaway">С собой</button>')
       +(floors.length>1?`<div class="toolbar"><div class="pills">${floors.map(f=>`<button type="button" class="pill ${f===qo.floor?'active':''}" data-qo="floor" data-id="${f}" aria-pressed="${f===qo.floor}">${f} этаж</button>`).join('')}</div></div>`:'')
-      +`<div class="table-tiles">${tables.filter(t=>t.floor===qo.floor).map(t=>`<button type="button" class="table-tile qo-table ${t.bill_requested?'busy bill':t.busy?'busy':''}" data-qo="table" data-id="${t.id}"><strong>${esc(t.name)}</strong>`
+      +`<div class="table-tiles qo-tiles">${tables.filter(t=>t.floor===qo.floor).map(t=>`<button type="button" class="table-tile qo-table ${t.bill_requested?'busy bill':t.busy?'busy':''}" data-qo="table" data-id="${t.id}"><strong>${esc(t.name)}</strong>`
         +`<span class="tag">${t.bill_requested?'Просят счёт':t.busy?esc(money(t.total)):'Свободен'}</span>`
         +(t.busy||t.bill_requested?`<small>${esc(t.waiter||'')}${t.since?` · ${ago(mins(t))}`:''}</small>`:'')
         +`</button>`).join('')||'<div class="empty">Столов нет — добавьте их в «Столы и QR»</div>'}</div>`;
@@ -189,7 +189,7 @@
       +`<div class="toolbar"><div class="pills qo-cats">${qo.data.menu.map(c=>`<button type="button" class="pill ${!qo.search&&c.id===qo.cat?'active':''}" data-qo="cat" data-id="${c.id}" aria-pressed="${!qo.search&&c.id===qo.cat}">${esc(c.name)}</button>`).join('')}</div>`
       +`<input id="qo-search" type="search" aria-label="Поиск блюда" placeholder="Поиск блюда" value="${esc(qo.search)}" autocomplete="off"></div>`
       +`<div class="qo-layout"><div class="qo-dishes">${tiles||'<div class="empty">Ничего не найдено</div>'}</div>`
-      +`<aside class="panel qo-check"><h2>${qo.lines.length?'Новые позиции':'Нажмите на блюдо'}</h2><div class="qo-lines">${rows}</div>`
+      +`<aside class="panel qo-check"><h2>${qo.lines.length?`Новые позиции · ${qo.lines.reduce((s,l)=>s+l.qty,0)}`:'Нажмите на блюдо'}</h2><div class="qo-lines">${rows}</div>`
       +`<div class="qo-foot"><label>Комментарий для кухни<textarea id="qo-comment" rows="2" maxlength="500" placeholder="Например: без лука">${esc(qo.comment)}</textarea></label><div class="qo-total"><span>Итого</span><strong>${money(qoTotal())}</strong></div>`
       +`<button type="button" class="primary qo-send" data-qo="send" ${qo.lines.length?'':'disabled'}>Отправить на кухню</button></div></aside></div>`;
   }

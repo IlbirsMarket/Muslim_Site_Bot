@@ -589,9 +589,23 @@ div.qo-line-name{cursor:default}.qo-line-name small{font-size:12px;color:var(--m
   .qo-check{position:static}.qo-lines{max-height:none}
   .qo-foot{position:sticky;bottom:0;background:white;padding-top:10px;margin:0 -22px -22px;padding:12px 22px 22px;border-radius:0 0 15px 15px;box-shadow:0 -6px 14px #0000000d}
 }
-@media (max-width:550px){
+@media (max-width:550px){                                         /* телефон */
+  .qo-tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}   /* столы — в 2 колонки */
+  .qo-tiles .qo-table{min-height:92px;padding:12px;gap:6px}.qo-tiles .qo-table strong{font-size:15px}
   .qo-cats{flex-wrap:nowrap;overflow-x:auto;width:100%}
   .qo-dishes{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .qo-foot{bottom:72px;margin:0 -17px -17px;padding:12px 17px 17px}
-  .qo-foot textarea{height:44px;min-height:44px}
+  .qo-layout{padding-bottom:290px}                                /* место под чек внизу, чтобы он не закрывал блюда */
+  /* Чек для кухни — неподвижный, всегда виден над нижним меню */
+  .qo-check{position:fixed;top:auto;left:8px;right:8px;bottom:76px;z-index:30;padding:12px 14px;gap:8px;border-radius:16px;box-shadow:0 -6px 24px #00000026}
+  .qo-check h2{font-size:14px}
+  .qo-lines{max-height:104px;overflow:auto}
+  .qo-line{padding:5px 0}.qo-line-name{font-size:13px}
+  .qo-qty .secondary{min-height:32px;width:32px;font-size:16px}
+  .qo-foot{position:static;margin:0;padding:0;box-shadow:none;gap:8px}
+  .qo-foot label{font-size:0;gap:0}                               /* подпись прячем: хватает подсказки в поле */
+  .qo-foot textarea{height:40px;min-height:40px;font-size:16px!important;padding:8px 10px}   /* 16px — иначе iPhone увеличивает экран при вводе */
+  .qo-total{font-size:13px}.qo-total strong{font-size:18px}
+  .qo-send{min-height:46px;font-size:15px}
 }
+/* iPhone: быстрые нажатия подряд (+1 блюдо, −/+) не должны увеличивать экран. Двумя пальцами увеличить можно, как раньше */
+html,body,button,.qo-dish,.qo-table,.qo-qty button,.pill{touch-action:manipulation}
