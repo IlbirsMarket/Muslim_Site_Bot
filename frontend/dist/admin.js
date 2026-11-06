@@ -402,7 +402,8 @@
   function printKinds(config){const groups=config?.groups||['cash'];return PRINT_GROUPS.filter(([id])=>groups.includes(id)).flatMap(([, ,k])=>k);}
   function printSample(target){                                             // пробный чек для аппарата
     const now=new Date(),date=now.toLocaleDateString('ru-RU'),time=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
-    if(target==='kitchen1'||target==='kitchen2')return {kind:target,payload:{number:0,place:'ПРОБНЫЙ ЧЕК',staff_role:target==='kitchen1'?'Кухня 1':'Кухня 2',waiter:'',date,time,items:[{name:'Мясо по-казахски',extras:[],qty:2},{name:'Чай чёрный',extras:[],qty:1}],comment:''}};
+    if(target==='kitchen1')return {kind:target,payload:{number:0,place:'ПРОБНЫЙ ЧЕК',staff_role:'Кухня 1 (горячее)',waiter:'',date,time,items:[{name:'Мясо по-казахски',extras:[],qty:2},{name:'Шорпо',extras:[],qty:1}],comment:'Пробный чек горячей кухни'}};
+    if(target==='kitchen2')return {kind:target,payload:{number:0,place:'ПРОБНЫЙ ЧЕК',staff_role:'Кухня 2 (фастфуд)',waiter:'',date,time,items:[{name:'Бургер',extras:['Сыр'],qty:2},{name:'Пицца 30 см',extras:[],qty:1}],comment:'Пробный чек фастфуда'}};   // у каждой кухни свой пробный чек — их не перепутать
     return MuslimReceipt.sample(branchName());
   }
   function printerPanel(){
