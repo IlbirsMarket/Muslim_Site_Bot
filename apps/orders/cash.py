@@ -108,6 +108,22 @@ def waiters(shift) -> dict:
             "amount": sum(p["amount"] for p in people)}
 
 
+def waiter_orders(shift, waiter_id) -> list:
+    """Заказы одного официанта за смену (те же, что в его сумме): стол, когда открыт и оплачен, что заказали, чек."""
+    from .billing import paid_receipt
+    end = shift.closed_at or timezone.now()
+    orders = (Order.objects.filter(branch=shift.branch, paid_at__gte=shift.opened_at, paid_at__lt=end,
+                                   kind=Order.Kind.HALL, claimed_by_id=waiter_id)
+              .select_related("table", "branch", "claimed_by", "accepted_by", "paid_by").prefetch_related("items").order_by("-paid_at"))
+    return [{
+        "id": o.id, "table": str(o.table) if o.table_id else "", "created_at": o.created_at, "paid_at": o.paid_at,
+        "total": o.total, "method": o.get_paid_method_display(),
+        "items": [{"name": i.dish_name + (f" {i.size_name}" if i.size_name else ""), "extras": [e.get("name", "") for e in (i.extras or [])],
+                   "qty": i.quantity, "sum": i.unit_price * i.quantity} for i in o.items.all()],
+        "receipt": paid_receipt([o]),                                          # чек об оплате — показать и напечатать копию
+    } for o in orders]
+
+
 @transaction.atomic
 def save_waiters(branch, mode, percent, amounts) -> dict:
     """«Сохранить»: способ (процент / вручную), процент и суммы каждому официанту."""

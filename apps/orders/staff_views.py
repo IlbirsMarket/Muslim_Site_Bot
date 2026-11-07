@@ -302,8 +302,13 @@ class CashWaitersView(APIView):
 
     @extend_schema(responses={200: dict})
     def get(self, request):
-        from .cash import current_shift, waiters
+        from .cash import current_shift, waiter_orders, waiters
         shift = current_shift(staff_branch(request))
+        waiter = request.query_params.get("waiter")                   # ?waiter=7 — заказы одного официанта
+        if waiter:
+            if not shift or not str(waiter).isdigit():
+                return Response([])
+            return Response(waiter_orders(shift, int(waiter)))
         return Response(waiters(shift) if shift else None)
 
     @extend_schema(request=dict, responses={200: dict})

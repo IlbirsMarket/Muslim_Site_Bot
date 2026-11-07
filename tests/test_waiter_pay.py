@@ -61,3 +61,12 @@ class WaiterPayTests(BaseAPITest):
     def test_waiter_cannot_see(self):
         self.as_user(self.waiter)
         self.assertEqual(self.client.get(URL).status_code, 403)
+
+    def test_waiter_orders_list(self):
+        number = self.table_order(self.waiter, [{"dish_id": self.burger.id, "quantity": 2}])
+        self.table_order(self.waiter, [{"dish_id": self.burger.id, "quantity": 1}], pay=False)     # не оплачен — не в списке
+        self.as_user(self.cashier)
+        rows = self.client.get(URL + f"?waiter={self.waiter.id}").data
+        self.assertEqual([r["id"] for r in rows], [number])
+        self.assertEqual((rows[0]["items"][0]["name"], rows[0]["items"][0]["qty"], rows[0]["total"]), ("Чизбургер", 2, 780))
+        self.assertEqual(rows[0]["receipt"]["total"], 780)

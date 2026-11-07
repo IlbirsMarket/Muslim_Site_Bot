@@ -295,7 +295,7 @@
     const w=await API.request('/staff/cash/waiters/');cache.wp=w;
     if(!w)return '';
     const manual=w.mode==='manual';
-    const rows=w.rows.map(r=>`<tr><td><b>${esc(r.name)}</b></td><td class="num">${r.orders}</td><td class="num">${money(r.total)}</td><td class="num"><input class="wp-amount" data-wp-id="${r.id}" data-wp-total="${r.total}" type="number" min="0" inputmode="numeric" value="${r.amount}" ${w.paid_out?'disabled':''}></td></tr>`).join('');
+    const rows=w.rows.map(r=>`<tr><td><button type="button" class="wp-name" data-wp="orders" data-wp-id="${r.id}" data-wp-name="${esc(r.name)}" title="Посмотреть заказы"><b>${esc(r.name)}</b><small>Заказы ›</small></button></td><td class="num">${r.orders}</td><td class="num">${money(r.total)}</td><td class="num"><input class="wp-amount" data-wp-id="${r.id}" data-wp-total="${r.total}" type="number" min="0" inputmode="numeric" value="${r.amount}" ${w.paid_out?'disabled':''}></td></tr>`).join('');
     return `<section class="panel waiters-pay"><h2>Официанты за смену</h2>`
       +(w.rows.length?`<div class="wp-controls"><b>Выплата:</b><div class="pills"><button type="button" class="pill ${manual?'':'active'}" data-wp="mode" data-wp-mode="percent">Процент от суммы</button><button type="button" class="pill ${manual?'active':''}" data-wp="mode" data-wp-mode="manual">Сумма вручную</button></div>`
         +(manual?'':`<label class="wp-percent"><input id="wp-percent" type="number" min="0" max="100" step="0.5" inputmode="decimal" value="${w.percent||''}" placeholder="5" ${w.paid_out?'disabled':''}> %</label><button type="button" class="secondary" data-wp="calc" ${w.paid_out?'disabled':''}>Посчитать всем</button>`)+`</div>`
@@ -304,6 +304,17 @@
         +`<p class="fine">Считаются оплаченные за эту смену столы, которые вёл официант. Сумму у любого можно исправить вручную.${w.paid_out?' <b>Выдано из кассы.</b>':''}</p>`
         +`<div class="actions">${w.paid_out?'':'<button type="button" class="primary" data-wp="save">Сохранить</button><button type="button" class="secondary" data-wp="payout">Выдать из кассы</button>'}<button type="button" class="secondary" data-wp="print">🖨 Напечатать</button></div>`
         :'<p class="fine">За эту смену ещё нет оплаченных столов официантов.</p>')+`</section>`;
+  }
+  // Заказы официанта за смену: дата, открыт → оплачен, стол, сумма; нажать — что заказали, кнопка «Чек»
+  async function waiterOrders(id,name){
+    const list_=await API.request(`/staff/cash/waiters/?waiter=${encodeURIComponent(id)}`);cache.wo=list(list_);cache.woWaiter={id,name};
+    const date=iso=>new Date(iso).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'});
+    $('#editor-title').textContent=`Заказы · ${name}`;
+    $('#editor-content').innerHTML=`<div class="wo-list"><p class="fine">Оплаченные столы за эту смену: ${cache.wo.length} · ${money(cache.wo.reduce((s,o)=>s+o.total,0))}</p>`
+      +(cache.wo.map((o,i)=>`<details class="wo-row"><summary><span class="wo-when"><b>${date(o.created_at)}</b> ${billTime(o.created_at)} → ${billTime(o.paid_at)}</span><span class="wo-table"><b>${esc(o.table)}</b><small>Заказ №${o.id} · ${esc(o.method)}</small></span><strong>${money(o.total)}</strong></summary>`
+        +`<div class="wo-items">${o.items.map(it=>`<div class="split-line"><span>${esc(it.name)} × ${it.qty}${it.extras.length?`<small> + ${esc(it.extras.join(', '))}</small>`:''}</span><span>${money(it.sum)}</span></div>`).join('')}`
+        +`<button type="button" class="secondary" data-wp="receipt" data-wp-index="${i}">🧾 Чек</button></div></details>`).join('')||'<p class="empty">Оплаченных столов за смену нет</p>')+`</div>`;
+    if(!editor.open)editor.showModal();
   }
   function waitersPayload(){
     const amounts={};document.querySelectorAll('.wp-amount').forEach(i=>{if(i.value!=='')amounts[i.dataset.wpId]=Number(i.value);});
@@ -317,6 +328,11 @@
     if(what==='save'){await API.request('/staff/cash/waiters/',{method:'POST',body:waitersPayload()});toast('Выплаты официантам сохранены');await render(true);return;}
     if(what==='payout'){await API.request('/staff/cash/waiters/',{method:'POST',body:waitersPayload()});const sum=[...document.querySelectorAll('.wp-amount')].reduce((s,i)=>s+Number(i.value||0),0);
       confirm('Выдать официантам из кассы?',`${money(sum)} — запишется изъятием «Официантам», «Должно быть в кассе» уменьшится.`,async()=>{await API.request('/staff/cash/waiters/?action=payout',{method:'POST',body:{}});toast('Выдано из кассы');await render(true);});return;}
+    if(what==='orders'){await waiterOrders(button.dataset.wpId,button.dataset.wpName);return;}                   // заказы официанта за смену
+    if(what==='receipt'){const o=cache.wo?.[Number(button.dataset.wpIndex)];if(!o)return;                        // чек об оплате заказа
+      showReceipt(`Чек · ${o.table||'Заказ №'+o.id}`,`Заказ №${o.id} · оплачен в ${billTime(o.paid_at)} · ${esc(o.method)}`,{kind:'receipt',payload:o.receipt},`data-wp="copy" data-wp-index="${button.dataset.wpIndex}"`);return;}
+    if(what==='copy'){const o=cache.wo?.[Number(button.dataset.wpIndex)];if(!o)return;await API.request('/staff/cash/receipt-copy/',{method:'POST',body:{orders:[o.id]}});toast('Копия чека отправлена на чековый аппарат');return;}
+    if(what==='back'){await waiterOrders(cache.woWaiter.id,cache.woWaiter.name);return;}
     if(what==='print'){if(!cache.wp?.paid_out)await API.request('/staff/cash/waiters/',{method:'POST',body:waitersPayload()});await API.request('/staff/cash/waiters/?action=print',{method:'POST',body:{}});toast('Отправлено на чековый аппарат');return;}
   }
   document.addEventListener('input',event=>{if(event.target.classList?.contains('wp-amount'))waitersSum();});

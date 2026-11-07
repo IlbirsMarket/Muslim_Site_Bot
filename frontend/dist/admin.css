@@ -617,3 +617,16 @@ html,body,button,.qo-dish,.qo-table,.qo-qty button,.pill{touch-action:manipulati
 .waiters-pay .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
 @media(max-width:550px){.wp-table input{width:90px}}
 .wp-percent{flex-direction:row!important;align-items:center}.wp-table .num{text-align:right}
+
+/* Заказы официанта за смену */
+.wp-name{background:none;border:0;padding:0;text-align:left;cursor:pointer;color:inherit;font:inherit;display:flex;flex-direction:column}
+.wp-name small{color:var(--green-ink);font-weight:700;font-size:11px;text-decoration:underline}
+.wo-list{display:flex;flex-direction:column;gap:8px}
+.wo-row{border:1px solid var(--line);border-radius:12px;background:white}
+.wo-row summary{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;list-style:none}
+.wo-row summary::-webkit-details-marker{display:none}
+.wo-when{font-size:13px;color:var(--muted);min-width:118px}.wo-when b{color:var(--ink)}
+.wo-table{flex:1;display:flex;flex-direction:column}.wo-table small{color:var(--muted);font-size:11px}
+.wo-row[open] summary{border-bottom:1px dashed var(--line)}
+.wo-items{padding:10px 14px 14px;display:flex;flex-direction:column;gap:6px}.wo-items .secondary{align-self:flex-start;margin-top:6px}
+.wo-items small{color:var(--muted)}
