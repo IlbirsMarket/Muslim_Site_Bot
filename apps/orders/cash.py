@@ -82,6 +82,86 @@ def move(branch, user, kind, amount, comment="") -> CashMove:
     return CashMove.objects.create(shift=shift, kind=kind, amount=amount, comment=(comment or "")[:150], created_by=user)
 
 
+# ===================== ОФИЦИАНТЫ ЗА СМЕНУ =====================
+
+def waiters(shift) -> dict:
+    """
+    Официанты за смену кассы: оплаченные за смену заказы зала, которые вёл официант (взял стол / вбил заказ),
+    сколько столов и на какую сумму, и выплата — процентом от суммы или вписанная вручную.
+    """
+    end = shift.closed_at or timezone.now()
+    rows = (Order.objects.filter(branch=shift.branch, paid_at__gte=shift.opened_at, paid_at__lt=end,
+                                 kind=Order.Kind.HALL, claimed_by__isnull=False, claimed_by__role="waiter")
+            .values("claimed_by", "claimed_by__first_name", "claimed_by__last_name", "claimed_by__username")
+            .annotate(orders=Count("id"), total=Sum("total")).order_by("-total"))
+    pay = shift.waiter_pay or {}
+    mode, percent, amounts = pay.get("mode", "percent"), pay.get("percent", 0) or 0, pay.get("amounts", {}) or {}
+    people = []
+    for row in rows:
+        name = f"{row['claimed_by__first_name']} {row['claimed_by__last_name']}".strip() or row["claimed_by__username"]
+        total = row["total"] or 0
+        saved = amounts.get(str(row["claimed_by"]))
+        amount = saved if saved is not None else (round(total * percent / 100) if mode == "percent" else 0)
+        people.append({"id": row["claimed_by"], "name": name, "orders": row["orders"], "total": total, "amount": amount})
+    return {"mode": mode, "percent": percent, "rows": people, "paid_out": bool(pay.get("paid_out")),
+            "orders": sum(p["orders"] for p in people), "total": sum(p["total"] for p in people),
+            "amount": sum(p["amount"] for p in people)}
+
+
+@transaction.atomic
+def save_waiters(branch, mode, percent, amounts) -> dict:
+    """«Сохранить»: способ (процент / вручную), процент и суммы каждому официанту."""
+    shift = CashShift.objects.select_for_update().filter(branch=branch, closed_at__isnull=True).first()
+    if not shift:
+        raise ValidationError("Откройте смену в «Кассе».")
+    if mode not in ("percent", "manual"):
+        raise ValidationError("Выберите: процент или сумма вручную.")
+    try:
+        percent = float(percent or 0)
+        clean = {str(int(k)): int(v) for k, v in (amounts or {}).items() if v not in (None, "")}
+    except (TypeError, ValueError):
+        raise ValidationError("Суммы и процент — только числа.")
+    if not 0 <= percent <= 100 or any(v < 0 for v in clean.values()):
+        raise ValidationError("Процент — от 0 до 100, суммы — не меньше 0.")
+    shift.waiter_pay = {**(shift.waiter_pay or {}), "mode": mode, "percent": percent, "amounts": clean}
+    shift.save(update_fields=["waiter_pay"])
+    return waiters(shift)
+
+
+@transaction.atomic
+def pay_out_waiters(branch, user) -> dict:
+    """«Выдать из кассы»: общая сумма выплат — изъятие «Официантам» (один раз за смену)."""
+    shift = CashShift.objects.select_for_update().filter(branch=branch, closed_at__isnull=True).first()
+    if not shift:
+        raise ValidationError("Откройте смену в «Кассе».")
+    data = waiters(shift)
+    if data["paid_out"]:
+        raise ValidationError("Официантам уже выдано из кассы в эту смену.")
+    if data["amount"] <= 0:
+        raise ValidationError("Сначала посчитайте и сохраните выплаты.")
+    move(branch, user, CashMove.Kind.OUT, data["amount"], "Официантам")
+    shift.waiter_pay = {**(shift.waiter_pay or {}), "paid_out": True}
+    shift.save(update_fields=["waiter_pay"])
+    return waiters(shift)
+
+
+def _waiters_print(data) -> dict:
+    """Блок «ОФИЦИАНТЫ» для чека: кто, сколько столов, сумма, выплата."""
+    return {"waiters": [{"name": r["name"], "orders": r["orders"], "total": r["total"], "amount": r["amount"]} for r in data["rows"]],
+            "waiters_percent": data["percent"] if data["mode"] == "percent" else None, "waiters_amount": data["amount"]}
+
+
+def print_waiters(branch) -> None:
+    """«Напечатать»: список официантов за смену на чековый аппарат зала."""
+    shift = current_shift(branch)
+    if not shift:
+        raise ValidationError("Откройте смену в «Кассе».")
+    now = timezone.localtime()
+    add_job(branch, PrintJob.Kind.SHIFT, {"title": "ОФИЦИАНТЫ ЗА СМЕНУ", "waiters_only": True, "branch": branch.name,
+                                          "date": f"{now:%d.%m.%Y}", "opened": f"{timezone.localtime(shift.opened_at):%H:%M}",
+                                          "closed": f"{now:%H:%M}", "cashier": _person(shift.opened_by), **_waiters_print(waiters(shift))})
+
+
 def _payload(shift, data) -> dict:
     """Отчёт за смену для чекового аппарата."""
     opened = timezone.localtime(shift.opened_at)
@@ -93,6 +173,7 @@ def _payload(shift, data) -> dict:
         "opening_cash": shift.opening_cash, "counted": shift.counted_cash,
         "difference": shift.counted_cash - data["expected"],
         **{k: data[k] for k in ("cash", "card", "total", "orders", "cash_in", "cash_out", "expected")},
+        **_waiters_print(waiters(shift)),                                          # официанты и их выплаты
     }
 
 

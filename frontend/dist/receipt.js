@@ -29,9 +29,13 @@
     }
     if(job.kind==='shift'){                                                                   // «ОТЧЁТ ЗА СМЕНУ»
       const signed=n=>`${n<0?'−':''}${sum(Math.abs(n))}`;
+      const waiters=p.waiters?.length?`<div class="b">ОФИЦИАНТЫ${p.waiters_percent?` (${esc(p.waiters_percent)}%)`:''}</div>`
+        +p.waiters.map(w=>row(`${esc(w.name)} · ${esc(w.orders)} ст. · ${sum(w.total)}`,sum(w.amount))).join('')+row('ВСЕГО ОФИЦИАНТАМ',sum(p.waiters_amount),'b')+line:'';   // выплаты официантам
+      if(p.waiters_only)return `<div class="c b">КАФЕ "МУСЛИМ"</div>${p.branch?`<div class="c">${esc(p.branch)}</div>`:''}<div class="c big">${esc(p.title)}</div>${line}`
+        +`<div>Дата: ${esc(p.date)}</div><div>Смена: ${esc(p.opened)} – ${esc(p.closed)}</div><div>Кассир: ${esc(p.cashier)}</div>${line}`+waiters+'<br><div>Подпись ____________</div>';
       return `<div class="c b">КАФЕ "МУСЛИМ"</div>${p.branch?`<div class="c">${esc(p.branch)}</div>`:''}<div class="c big">${esc(p.title)}</div>${line}`
         +`<div>Дата: ${esc(p.date)}</div><div>Смена: ${esc(p.opened)} – ${esc(p.closed)}</div><div>Кассир: ${esc(p.cashier)}</div>${p.closed_by&&p.closed_by!==p.cashier?`<div>Закрыл: ${esc(p.closed_by)}</div>`:''}${line}`
-        +row('Счетов оплачено',p.orders)+row('Наличные',sum(p.cash))+row('Карта',sum(p.card))+row('ВСЕГО',sum(p.total),'b')+line
+        +row('Счетов оплачено',p.orders)+row('Наличные',sum(p.cash))+row('Карта',sum(p.card))+row('ВСЕГО',sum(p.total),'b')+line+waiters
         +row('В кассе на начало',sum(p.opening_cash))+row('+ Наличные',sum(p.cash))+(p.cash_in?row('+ Внесение',sum(p.cash_in)):'')+(p.cash_out?row('− Изъятие',sum(p.cash_out)):'')
         +row('ДОЛЖНО БЫТЬ',sum(p.expected),'b')+row('ПО ФАКТУ',sum(p.counted))+row('РАЗНИЦА',signed(p.difference),'b')+line
         +'<br><div>Подпись кассира ____________</div>';

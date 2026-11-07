@@ -227,11 +227,10 @@ def change_status(order, action: str, user, reason: str = "") -> Order:
 
     order.save(update_fields=fields)                                # сохраняем
     OrderStatusLog.objects.create(order=order, status=order.status, changed_by=user)  # пишем в историю
-    from .billing import pay_on_delivery, print_order               # чеки (импорт здесь — без кругового импорта)
+    from .billing import print_order                                # чеки (импорт здесь — без кругового импорта)
     if action == "accept":
         print_order(order)                                          # подтвердили — чек «ЗАКАЗ» на кассовый аппарат
-    if action == "complete" and order.kind == K.DELIVERY:
-        pay_on_delivery(order, user)                                # доставлен — курьер взял деньги, чек об оплате
+    # «Доставлен» / «Подан» — это ещё не оплата: заказ остаётся в «К оплате», пока не нажмут «Оплатить»
     if action == "complete" and at_table(order) and order.paid_at:
         from .billing import free_if_settled
         free_if_settled(order.table, user)                          # заплатили заранее, подали последнее — стол свободен

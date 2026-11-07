@@ -113,14 +113,29 @@
   }
 
   // Отчёт за смену
+  // Блок «ОФИЦИАНТЫ»: имя, столов, сумма столов, выплата
+  function waitersBlock(b,p){
+    if(!p.waiters?.length)return;
+    b.text(`ОФИЦИАНТЫ${p.waiters_percent?` (${p.waiters_percent}%)`:''}`,{bold:true});
+    p.waiters.forEach(w=>{const name=String(w.name).slice(0,14).padEnd(14),n=`${w.orders} ст.`.padStart(7);
+      b.text(lr(`${name}${n}`,`${money(w.total).padStart(12)} ${money(w.amount).padStart(10)}`));});
+    b.text(lr('ВСЕГО ОФИЦИАНТАМ',money(p.waiters_amount)),{bold:true}).line();
+  }
+
   function shift(b,p){
     const signed=n=>`${n<0?'-':''}${money(Math.abs(n))}`;
     b.center('КАФЕ "МУСЛИМ"');if(p.branch)b.center(p.branch);
     b.center(p.title||'ОТЧЁТ ЗА СМЕНУ',{bold:true}).line();
+    if(p.waiters_only){                                               // «Официанты за смену» отдельным чеком
+      b.text(`Дата: ${p.date}`).text(`Смена: ${p.opened} - ${p.closed}`).text(`Кассир: ${p.cashier}`).line();
+      waitersBlock(b,p);b.feed(1).text('Подпись ____________');return;
+    }
     b.text(`Дата: ${p.date}`).text(`Смена: ${p.opened} - ${p.closed}`).text(`Кассир: ${p.cashier}`);
     if(p.closed_by&&p.closed_by!==p.cashier)b.text(`Закрыл: ${p.closed_by}`);
     b.line().text(lr('Счетов оплачено',String(p.orders))).text(lr('Наличные',money(p.cash))).text(lr('Карта',money(p.card)))
-      .text(lr('ВСЕГО',money(p.total)),{bold:true}).line()
+      .text(lr('ВСЕГО',money(p.total)),{bold:true}).line();
+    waitersBlock(b,p);
+    b
       .text(lr('В кассе на начало',money(p.opening_cash))).text(lr('+ Наличные',money(p.cash)));
     if(p.cash_in)b.text(lr('+ Внесение',money(p.cash_in)));
     if(p.cash_out)b.text(lr('- Изъятие',money(p.cash_out)));

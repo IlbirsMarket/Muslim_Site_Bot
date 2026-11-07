@@ -100,7 +100,7 @@ class BillingTests(BaseAPITest):
         self.assertEqual(self.pay([number], user=other).status_code, 403)    # стол ведёт другой официант
         self.assertEqual(self.pay([number], user=self.waiter).status_code, 200)
 
-    def test_delivery_paid_when_delivered(self):
+    def test_delivery_not_paid_until_pay(self):
         self.as_user(None)
         body = {"table_token": self.delivery.token, "items": [{"dish_id": self.burger.id, "quantity": 3}], "order_type": "delivery",
                 "customer_name": "Бекзат", "phone": "+996700000000", "address": "Чуй 1", "payment_method": "card"}
@@ -108,7 +108,9 @@ class BillingTests(BaseAPITest):
         for user, action in [(self.admin, "accept"), (self.cook, "cook"), (self.cook, "ready"), (self.admin, "send"), (self.admin, "complete")]:
             self.act(user, number, action)
         order = Order.objects.get(pk=number)
-        self.assertEqual((order.paid_method, order.paid_card), ("card", order.total))
+        self.assertIsNone(order.paid_at)                                      # «Доставлен» — ещё не оплата
+        self.assertIn(number, [n for b in self.bills() for n in b["orders"]])  # ждёт в «К оплате»
+        self.assertEqual(self.pay([number], "card").status_code, 200)         # оплатили — тогда чек об оплате
         kinds = [j.kind for j in PrintJob.objects.order_by("id")]
         self.assertEqual(kinds, ["kitchen1", "order", "receipt"])
         receipt = PrintJob.objects.last().payload

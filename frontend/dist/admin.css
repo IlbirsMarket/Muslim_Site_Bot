@@ -609,3 +609,11 @@ div.qo-line-name{cursor:default}.qo-line-name small{font-size:12px;color:var(--m
 }
 /* iPhone: быстрые нажатия подряд (+1 блюдо, −/+) не должны увеличивать экран. Двумя пальцами увеличить можно, как раньше */
 html,body,button,.qo-dish,.qo-table,.qo-qty button,.pill{touch-action:manipulation}
+
+/* ===== «Касса» → «Официанты»: выплаты за смену ===== */
+.wp-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.wp-percent{display:flex;align-items:center;gap:6px;font-weight:700}.wp-percent input{width:80px}
+.wp-table input{width:120px;text-align:right}
+.waiters-pay .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+@media(max-width:550px){.wp-table input{width:90px}}
+.wp-percent{flex-direction:row!important;align-items:center}.wp-table .num{text-align:right}

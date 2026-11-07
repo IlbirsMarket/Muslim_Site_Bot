@@ -4,7 +4,7 @@ from django.urls import path                       # описание адрес
 from rest_framework.routers import DefaultRouter   # автоматические адреса для ViewSet
 
 from .staff_views import (
-    BillListView, BillPayView, BillPreviewView, BillPrintView, CashCloseView, CashMoveView, CashOpenView, CashView, CloseTableVisitView, OrderTicketView, ReceiptCopyView, ShiftCopyView, OrderReprintView, PrintJobClaimView,
+    BillListView, BillPayView, BillPreviewView, BillPrintView, CashCloseView, CashWaitersView, CashMoveView, CashOpenView, CashView, CloseTableVisitView, OrderTicketView, ReceiptCopyView, ShiftCopyView, OrderReprintView, PrintJobClaimView,
     QuickOrderView, StaffOrderViewSet, StaffTableCallViewSet,
 )
 from .views import ChangesVersionView, OrderCreateView, OrderPublicDetailView, TableCallCreateView, TelegramGuestContactView
@@ -29,6 +29,7 @@ urlpatterns = [
     path("staff/cash/open/", CashOpenView.as_view(), name="cash-open"),                          # POST открыть смену
     path("staff/cash/move/", CashMoveView.as_view(), name="cash-move"),                          # POST внесение / изъятие
     path("staff/cash/close/", CashCloseView.as_view(), name="cash-close"),                       # POST закрыть смену
+    path("staff/cash/waiters/", CashWaitersView.as_view(), name="cash-waiters"),                 # официанты за смену: выплаты
     path("staff/cash/receipt-copy/", ReceiptCopyView.as_view(), name="receipt-copy"),            # POST копия чека
     path("staff/cash/shift-copy/", ShiftCopyView.as_view(), name="shift-copy"),                  # POST копия отчёта смены
     path("staff/quick-order/", QuickOrderView.as_view(), name="quick-order"),                    # «Заказ за гостя»: столы + меню / новый заказ

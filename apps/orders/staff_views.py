@@ -291,6 +291,34 @@ class CashCloseView(APIView):
         return Response(close_shift(staff_branch(request), request.user, _int(request, "counted", True)))
 
 
+class CashWaitersView(APIView):
+    """
+    GET  /api/staff/cash/waiters/ — официанты за открытую смену: столы, сумма, выплата.
+    POST /api/staff/cash/waiters/ {"mode": "percent"|"manual", "percent": 5, "amounts": {"7": 1069}} — сохранить выплаты.
+    POST /api/staff/cash/waiters/?action=payout — выдать из кассы (изъятие «Официантам»); ?action=print — напечатать.
+    """
+
+    permission_classes = [IsCashierOrAdmin]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        from .cash import current_shift, waiters
+        shift = current_shift(staff_branch(request))
+        return Response(waiters(shift) if shift else None)
+
+    @extend_schema(request=dict, responses={200: dict})
+    def post(self, request):
+        from . import cash
+        branch, action = staff_branch(request), request.query_params.get("action")
+        if action == "payout":
+            return Response(cash.pay_out_waiters(branch, request.user))
+        if action == "print":
+            cash.print_waiters(branch)
+            return Response({"ok": True})
+        data = request.data if isinstance(request.data, dict) else {}
+        return Response(cash.save_waiters(branch, data.get("mode"), data.get("percent"), data.get("amounts")))
+
+
 class ShiftCopyView(APIView):
     """POST /api/staff/cash/shift-copy/ {"id": 5} — копия отчёта закрытой смены на чековый аппарат."""
 

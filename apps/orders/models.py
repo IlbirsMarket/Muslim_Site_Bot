@@ -275,6 +275,8 @@ class CashShift(models.Model):
     )
     counted_cash = models.PositiveIntegerField("Наличных по факту, сом", null=True, blank=True)
     report = models.JSONField("Итоги смены", default=dict, blank=True)              # снимок цифр при закрытии
+    # Выплата официантам за смену: {"mode": "percent"|"manual", "percent": 5, "amounts": {"<id>": сумма}, "paid_out": true}
+    waiter_pay = models.JSONField("Выплата официантам", default=dict, blank=True)
 
     class Meta:
         ordering = ["-opened_at"]
