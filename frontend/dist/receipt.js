@@ -15,7 +15,7 @@
   // Гость доставки / самовывоза
   function guest(p){
     return [p.customer&&`Гость: ${esc(p.customer)}`,p.phone&&`Тел: ${esc(p.phone)}`,p.address&&`Адрес: ${esc(p.address)}`,
-      p.courier_comment&&`Курьеру: ${esc(p.courier_comment)}`,p.guest_payment&&`Оплата: ${esc(p.guest_payment)}`].filter(Boolean).map(t=>`<div>${t}</div>`).join('');
+      p.courier_comment&&`Комментарий курьеру: ${esc(p.courier_comment)}`,p.guest_payment&&`Оплата: ${esc(p.guest_payment)}`].filter(Boolean).map(t=>`<div>${t}</div>`).join('');
   }
 
   function body(job){
@@ -44,7 +44,7 @@
     const copy=/КОПИЯ/.test(p.title||'');
     return `<div class="c b">КАФЕ "МУСЛИМ"</div><div class="c title">СЧЕТ №&nbsp;${esc(p.number)}</div>${copy?'<div class="c">КОПИЯ</div>':''}${line}`
       +`<div class="fields">${field('Дата',esc(p.date))}${field('Открыт',esc(opened)+(p.closed?` Закрыт: ${esc(p.closed)}`:''))}${field('Место',esc(p.place))}${field(esc(p.staff_role||'Официант'),esc(p.waiter||'—'))}`
-      +`${field('Гость',esc(p.customer))}${field('Тел',esc(p.phone))}${field('Адрес',esc(p.address))}${field('Курьеру',esc(p.courier_comment))}${!pay?field('Оплата',esc(p.guest_payment)):''}</div>`
+      +`${field('Гость',esc(p.customer))}${field('Тел',esc(p.phone))}${field('Адрес',esc(p.address))}${field('Комментарий курьеру',esc(p.courier_comment))}${!pay?field('Оплата',esc(p.guest_payment)):''}</div>`
       +line+'<div class="c b">Наименования блюд и товаров</div>'+line
       +(p.items||[]).map((it,i)=>`<div class="item"><div>${i+1}. ${esc(it.name)}</div>${it.extras?.length?`<div class="sub">+ ${esc(it.extras.join(', '))}</div>`:''}<div class="qty"><span>${it.qty} * ${sum(it.price)}</span><span>= ${sum(it.sum)}</span></div></div>`).join('')
       +(p.comment?`<div class="note">Комментарий: ${esc(p.comment)}</div>`:'')

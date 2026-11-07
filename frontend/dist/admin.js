@@ -170,7 +170,8 @@
     if(!floors.includes(qo.floor))qo.floor=floors[0]??1;
     const mins=t=>t.since?Math.max(1,Math.round((Date.now()-new Date(t.since))/60000)):0;
     const ago=m=>m>=60?`${Math.floor(m/60)} ч ${m%60} мин`:`${m} мин`;
-    return heading('Заказ за гостя','Выберите стол — откроется меню','<button type="button" class="primary" data-qo="table" data-id="takeaway">С собой</button>')
+    const takeaway=me?.role!=='waiter'?'<button type="button" class="primary" data-qo="table" data-id="takeaway">С собой</button>':'';   // «С собой» — только кассир и админ
+    return heading('Заказ за гостя','Выберите стол — откроется меню',takeaway)
       +(floors.length>1?`<div class="toolbar"><div class="pills">${floors.map(f=>`<button type="button" class="pill ${f===qo.floor?'active':''}" data-qo="floor" data-id="${f}" aria-pressed="${f===qo.floor}">${f} этаж</button>`).join('')}</div></div>`:'')
       +`<div class="table-tiles qo-tiles">${tables.filter(t=>t.floor===qo.floor).map(t=>`<button type="button" class="table-tile qo-table ${t.bill_requested?'busy bill':t.busy?'busy':''}" data-qo="table" data-id="${t.id}"><strong>${esc(t.name)}</strong>`
         +`<span class="tag">${t.bill_requested?'Просят счёт':t.busy?esc(money(t.total)):'Свободен'}</span>`
@@ -455,7 +456,7 @@
     if(kind==='delivery'){
       const address=[o.address,o.apartment&&`кв. ${o.apartment}`,o.entrance&&`подъезд ${o.entrance}`,o.floor&&`этаж ${o.floor}`].filter(Boolean).join(', ');
       if(address)row('pin',esc(address));
-      if(o.courier_comment)row('note',`Курьеру: ${esc(o.courier_comment)}`);
+      if(o.courier_comment)row('note',`Комментарий курьеру: ${esc(o.courier_comment)}`);
     }
     if(kind==='delivery'||kind==='pickup')row('wallet',`${esc(o.payment_display||'')}${o.change_from?` · сдача с ${money(o.change_from)}`:''}`);
     if(o.claimed_by_name)row(kind==='delivery'?'truck':'users',`${kind==='delivery'?'Курьер':'Стол взял(а)'}: ${esc(o.claimed_by_name)}`);

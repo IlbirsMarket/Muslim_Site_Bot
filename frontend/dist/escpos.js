@@ -62,8 +62,8 @@
   // Поле «Метка: значение» как на бумажном чеке кафе (метки выровнены по двоеточию)
   function field(b,label,value){
     if(!value)return;
-    const L=17,rest=COLS-L-2,parts=wrap(value,rest);
-    parts.forEach((part,i)=>b.text((i?' '.repeat(L+2):(label+':').padStart(L+1)+' ')+part));
+    const L=17,lab=label+':',w=Math.max(L+1,lab.length),rest=COLS-w-1,parts=wrap(value,rest);   // длинная метка («Комментарий курьеру:») — шире колонка, текст не вылезает за 48 знаков
+    parts.forEach((part,i)=>b.text((i?' '.repeat(w+1):lab.padStart(w)+' ')+part));
   }
 
   // Кассовый чек: СЧЕТ (после подтверждения / счёт / оплата)
@@ -76,7 +76,7 @@
     field(b,'Открыт',(opened||'')+(p.closed?`  Закрыт: ${p.closed}`:''));
     field(b,'Место',p.place);
     field(b,p.staff_role||'Официант',p.waiter||'-');
-    field(b,'Гость',p.customer);field(b,'Тел',p.phone);field(b,'Адрес',p.address);field(b,'Курьеру',p.courier_comment);
+    field(b,'Гость',p.customer);field(b,'Тел',p.phone);field(b,'Адрес',p.address);field(b,'Комментарий курьеру',p.courier_comment);
     if(!pay)field(b,'Оплата',p.guest_payment);
     b.line().center('Наименования блюд и товаров').line();
     (p.items||[]).forEach((it,i)=>{

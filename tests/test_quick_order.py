@@ -66,12 +66,9 @@ class QuickOrderTests(BaseAPITest):
         bill = self.client.get("/api/staff/bills/").data[0]
         self.assertEqual(bill["total"], 780)
 
-    def test_waiter_sees_own_takeaway(self):
-        number = self.order(self.waiter, None, [{"dish_id": self.burger.id, "quantity": 1}]).data
-        self.as_user(self.waiter)
-        orders = self.client.get("/api/staff/orders/?active=true").data
-        ids = [o.get("number", o.get("id")) for o in (orders["results"] if isinstance(orders, dict) else orders)]
-        self.assertIn(number.get("number", number.get("id")), ids)
+    def test_waiter_cannot_take_takeaway(self):
+        self.assertEqual(self.order(self.waiter, None, [{"dish_id": self.burger.id, "quantity": 1}]).status_code, 403)   # «С собой» — касса
+        self.assertEqual(self.order(self.admin, None, [{"dish_id": self.burger.id, "quantity": 1}]).status_code, 201)
 
     def test_rules(self):
         self.assertEqual(self.order(self.cook, self.table.id, [self.pizza_line()]).status_code, 403)   # повар — нет

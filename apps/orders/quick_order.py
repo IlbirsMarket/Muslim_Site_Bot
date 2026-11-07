@@ -91,6 +91,8 @@ def _resolve(branch, items) -> list:
 def create(user, branch, table_id, items, comment="") -> Order:
     """Заказ за гостя: table_id — стол зала; None — «С собой» (без стола). Сразу «Принят» + чек на кухню."""
     table = None
+    if not table_id and not user.is_cafe_admin:                 # «С собой» принимает только кассир или админ (на кассе)
+        raise PermissionDenied("Заказ «С собой» принимает кассир или админ.")
     if table_id:
         table = Table.objects.select_for_update().filter(pk=table_id, branch=branch, kind=Table.Kind.HALL, is_active=True).first()
         if table is None:
